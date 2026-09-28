@@ -63,6 +63,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # 容器内无 curl，用 python urllib 探活；端口与 Dockerfile CMD（8000）一致
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   nginx:

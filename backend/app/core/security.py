@@ -1,0 +1,77 @@
+"""安全原语：JWT 签发/校验（PyJWT）+ 密码哈希（hashlib.pbkdf2_hmac）。"""
+
+import hashlib
+import hmac
+import secrets
+from datetime import datetime, timedelta, timezone
+
+import jwt
+
+from app.core.config import Settings, get_settings
+from app.core.errors import AppException
+from app.schemas.common import ErrorCode
+
+_PBKDF2_ITERATIONS = 600_000  # OWASP 2023 建议；存储格式含 iterations，旧哈希仍可校验
+
+
+# ---- 密码哈希（管理后台登录用；微信登录无密码） ----
+
+def hash_password(password: str, iterations: int = _PBKDF2_ITERATIONS) -> str:
+    """返回 pbkdf2_sha256$<iter>$<salt_hex>$<hash_hex>。"""
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
+    return f"pbkdf2_sha256${iterations}${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    """恒定时间比较，格式不符返回 False。"""
+    try:
+        algorithm, iterations, salt_hex, digest_hex = hashed.split("$")
+    except ValueError:
+        return False
+    if algorithm != "pbkdf2_sha256":
+        return False
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), bytes.fromhex(salt_hex), int(iterations)
+    )
+    return hmac.compare_digest(digest.hex(), digest_hex)
+
+
+# ---- JWT（access 2h / refresh 7d） ----
+
+def _encode_token(
+    sub: str, token_type: str, ttl: timedelta, settings: Settings, **claims: object
+) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": sub,
+        "typ": token_type,
+        "iat": int(now.timestamp()),
+        "exp": int((now + ttl).timestamp()),
+        **claims,
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def create_access_token(sub: str, settings: Settings | None = None, **claims: object) -> str:
+    s = settings or get_settings()
+    return _encode_token(sub, "access", timedelta(hours=s.JWT_ACCESS_EXPIRE_HOURS), s, **claims)
+
+
+def create_refresh_token(sub: str, settings: Settings | None = None, **claims: object) -> str:
+    s = settings or get_settings()
+    return _encode_token(sub, "refresh", timedelta(days=s.JWT_REFRESH_EXPIRE_DAYS), s, **claims)
+
+
+def decode_token(token: str, expected_type: str = "access") -> dict:
+    """校验并解码 JWT；失败统一抛 1001（未登录/Token 失效）。"""
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError as exc:
+        raise AppException(ErrorCode.UNAUTHORIZED) from exc
+    except jwt.InvalidTokenError as exc:
+        raise AppException(ErrorCode.UNAUTHORIZED) from exc
+    if payload.get("typ") != expected_type:
+        raise AppException(ErrorCode.UNAUTHORIZED)
+    return payload

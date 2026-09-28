@@ -36,6 +36,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dsn", default=os.environ.get("DATABASE_URL", ""),
                    help="PostgreSQL DSN，默认读环境变量 DATABASE_URL")
     p.add_argument("--dry-run", action="store_true", help="只解析文件不写库")
+    p.add_argument("--no-truncate", action="store_true",
+                   help="导入前不清空目标表（默认 TRUNCATE 以保证重复导入幂等）")
     p.add_argument("--file", action="append", default=[],
                    help="指定导入文件，格式 表名:路径（可多次），如 food:data/seeds/food_full.csv")
     return p.parse_args()
@@ -54,7 +56,7 @@ def _connect(dsn: str):
 
 def load_food(conn, path: Path, dry_run: bool) -> int:
     """导入食物库。正式数据量大时建议切换 COPY FROM STDIN 提升吞吐。"""
-    with open(path, newline="", encoding="utf-8") as f:
+    with open(path, newline="", encoding="utf-8-sig") as f:  # utf-8-sig 兼容带 BOM 的 Excel 导出 CSV
         rows = list(csv.DictReader(f))
     data = [
         (
@@ -81,7 +83,7 @@ def load_food(conn, path: Path, dry_run: bool) -> int:
 
 def load_sku(conn, path: Path, dry_run: bool) -> int:
     """导入标准 SKU 目录（含价格区间 min/max）。"""
-    with open(path, newline="", encoding="utf-8") as f:
+    with open(path, newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
     data = [
         (
@@ -106,7 +108,7 @@ def load_sku(conn, path: Path, dry_run: bool) -> int:
 def load_rag(conn, path: Path, dry_run: bool) -> int:
     """导入 RAG 知识库语料（JSONL，每行一个对象）。"""
     data = []
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8-sig") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -155,6 +157,10 @@ def main() -> int:
     conn = _connect(args.dsn)
     try:
         for table, path in targets.items():
+            if not args.no_truncate:
+                # 表名来自 LOADERS 白名单，无注入风险；TRUNCATE 保证重复导入幂等
+                with conn.cursor() as cur:
+                    cur.execute(f"TRUNCATE TABLE {table}")
             n = LOADERS[table](conn, path, dry_run=False)
             print(f"已导入 {table}: {n} 行（来自 {path}）")
         conn.commit()

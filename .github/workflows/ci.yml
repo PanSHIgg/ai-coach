@@ -60,5 +60,5 @@ jobs:
         if: ${{ hashFiles('miniapp/package.json') != '' }}
         working-directory: miniapp
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npm run lint --if-present
