@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 
@@ -16,9 +17,17 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_engine() -> AsyncEngine:
+    """进程级单例引擎。
+
+    【假设】使用 NullPool：asyncpg 连接绑定事件循环，而 pytest 每个用例独立 loop、
+    复用连接池会报「attached to a different loop」；NullPool 即用即关，跨 loop 安全。
+    生产如需连接池，可在此改回默认池并保证单 loop 运行。
+    """
     global _engine
     if _engine is None:
-        _engine = create_async_engine(get_settings().DATABASE_URL, pool_pre_ping=True)
+        _engine = create_async_engine(
+            get_settings().DATABASE_URL, pool_pre_ping=True, poolclass=NullPool
+        )
     return _engine
 
 

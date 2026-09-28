@@ -10,9 +10,12 @@ from app.api.v1.endpoints import (
     community,
     coupons,
     merchants,
+    notification,
     orders,
     records,
+    steps,
     users,
+    weight,
 )
 
 api_router = APIRouter()
@@ -21,6 +24,9 @@ for module in (
     users,
     account,
     records,
+    steps,
+    weight,
+    notification,
     ai,
     merchants,
     orders,

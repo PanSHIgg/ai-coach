@@ -1,7 +1,11 @@
 /**
- * AI 饮食管控教练 · 前端 TS 契约类型（miniapp 副本）
+ * AI 饮食管控教练 · 前端 TS 契约类型（手写版）
  *
- * 复制自 contracts/ts/api.d.ts，真源在契约库，再生成命令见 contracts/README.md。
+ * - 与 contracts/openapi.yaml (OpenAPI 3.1) 对齐；字段名 snake_case 与后端一致。
+ * - 真源为 contracts/ts/api.d.ts，本文件为其副本；变更由主 Agent 单点同步（两份须逐字一致）。
+ * - 再生成命令：bash contracts/gen-ts.sh（优先 npx openapi-typescript → ts/openapi.gen.ts；
+ *   离线/失败时以手写文件为准）。
+ * - 统一 envelope：成功 {code:0,message:"ok",data,request_id}；失败 data:null、errors 可选。
  */
 
 /* ---------- 统一 envelope 与分页 ---------- */
@@ -118,6 +122,7 @@ export interface DailyAccount {
   steps: number;
   calories_burnt: number;
   calibration_used: boolean;
+  today_left: number; // 环形图「还能吃」= BMR×PAL − 摄入 + 运动 − TEF
   meals: MealSummary[];
 }
 
@@ -493,4 +498,77 @@ export interface DashboardData {
   orders_today: number;
   gmv_today: number;
   ai_calls_today: number;
+}
+
+/* ---------- Phase 1 新增：体重 / 订阅 / 刷新 token（openapi.yaml 已同步）---------- */
+
+export interface RefreshIn {
+  refresh_token: string;
+}
+
+export interface RefreshData {
+  token: string;
+  refresh_token: string;
+}
+
+export interface WeightRecordIn {
+  weight: number; // kg
+  record_at?: string; // YYYY-MM-DD
+  source?: number; // 1手动 2智能秤
+  note?: string | null;
+}
+
+export interface WeightRecordOut {
+  id: number;
+  weight: number;
+  record_at: string;
+  source?: number | null;
+  note?: string | null;
+  created_at: string;
+}
+
+export interface WeightPageData {
+  items: WeightRecordOut[];
+  page: PageMeta;
+}
+
+export interface WeightDeleteData {
+  id: number;
+  deleted: boolean;
+}
+
+export interface WeightTrendItem {
+  date: string;
+  weight: number;
+}
+
+export interface WeightTrendData {
+  items: WeightTrendItem[];
+  start_weight?: number | null;
+  latest_weight?: number | null;
+  change?: number | null;
+}
+
+export type SubscriptionTemplateType = 1 | 2 | 3 | 4;
+
+export interface SubscriptionIn {
+  template_type: SubscriptionTemplateType;
+}
+
+export interface SubscriptionItem {
+  template_type: number;
+  status: number; // 1已订阅 0已退订
+  subscribe_count: number;
+  last_subscribe_at?: string | null;
+}
+
+export interface SubscriptionData {
+  items: SubscriptionItem[];
+}
+
+export interface SubscriptionOut {
+  template_type: number;
+  status: number;
+  subscribe_count: number;
+  last_subscribe_at?: string | null;
 }

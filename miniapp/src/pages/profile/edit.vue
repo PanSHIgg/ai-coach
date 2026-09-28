@@ -19,22 +19,22 @@
         </CField>
 
         <!-- 身高 -->
-        <CField label="身高" required hint="单位 cm">
+        <CField label="身高" required hint="单位 cm" :error="errors.height_cm">
           <CInput v-model="form.height_cm" type="digit" placeholder="如 175" />
         </CField>
 
         <!-- 当前体重 -->
-        <CField label="当前体重" required hint="单位 kg">
+        <CField label="当前体重" required hint="单位 kg" :error="errors.current_weight">
           <CInput v-model="form.current_weight" type="digit" placeholder="如 75.5" />
         </CField>
 
         <!-- 目标体重 -->
-        <CField label="目标体重" hint="单位 kg，选填">
+        <CField label="目标体重" hint="单位 kg，选填" :error="errors.target_weight">
           <CInput v-model="form.target_weight" type="digit" placeholder="如 70" />
         </CField>
 
         <!-- 出生年份 -->
-        <CField label="出生年份" hint="用于 BMR 计算">
+        <CField label="出生年份" hint="用于 BMR 计算" :error="errors.birth_year">
           <CInput v-model="form.birth_year" type="number" placeholder="如 1995" />
         </CField>
 
@@ -54,7 +54,7 @@
         </CField>
 
         <!-- 活动水平（分段控件） -->
-        <CField label="活动水平" required>
+        <CField label="活动水平" required hint="PAL 系数：卧床 1.2 / 久坐 1.4 / 轻度 1.6 / 中度 1.8 / 高度 2.0">
           <view class="seg seg--wrap">
             <CButton
               v-for="opt in activityOptions"
@@ -85,7 +85,9 @@
       </view>
     </CCard>
 
-    <CButton class="edit__submit" block :loading="saving" @click="onSave">保存</CButton>
+    <CButton class="edit__submit" block :loading="saving" :disabled="saving" @click="onSave">
+      {{ saving ? '保存中…' : '保存' }}
+    </CButton>
   </view>
 </template>
 
@@ -93,8 +95,10 @@
 import { reactive, ref, onMounted } from 'vue'
 import type { BodyProfileIn, BodyProfileOut } from '@/types/api'
 import { getBodyProfile, saveBodyProfile } from '@/api/profile'
+import { useUserStore } from '@/stores/user'
 import { useToast } from '@/composables/useToast'
 
+const userStore = useUserStore()
 const toast = useToast()
 const loading = ref(true)
 const saving = ref(false)
@@ -136,12 +140,27 @@ const form = reactive({
   goal_pace: null as number | null,
 })
 
+// 字段级校验错误（红字，CField error 优先于 hint）
+const errors = reactive({
+  height_cm: '',
+  current_weight: '',
+  target_weight: '',
+  birth_year: '',
+})
+
+// 【假设】边界对齐 QA 用例（身高 0/200、体重 0/500、年龄负数）；
+// 后端 schema（profile.py）已约束数值范围：height_cm gt=0,le=200、current_weight gt=0,le=500，
+// 前端先行拦截 + 后端兜底
+const HEIGHT_MAX = 200 // cm
+const WEIGHT_MAX = 500 // kg
+const YEAR_MIN = 1900
+
 onMounted(async () => {
   try {
     const p = await getBodyProfile()
-    prefill(p)
+    if (p) prefill(p)
   } catch (e) {
-    // 首次建档无数据：保持默认值
+    // 首次建档无数据 / 网络异常：保持默认值（错误已由 request toast）
   } finally {
     loading.value = false
   }
@@ -158,9 +177,43 @@ function prefill(p: BodyProfileOut) {
   form.goal_pace = p.goal_pace ?? null
 }
 
+/** 校验：必填 + 数值边界，返回是否通过 */
+function validate(): boolean {
+  errors.height_cm = ''
+  errors.current_weight = ''
+  errors.target_weight = ''
+  errors.birth_year = ''
+
+  const height = Number(form.height_cm)
+  if (!form.height_cm) errors.height_cm = '请填写身高'
+  else if (!Number.isFinite(height) || height <= 0 || height > HEIGHT_MAX)
+    errors.height_cm = `身高需在 0~${HEIGHT_MAX}cm`
+
+  const weight = Number(form.current_weight)
+  if (!form.current_weight) errors.current_weight = '请填写当前体重'
+  else if (!Number.isFinite(weight) || weight <= 0 || weight > WEIGHT_MAX)
+    errors.current_weight = `请输入 1-${WEIGHT_MAX} 之间的体重（kg）`
+
+  if (form.target_weight) {
+    const tw = Number(form.target_weight)
+    if (!Number.isFinite(tw) || tw <= 0 || tw > WEIGHT_MAX)
+      errors.target_weight = `请输入 1-${WEIGHT_MAX} 之间的目标体重（kg）`
+  }
+
+  if (form.birth_year) {
+    const year = Number(form.birth_year)
+    const nowYear = new Date().getFullYear()
+    if (!Number.isInteger(year) || year < YEAR_MIN || year > nowYear)
+      errors.birth_year = `请输入 ${YEAR_MIN}-${nowYear} 之间的出生年份`
+  }
+
+  return !errors.height_cm && !errors.current_weight && !errors.target_weight && !errors.birth_year
+}
+
 async function onSave() {
-  if (!form.height_cm || !form.current_weight) {
-    toast.error({ title: '请填写身高和当前体重' })
+  if (saving.value) return // 防重复提交
+  if (!validate()) {
+    toast.error({ title: '请检查表单填写' })
     return
   }
   saving.value = true
@@ -175,9 +228,16 @@ async function onSave() {
       activity_level: form.activity_level,
       goal_pace: form.goal_pace,
     }
-    await saveBodyProfile(payload)
+    const saved = await saveBodyProfile(payload)
+    // 回填 store：首页核心指标 / 建档引导即时更新
+    userStore.setProfile(saved)
     toast.success({ title: '保存成功' })
-    setTimeout(() => uni.navigateBack(), 600)
+    // 登录后直接进建档页（reLaunch 无返回栈）→ 回首页；否则返回上一页
+    const pages = getCurrentPages()
+    setTimeout(() => {
+      if (pages.length > 1) uni.navigateBack()
+      else uni.reLaunch({ url: '/pages/index/index' })
+    }, 600)
   } catch (e) {
     // 错误信息已由 request 封装 toast
   } finally {

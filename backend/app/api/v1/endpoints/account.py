@@ -1,13 +1,16 @@
 """热量账户域接口（openapi: /api/account/today、/api/account/trend）。"""
 
-from datetime import date, timedelta
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_request_id
+from app.db.session import get_db
 from app.schemas import Envelope
-from app.schemas.account import AccountTrendData, DailyAccount, DailyTrendItem, MealSummary
+from app.schemas.account import AccountTrendData, DailyAccount
 from app.schemas.common import ok
+from app.services import account as account_service
 
 router = APIRouter(tags=["热量账户"])
 
@@ -16,23 +19,10 @@ router = APIRouter(tags=["热量账户"])
 async def get_account_today(
     user: CurrentUser = Depends(get_current_user),
     request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
 ) -> Envelope[DailyAccount]:
-    # TODO(Phase1): 读 daily_snapshot（每日 0 点预生成）；P0 stub 对齐 mock
-    data = DailyAccount(
-        date=date.today(),
-        bmr=1406,
-        pal=1.4,
-        neat=1644,
-        eat=274,
-        tef=150,
-        tee=2392,
-        intake=1418,
-        deficit=-974,
-        steps=12000,
-        calories_burnt=320,
-        calibration_used=True,
-        meals=[MealSummary(meal_type=1, name="早餐", calories=380), MealSummary(meal_type=2, name="午餐", calories=620)],
-    )
+    # 先确保当日快照最新（幂等重算），再返回账户；未建档由 account 服务抛 3001。
+    data = await account_service.get_today(session, user.id)
     return ok(data, request_id=request_id)
 
 
@@ -42,13 +32,8 @@ async def get_account_trend(
     end_date: date | None = Query(default=None),
     user: CurrentUser = Depends(get_current_user),
     request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
 ) -> Envelope[AccountTrendData]:
-    # TODO(Phase1): 按 start_date/end_date 查快照；【假设】缺省返回最近 7 天（契约注释）
-    today = date.today()
-    data = AccountTrendData(
-        items=[
-            DailyTrendItem(date=today - timedelta(days=1), intake=1900, tee=2392, deficit=-492, steps=10000, calories_burnt=300),
-            DailyTrendItem(date=today, intake=1418, tee=2392, deficit=-974, steps=12000, calories_burnt=320),
-        ]
-    )
+    # 按 start_date/end_date 查快照；【假设】缺省返回最近 7 天（契约注释）。
+    data = await account_service.get_trend(session, user.id, start_date, end_date)
     return ok(data, request_id=request_id)

@@ -1,14 +1,13 @@
 """记录域 schema（openapi: /api/food/search、/api/meal/*、/api/sport*、/api/steps/sync）。"""
 
 from datetime import date, datetime
-from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .common import PageMeta
 
-
 # ---- 食物搜索 ----
+
 
 class FoodSearchIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -23,10 +22,10 @@ class FoodItem(BaseModel):
     id: int
     name: str
     calories_100g: float  # 每 100g 热量 kcal
-    protein_100g: Optional[float] = None
-    fat_100g: Optional[float] = None
-    carb_100g: Optional[float] = None
-    gi: Optional[float] = None  # 血糖生成指数
+    protein_100g: float | None = None
+    fat_100g: float | None = None
+    carb_100g: float | None = None
+    gi: float | None = None  # 血糖生成指数
 
 
 class FoodSearchData(BaseModel):
@@ -37,6 +36,7 @@ class FoodSearchData(BaseModel):
 
 
 # ---- 拍照识别 ----
+
 
 class RecognizedItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -58,14 +58,15 @@ class RecognizeData(BaseModel):
 
 # ---- 饮食记录 ----
 
+
 class MealCreateIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     meal_type: int = Field(ge=1, le=4)  # 1早餐 2午餐 3晚餐 4加餐
     food_id: int
-    amount_g: float = Field(gt=0)
+    amount_g: float = Field(gt=0, le=10000)  # 上界防 DB 溢出（>10000g → 422/2001）
     source: int = Field(ge=1, le=4)  # 1拍照 2语音 3手动 4AI推荐
-    image_url: Optional[str] = None
+    image_url: str | None = None
 
 
 class MealUpdateIn(BaseModel):
@@ -73,11 +74,11 @@ class MealUpdateIn(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    meal_type: Optional[int] = Field(default=None, ge=1, le=4)
-    food_id: Optional[int] = None
-    amount_g: Optional[float] = Field(default=None, gt=0)
-    source: Optional[int] = Field(default=None, ge=1, le=4)
-    image_url: Optional[str] = None
+    meal_type: int | None = Field(default=None, ge=1, le=4)
+    food_id: int | None = None
+    amount_g: float | None = Field(default=None, gt=0, le=10000)
+    source: int | None = Field(default=None, ge=1, le=4)
+    image_url: str | None = None
 
 
 class MealCreatedData(BaseModel):
@@ -101,16 +102,16 @@ class MealRecordOut(BaseModel):
 
     id: int
     meal_type: int
-    food_id: Optional[int] = None
+    food_id: int | None = None
     food_name: str  # 快照，防食物库变更
     amount_g: float
     calories: float
-    protein: Optional[float] = None
-    fat: Optional[float] = None
-    carb: Optional[float] = None
-    confidence: Optional[float] = None
+    protein: float | None = None
+    fat: float | None = None
+    carb: float | None = None
+    confidence: float | None = None
     source: int
-    image_url: Optional[str] = None
+    image_url: str | None = None
     record_date: date
     created_at: datetime
 
@@ -124,13 +125,15 @@ class MealPageData(BaseModel):
 
 # ---- 运动记录 ----
 
+
 class SportIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    sport_name: Optional[str] = None
-    met: Optional[float] = None  # 不传按 sport_name 映射标准表
-    duration_min: int = Field(ge=1)
-    record_at: Optional[datetime] = None
+    # sport_name 写 VARCHAR(128)：超长前置 422/2001（避免写库溢出 500）
+    sport_name: str | None = Field(default=None, max_length=128)
+    met: float | None = Field(default=None, gt=0, le=25)  # 不传按 sport_name 映射标准表
+    duration_min: int = Field(ge=1, le=1440)  # 上界 24h，防 DB 溢出 → 422/2001
+    record_at: datetime | None = None
 
 
 class SportCreatedData(BaseModel):
@@ -145,8 +148,8 @@ class SportRecordOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    sport_name: Optional[str] = None
-    met: Optional[float] = None
+    sport_name: str | None = None
+    met: float | None = None
     duration_min: int
     calories: float
     record_at: datetime
@@ -162,12 +165,31 @@ class SportPageData(BaseModel):
 
 # ---- 步数同步（NEAT 校准）----
 
+
 class StepsSyncIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     date: date
-    steps: int = Field(ge=0)
-    hourly: Optional[dict[str, int]] = None  # 键为 0-23 小时
+    steps: int = Field(ge=0, le=200000)  # 上界防 DB 溢出 → 422/2001
+    hourly: dict[str, int] | None = None  # 键为 0-23 小时、值为非负整数步数
+
+    @field_validator("hourly")
+    @classmethod
+    def _check_hourly_steps(cls, value: dict[str, int] | None) -> dict[str, int] | None:
+        """小时键须为 0-23；值为非负整数且 ≤ 200000，越界/非法 → 422/2001。"""
+        if value:
+            for key, steps in value.items():
+                try:
+                    hour = int(key)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("hourly 键应为 0-23 的小时") from exc
+                if hour < 0 or hour > 23:
+                    raise ValueError("hourly 键应为 0-23 的小时")
+                if steps is None or steps < 0:
+                    raise ValueError("单小时步数不能为负")
+                if steps > 200000:
+                    raise ValueError("单小时步数超出合理范围")
+        return value
 
 
 class StepsSyncData(BaseModel):

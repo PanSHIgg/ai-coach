@@ -4,6 +4,7 @@
     <text class="login__title">AI 饮食管控教练</text>
     <text class="login__desc">拍一拍，热量全知道</text>
     <CButton class="login__btn" block :loading="loading" @click="onLogin">微信一键登录</CButton>
+    <text class="login__tip">登录即表示同意《用户协议》与《隐私政策》</text>
   </view>
 </template>
 
@@ -25,6 +26,7 @@ onShow(() => {
 })
 
 async function onLogin() {
+  if (loading.value) return // 防重复点击（CButton 亦已 loading 置灰）
   loading.value = true
   try {
     // 【假设】P0 开发态 Mock 登录：VITE_USE_MOCK=true 时用固定 code 换 Mock 数据；
@@ -43,7 +45,12 @@ async function onLogin() {
     // #endif
     const data = await userStore.login(code)
     toast.success({ title: data.is_new ? '欢迎加入' : '欢迎回来' })
-    uni.reLaunch({ url: '/pages/index/index' })
+    // 未建档 → 先去建档；已建档 → 进首页
+    if (data.need_profile) {
+      uni.reLaunch({ url: '/pages/profile/edit' })
+    } else {
+      uni.reLaunch({ url: '/pages/index/index' })
+    }
   } catch (e) {
     // 错误信息已由 request 封装 toast，此处静默
   } finally {
@@ -64,7 +71,7 @@ async function onLogin() {
 
     width: 160rpx;
     height: 160rpx;
-    margin-top: 30vh;
+    margin-top: 26vh;
     margin-bottom: $space-lg;
     font-size: 80rpx;
     background: $card;
@@ -86,6 +93,12 @@ async function onLogin() {
 
   &__btn {
     width: 100%;
+  }
+
+  &__tip {
+    margin-top: $space-md;
+    font-size: $t-22;
+    color: $text-3;
   }
 }
 </style>

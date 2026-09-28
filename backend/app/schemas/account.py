@@ -31,6 +31,7 @@ class DailyAccount(BaseModel):
     steps: int
     calories_burnt: float = 0  # 运动消耗 kcal
     calibration_used: bool = False
+    today_left: float = 0  # 环形图「还能吃」= BMR×PAL − 摄入 + 运动 − TEF（M1 对拍口径）
     meals: list[MealSummary] = []
 
 

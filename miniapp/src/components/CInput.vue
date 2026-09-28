@@ -46,8 +46,10 @@ const emit = defineEmits<{
 
 const focused = ref(false)
 
-function onInput(e: { detail: { value: string } }) {
-  emit('update:modelValue', e.detail.value)
+function onInput(e: Event) {
+  // uni input 事件在不同端 payload 形态不同，此处兼容取值（detail.value）
+  const detail = (e as unknown as { detail?: { value?: string } }).detail
+  emit('update:modelValue', detail?.value ?? '')
 }
 function onFocus(ev: Event) {
   focused.value = true

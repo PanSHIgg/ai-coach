@@ -1,5 +1,8 @@
 """schemas 包：统一导出（openapi.yaml 契约的 pydantic 实现，P0-d）。"""
 
+from .admin import DashboardData
+from .ai import AiChatData, AiChatIn, AiRecommendData, AiRecommendIn, AiTimesData, RecommendOption
+from .auth import LoginData, LoginRequest, RefreshData, RefreshIn, UserBrief
 from .common import (
     ActivityLevel,
     CouponScope,
@@ -18,14 +21,10 @@ from .common import (
     fail,
     ok,
 )
-
-from .admin import DashboardData
-from .ai import AiChatData, AiChatIn, AiRecommendData, AiRecommendIn, AiTimesData, RecommendOption
-from .auth import LoginData, LoginRequest, UserBrief
 from .community import (
+    BattleItem,
     BattleJoinData,
     BattleJoinIn,
-    BattleItem,
     BenefitInfo,
     CommunityPostIn,
     CommunityPostOut,
@@ -36,35 +35,100 @@ from .community import (
 )
 from .coupon import CouponOut
 from .merchant import CatalogItem, MerchantBrief, MerchantDetail, SkuOut
-from .order import OrderBrief, OrderCreateIn, OrderCreatedData, OrderItemIn, PayData, RedeemData, RedeemIn
+from .order import (
+    OrderBrief,
+    OrderCreatedData,
+    OrderCreateIn,
+    OrderItemIn,
+    PayData,
+    RedeemData,
+    RedeemIn,
+)
 from .profile import BodyProfileIn, BodyProfileOut
 from .record import (
     FoodItem,
     FoodSearchIn,
-    MealCreateIn,
     MealCreatedData,
+    MealCreateIn,
     MealRecordOut,
     MealUpdateIn,
-    RecognizedItem,
     RecognizeData,
+    RecognizedItem,
     SportIn,
     SportRecordOut,
-    StepsSyncIn,
     StepsSyncData,
+    StepsSyncIn,
 )
 from .user import UserBenefit, UserDetail
 from .weight import WeightRecordIn, WeightRecordOut
 
 __all__ = [
-    "ActivityLevel", "AiChatData", "AiChatIn", "AiRecommendData", "AiRecommendIn", "AiTimesData",
-    "BattleJoinData", "BattleJoinIn", "BattleItem", "BenefitInfo", "BodyProfileIn", "BodyProfileOut",
-    "CatalogItem", "CommunityPostIn", "CommunityPostOut", "CouponOut", "CouponScope", "CouponStatus",
-    "CouponType", "DashboardData", "Envelope", "ErrorCode", "FoodItem", "FoodSearchIn",
-    "Gender", "InviteData", "InviteIn", "InviteProgressData", "LoginData", "LoginRequest",
-    "MealCreateIn", "MealCreatedData", "MealRecordOut", "MealType", "MealUpdateIn", "MerchantBrief",
-    "MerchantDetail", "NextTier", "OrderBrief", "OrderCreateIn", "OrderCreatedData", "OrderItemIn",
-    "OrderStatus", "PageMeta", "PageParams", "PageResult", "PayData", "RecognizeData",
-    "RecognizedItem", "RecordSource", "RedeemData", "RedeemIn", "RecommendOption", "SkuOut",
-    "StepsSyncData", "StepsSyncIn", "SportIn", "SportRecordOut", "TargetType", "UserBenefit",
-    "UserBrief", "UserDetail", "WeightRecordIn", "WeightRecordOut", "fail", "ok",
+    "ActivityLevel",
+    "AiChatData",
+    "AiChatIn",
+    "AiRecommendData",
+    "AiRecommendIn",
+    "AiTimesData",
+    "BattleJoinData",
+    "BattleJoinIn",
+    "BattleItem",
+    "BenefitInfo",
+    "BodyProfileIn",
+    "BodyProfileOut",
+    "CatalogItem",
+    "CommunityPostIn",
+    "CommunityPostOut",
+    "CouponOut",
+    "CouponScope",
+    "CouponStatus",
+    "CouponType",
+    "DashboardData",
+    "Envelope",
+    "ErrorCode",
+    "FoodItem",
+    "FoodSearchIn",
+    "Gender",
+    "InviteData",
+    "InviteIn",
+    "InviteProgressData",
+    "LoginData",
+    "LoginRequest",
+    "MealCreateIn",
+    "MealCreatedData",
+    "MealRecordOut",
+    "MealType",
+    "MealUpdateIn",
+    "MerchantBrief",
+    "MerchantDetail",
+    "NextTier",
+    "OrderBrief",
+    "OrderCreateIn",
+    "OrderCreatedData",
+    "OrderItemIn",
+    "OrderStatus",
+    "PageMeta",
+    "PageParams",
+    "PageResult",
+    "PayData",
+    "RecognizeData",
+    "RecognizedItem",
+    "RecordSource",
+    "RedeemData",
+    "RedeemIn",
+    "RecommendOption",
+    "RefreshData",
+    "RefreshIn",
+    "SkuOut",
+    "StepsSyncData",
+    "StepsSyncIn",
+    "SportIn",
+    "SportRecordOut",
+    "TargetType",
+    "UserBenefit",
+    "UserBrief",
+    "UserDetail",
+    "WeightRecordIn",
+    "WeightRecordOut",
+    "fail",
+    "ok",
 ]

@@ -5,7 +5,7 @@
  * - 自动附 `Authorization: Bearer <token>`（storage 读取）
  * - HTTP 401 或业务 code=1001：用 refresh_token 静默刷新一次并重放原请求；
  *   刷新失败清登录态并 reLaunch 到登录页
- *   【假设】刷新端点为 /api/auth/refresh（34 接口契约暂未包含，登录接口联调时对齐）
+ *   【假设】刷新端点为 /api/auth/refresh（契约与 Mock 均已实现 /api/auth/refresh）
  * - 业务 code≠0：useToast 提示 message（silent 模式不弹），reject Error(message)
  * - 成功统一返回 envelope.data
  */
@@ -21,7 +21,8 @@ const CODE_UNAUTHORIZED = 1001
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
-  data?: Record<string, unknown>
+  /** 请求体：对象即可（各 API 入参接口无需显式索引签名） */
+  data?: object
   /** 静默模式：失败不弹 toast（登录页、内部刷新等调用用） */
   silent?: boolean
   /** 内部标记：原请求已经历一次刷新重放，防止刷新死循环 */
@@ -72,7 +73,7 @@ function doRefresh(): Promise<boolean> {
   if (!refreshToken) return Promise.resolve(false)
   return new Promise((resolve) => {
     uni.request({
-      // 【假设】刷新端点 /api/auth/refresh；Mock 未实现该路由（404 envelope）→ 视为刷新失败走登录页
+      // 刷新端点 /api/auth/refresh（契约与 Mock 均已实现 /api/auth/refresh）
       url: `${BASE_URL}/api/auth/refresh`,
       method: 'POST',
       data: { refresh_token: refreshToken },

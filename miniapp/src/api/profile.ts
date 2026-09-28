@@ -4,9 +4,9 @@
 import type { BodyProfileIn, BodyProfileOut } from '@/types/api'
 import { request } from './request'
 
-/** 获取身体档案 */
+/** 获取身体档案（未建档时后端返回 data=null，非错误） */
 export function getBodyProfile() {
-  return request<BodyProfileOut>('/api/body-profile')
+  return request<BodyProfileOut | null>('/api/body-profile')
 }
 
 /** 保存身体档案（后端算 BMR / target_calories） */

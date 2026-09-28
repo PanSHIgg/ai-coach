@@ -4,5 +4,7 @@
 // keyframes，否则每个组件都会重复输出一份 CSS。
 // 全局选择器样式请写入 styles/base.scss（App.vue 引入一次）。
 // ============================================================
-@import './styles/tokens.scss'; // 设计令牌（SCSS 变量 + css-tokens mixin）
-@import './styles/mixins.scss'; // 通用 mixin
+// 用 Vite 别名（@ → src）绝对定位：uni.scss 内容会被注入到每个 SFC，
+// 相对路径会以「当前页面目录」解析而报 Can't find stylesheet，必须用别名/绝对路径。
+@import '@/styles/tokens.scss'; // 设计令牌（SCSS 变量 + css-tokens mixin）
+@import '@/styles/mixins.scss'; // 通用 mixin

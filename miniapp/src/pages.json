@@ -53,6 +53,36 @@
       "style": {
         "navigationBarTitleText": "热量账户详情"
       }
+    },
+    {
+      "path": "pages/record/camera",
+      "style": {
+        "navigationBarTitleText": "拍照记录"
+      }
+    },
+    {
+      "path": "pages/record/food-list",
+      "style": {
+        "navigationBarTitleText": "饮食记录"
+      }
+    },
+    {
+      "path": "pages/record/sport",
+      "style": {
+        "navigationBarTitleText": "运动记录"
+      }
+    },
+    {
+      "path": "pages/record/sport-add",
+      "style": {
+        "navigationBarTitleText": "添加运动"
+      }
+    },
+    {
+      "path": "pages/weight/weight",
+      "style": {
+        "navigationBarTitleText": "体重记录"
+      }
     }
   ],
   "tabBar": {

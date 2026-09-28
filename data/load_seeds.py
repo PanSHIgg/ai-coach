@@ -39,7 +39,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no-truncate", action="store_true",
                    help="导入前不清空目标表（默认 TRUNCATE 以保证重复导入幂等）")
     p.add_argument("--file", action="append", default=[],
-                   help="指定导入文件，格式 表名:路径（可多次），如 food:data/seeds/food_full.csv")
+                   help="指定导入文件，格式 表名:路径（可多次），"
+                        "如 food:data/seeds/food_full.csv food_alias:data/seeds/food_alias_full.csv")
     return p.parse_args()
 
 
@@ -125,7 +126,54 @@ def load_rag(conn, path: Path, dry_run: bool) -> int:
     return len(data)
 
 
-LOADERS = {"food": load_food, "sku_catalog": load_sku, "ai_knowledge": load_rag}
+def load_alias(conn, path: Path, dry_run: bool) -> int:
+    """导入食物别名（表头 food_name,alias；按 food.name 关联 food_id）。
+
+    依赖 food 表已有数据；同一食物名可映射多个别名（alias 全局唯一）。
+    """
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    pairs = [
+        ((r.get("food_name") or "").strip(), (r.get("alias") or "").strip())
+        for r in rows
+        if (r.get("food_name") or "").strip() and (r.get("alias") or "").strip()
+    ]
+    if dry_run:
+        print(f"[dry-run] food_alias: 解析 {len(pairs)} 行，跳过写库")
+        return len(pairs)
+    with conn.cursor() as cur:
+        cur.execute("SELECT name, id FROM food")
+        name2id = dict(cur.fetchall())
+    data, missing = [], set()
+    for food_name, alias in pairs:
+        fid = name2id.get(food_name)
+        if fid is None:
+            missing.add(food_name)
+            continue
+        data.append((fid, alias))
+    if missing:
+        print(f"[warn] food_alias: {len(missing)} 个食物名在 food 表未找到，已跳过："
+              f"{sorted(missing)[:10]}")
+    sql = "INSERT INTO food_alias (food_id, alias) VALUES (%s,%s)"
+    with conn.cursor() as cur:
+        cur.executemany(sql, data)
+    return len(data)
+
+
+LOADERS = {
+    "food": load_food,
+    "food_alias": load_alias,
+    "sku_catalog": load_sku,
+    "ai_knowledge": load_rag,
+}
+
+# 各表清空语句；food 被 food_alias 外键引用，故用 CASCADE 一并清空依赖表，保证重复导入幂等。
+TRUNCATE_SQL = {
+    "food": "TRUNCATE TABLE food RESTART IDENTITY CASCADE",
+    "food_alias": "TRUNCATE TABLE food_alias RESTART IDENTITY",
+}
+# 清空顺序：子表先于父表（food_alias 先于 food），避免外键约束报错。
+TRUNCATE_ORDER = ["food_alias", "food", "sku_catalog", "ai_knowledge"]
 
 
 def main() -> int:
@@ -141,8 +189,8 @@ def main() -> int:
 
     if not targets:
         if not REAL_DATA_READY:
-            print("提示：正式种子数据尚未交付（DATA1 食物库 W3 / DATA3 RAG W5 / DATA2 SKU W7）。")
-            print("本次仅加载示例数据 *_sample.*；正式文件就绪后用 --file 指定导入。")
+            print("提示：DATA1 食物库已交付（food_full.csv / food_alias_full.csv，用 --file 导入）；"
+                  "DATA3 RAG（W5）/ DATA2 SKU（W7）待交付。")
         targets = {t: SEED_DIR / f for t, f in SAMPLE_FILES.items()}
 
     if args.dry_run:
@@ -156,11 +204,14 @@ def main() -> int:
 
     conn = _connect(args.dsn)
     try:
+        if not args.no_truncate:
+            # 先按「子表→父表」顺序清空全部目标表，避免外键约束；表名来自 LOADERS 白名单，无注入风险
+            ordered = sorted(targets, key=lambda t: TRUNCATE_ORDER.index(t) if t in TRUNCATE_ORDER else 99)
+            with conn.cursor() as cur:
+                for table in ordered:
+                    cur.execute(TRUNCATE_SQL.get(table, f"TRUNCATE TABLE {table}"))
+        # 再按用户给定顺序加载（food 必须先于 food_alias）
         for table, path in targets.items():
-            if not args.no_truncate:
-                # 表名来自 LOADERS 白名单，无注入风险；TRUNCATE 保证重复导入幂等
-                with conn.cursor() as cur:
-                    cur.execute(f"TRUNCATE TABLE {table}")
             n = LOADERS[table](conn, path, dry_run=False)
             print(f"已导入 {table}: {n} 行（来自 {path}）")
         conn.commit()

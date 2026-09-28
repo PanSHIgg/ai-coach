@@ -44,6 +44,10 @@ tags:
     description: 运营看板
   - name: 埋点
     description: 【假设】预留分组，暂无接口
+  - name: 体重
+    description: 体重记录与趋势（Phase 1 / BE-w 新增）
+  - name: 订阅
+    description: 提醒订阅设置（Phase 1 / BE-n 新增）
 paths:
   /api/auth/login:
     post:
@@ -1117,6 +1121,229 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/ServerError'
+  # ---- Phase 1 新增（plan.md §7：BE-w 体重 / BE-n 提醒订阅 / 登录刷新）----
+  /api/auth/refresh:
+    post:
+      tags: [认证]
+      summary: 刷新 access token（refresh 7d）
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshIn'
+      responses:
+        '200':
+          description: 新 access/refresh
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RefreshData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/weight/list:
+    get:
+      tags: [体重]
+      summary: 体重记录列表
+      operationId: listWeights
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页列表（record_at DESC）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WeightPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/weight:
+    post:
+      tags: [体重]
+      summary: 新增体重记录
+      operationId: createWeight
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WeightRecordIn'
+      responses:
+        '200':
+          description: 已写入
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WeightRecordOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/weight/{id}:
+    delete:
+      tags: [体重]
+      summary: 删除体重记录
+      operationId: deleteWeight
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 已删除
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WeightDeleteData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/weight/trend:
+    get:
+      tags: [体重]
+      summary: 体重趋势
+      operationId: weightTrend
+      parameters:
+        - name: start_date
+          in: query
+          schema: { type: string, format: date }
+        - name: end_date
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 【假设】缺省最近 30 天，按 record_at 升序
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WeightTrendData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/subscription:
+    get:
+      tags: [订阅]
+      summary: 我的订阅设置
+      operationId: listSubscriptions
+      responses:
+        '200':
+          description: 订阅列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SubscriptionData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [订阅]
+      summary: 订阅提醒
+      operationId: subscribe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionIn'
+      responses:
+        '200':
+          description: 已订阅（(user_id,template_type) 幂等）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SubscriptionOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/subscription/cancel:
+    post:
+      tags: [订阅]
+      summary: 取消订阅
+      operationId: cancelSubscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionIn'
+      responses:
+        '200':
+          description: 已退订（status=0）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SubscriptionOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -1377,15 +1604,17 @@ components:
       required: [gender, height_cm, current_weight, target_type, activity_level]
       properties:
         gender: { enum: [1, 2], description: 1男 2女, type: integer }
-        height_cm: { type: number, example: 175.0 }
-        birth_year: { type: integer, nullable: true, example: 1995 }
-        current_weight: { type: number, description: kg, example: 75.5 }
-        target_weight: { type: number, nullable: true, description: kg }
+        height_cm: { type: number, exclusiveMinimum: 0, maximum: 200, example: 175.0 }
+        birth_year: { type: integer, nullable: true, minimum: 1900, maximum: 9999, example: 1995 }
+        current_weight: { type: number, exclusiveMinimum: 0, maximum: 500, description: kg, example: 75.5 }
+        target_weight: { type: number, nullable: true, exclusiveMinimum: 0, maximum: 500, description: kg }
         target_type: { $ref: '#/components/schemas/TargetType' }
         activity_level: { $ref: '#/components/schemas/ActivityLevel' }
         goal_pace:
           type: integer
           nullable: true
+          minimum: 0
+          maximum: 3
           description: 每周目标 kg 档位；【假设】缺省 1（每周 0.5kg）
           example: 1
     BodyProfileOut:
@@ -1428,6 +1657,7 @@ components:
         steps: { type: integer }
         calories_burnt: { type: number, description: 运动消耗 kcal }
         calibration_used: { type: boolean }
+        today_left: { type: number, description: 环形图「还能吃」= BMR×PAL − 摄入 + 运动 − TEF }
         meals:
           type: array
           items:
@@ -1455,7 +1685,7 @@ components:
       required: [keyword]
       properties:
         keyword: { type: string, minLength: 1 }
-        limit: { type: integer, default: 20, maximum: 100 }
+        limit: { type: integer, default: 20, minimum: 1, maximum: 100 }
     FoodItem:
       type: object
       required: [id, name, calories_100g]
@@ -1501,7 +1731,7 @@ components:
       properties:
         meal_type: { $ref: '#/components/schemas/MealType' }
         food_id: { type: integer }
-        amount_g: { type: number, description: 分量 g }
+        amount_g: { type: number, exclusiveMinimum: 0, maximum: 10000, description: 分量 g }
         source: { $ref: '#/components/schemas/RecordSource' }
         image_url: { type: string, nullable: true }
     MealUpdateIn:
@@ -1510,7 +1740,7 @@ components:
       properties:
         meal_type: { $ref: '#/components/schemas/MealType' }
         food_id: { type: integer }
-        amount_g: { type: number }
+        amount_g: { type: number, exclusiveMinimum: 0, maximum: 10000 }
         source: { $ref: '#/components/schemas/RecordSource' }
         image_url: { type: string, nullable: true }
     MealCreatedData:
@@ -1559,9 +1789,9 @@ components:
       type: object
       required: [duration_min]
       properties:
-        sport_name: { type: string, nullable: true, example: 慢跑 }
-        met: { type: number, nullable: true, description: MET；不传按 sport_name 映射标准表 }
-        duration_min: { type: integer, minimum: 1 }
+        sport_name: { type: string, nullable: true, maxLength: 128, example: 慢跑 }
+        met: { type: number, nullable: true, exclusiveMinimum: 0, maximum: 25, description: MET；不传按 sport_name 映射标准表 }
+        duration_min: { type: integer, minimum: 1, maximum: 1440 }
         record_at: { type: string, format: date-time, nullable: true }
     SportCreatedData:
       type: object
@@ -1596,11 +1826,12 @@ components:
       required: [date, steps]
       properties:
         date: { type: string, format: date }
-        steps: { type: integer, minimum: 0 }
+        steps: { type: integer, minimum: 0, maximum: 200000 }
         hourly:
           type: object
           description: 逐时步数（键为 0-23 小时），用于校准
-          additionalProperties: { type: integer }
+          propertyNames: { pattern: '^([0-9]|1[0-9]|2[0-3])$' }
+          additionalProperties: { type: integer, minimum: 0, maximum: 200000 }
     StepsSyncData:
       type: object
       required: [neat_calibrated, met, delta_calories]
@@ -1951,21 +2182,95 @@ components:
         ai_calls_today: { type: integer }
     WeightRecordIn:
       type: object
-      description: 【假设】P1 体重记录预留 schema（34 接口清单暂无对应端点）
+      description: 体重记录入参（Phase 1 / BE-w 已实现）
       required: [weight]
       properties:
-        weight: { type: number, description: kg }
-        record_at: { type: string, format: date }
-        source: { type: integer, description: 1手动 2智能秤 }
+        weight: { type: number, exclusiveMinimum: 0, maximum: 500, description: kg }
+        record_at: { type: string, format: date, nullable: true }
+        source: { type: integer, minimum: 1, maximum: 2, description: 1手动 2智能秤 }
         note: { type: string, nullable: true }
     WeightRecordOut:
       type: object
-      description: 【假设】P1 体重记录预留 schema
+      description: 体重记录返回
       required: [id, weight, record_at]
       properties:
         id: { type: integer }
         weight: { type: number }
         record_at: { type: string, format: date }
-        source: { type: integer }
+        source: { type: integer, nullable: true }
         note: { type: string, nullable: true }
         created_at: { type: string, format: date-time }
+    # ---- Phase 1 新增 schema ----
+    RefreshIn:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+    RefreshData:
+      type: object
+      required: [token, refresh_token]
+      properties:
+        token: { type: string }
+        refresh_token: { type: string }
+    WeightPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeightRecordOut'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    WeightDeleteData:
+      type: object
+      required: [id, deleted]
+      properties:
+        id: { type: integer }
+        deleted: { type: boolean, default: true }
+    WeightTrendItem:
+      type: object
+      required: [date, weight]
+      properties:
+        date: { type: string, format: date }
+        weight: { type: number }
+    WeightTrendData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeightTrendItem'
+        start_weight: { type: number, nullable: true }
+        latest_weight: { type: number, nullable: true }
+        change: { type: number, nullable: true, description: latest - start（kg） }
+    SubscriptionIn:
+      type: object
+      required: [template_type]
+      properties:
+        template_type: { type: integer, minimum: 1, maximum: 4, description: 1午餐 2晚餐 3深夜防崩塌 4称重 }
+    SubscriptionItem:
+      type: object
+      required: [template_type, status]
+      properties:
+        template_type: { type: integer }
+        status: { type: integer, description: 1已订阅 0已退订 }
+        subscribe_count: { type: integer }
+        last_subscribe_at: { type: string, format: date-time, nullable: true }
+    SubscriptionData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionItem'
+    SubscriptionOut:
+      type: object
+      required: [template_type, status]
+      properties:
+        template_type: { type: integer }
+        status: { type: integer }
+        subscribe_count: { type: integer }
+        last_subscribe_at: { type: string, format: date-time, nullable: true }

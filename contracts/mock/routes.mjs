@@ -27,7 +27,8 @@ export const routes = [
     m: 'GET', p: '/api/account/today',
     d: {
       date: today(), bmr: 1406, pal: 1.4, neat: 1644, eat: 274, tef: 150, tee: 2392,
-      intake: 1418, deficit: -974, steps: 12000, calories_burnt: 320, calibration_used: true,
+      intake: 1418, deficit: -974, steps: 12000, calories_burnt: 274, calibration_used: true,
+      today_left: 674, // = BMR×PAL − intake + eat − tef = 1968.4 − 1418 + 274 − 150（eat 与 calories_burnt 同值）
       meals: [
         { meal_type: 1, name: '早餐', calories: 380 },
         { meal_type: 2, name: '午餐', calories: 620 },
@@ -73,6 +74,43 @@ export const routes = [
     d: { items: [{ id: 3001, sport_name: '慢跑', met: 8.0, duration_min: 30, calories: 320, record_at: now(), created_at: now() }], page },
   },
   { m: 'POST', p: '/api/steps/sync', d: { neat_calibrated: 520, met: 3.8, delta_calories: 80 } },
+
+  // ---- Phase 1 新增：刷新 / 体重 / 订阅 ----
+  { m: 'POST', p: '/api/auth/refresh', d: { token: 'mock-access-token', refresh_token: 'mock-refresh-token' } },
+  {
+    m: 'GET', p: '/api/weight/list',
+    d: {
+      items: [{ id: 1, weight: 68.5, record_at: today(), source: 1, note: null, created_at: now() }],
+      page,
+    },
+  },
+  {
+    m: 'POST', p: '/api/weight',
+    d: { id: 1, weight: 68.5, record_at: today(), source: 1, note: null, created_at: now() },
+  },
+  { m: 'DELETE', p: '/api/weight/{id}', d: { id: 1, deleted: true } },
+  {
+    m: 'GET', p: '/api/weight/trend',
+    d: {
+      items: [
+        { date: '2026-09-22', weight: 69.2 },
+        { date: '2026-09-25', weight: 68.8 },
+        { date: today(), weight: 68.5 },
+      ],
+      start_weight: 69.2, latest_weight: 68.5, change: -0.7,
+    },
+  },
+  {
+    m: 'GET', p: '/api/subscription',
+    d: {
+      items: [
+        { template_type: 1, status: 1, subscribe_count: 2, last_subscribe_at: now() },
+        { template_type: 3, status: 0, subscribe_count: 1, last_subscribe_at: null },
+      ],
+    },
+  },
+  { m: 'POST', p: '/api/subscription', d: { template_type: 1, status: 1, subscribe_count: 1, last_subscribe_at: now() } },
+  { m: 'POST', p: '/api/subscription/cancel', d: { template_type: 1, status: 0, subscribe_count: 1, last_subscribe_at: now() } },
 
   // ---- AI ----
   {
