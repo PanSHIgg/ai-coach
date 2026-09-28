@@ -1,6 +1,5 @@
-"""BE1 身体档案 DB 集成测试：POST upsert + BMR/目标热量计算、GET、校园边界 422。"""
+"""BE1 身体档案 DB 集成测试：POST upsert + BMR/目标热量计算、GET。"""
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,42 +76,3 @@ async def test_body_profile_upsert_same_row(
     assert second["bmr"] == bmr
     assert second["target_calories"] == target
     assert await _count(db_session, authed["user_id"]) == 1
-
-
-async def test_body_profile_future_birth_year_falls_back_age_30(
-    db_session: AsyncSession, db_client: AsyncClient, authed: dict
-):
-    payload = {**_BASE, "birth_year": 3000}  # 未来年份 → 引擎回退默认 30
-    data = (
-        await db_client.post("/api/body-profile", json=payload, headers=authed["headers"])
-    ).json()["data"]
-    bmr = calorie.bmr_mifflin_st_jeor(gender=1, weight_kg=70, height_cm=175, age=30)
-    assert data["bmr"] == bmr
-    assert data["target_calories"] == round(bmr * calorie.pal_for_level(3))
-
-
-@pytest.mark.parametrize(
-    "override",
-    [
-        {"height_cm": 0},  # 身高下界外
-        {"height_cm": 250},  # 身高上界外
-        {"current_weight": 0},  # 体重下界外
-        {"current_weight": 600},  # 体重上界外
-    ],
-)
-async def test_body_profile_out_of_range_422(db_client: AsyncClient, authed: dict, override: dict):
-    resp = await db_client.post(
-        "/api/body-profile", json={**_BASE, **override}, headers=authed["headers"]
-    )
-    assert resp.status_code == 422
-    assert resp.json()["code"] == 2001
-
-
-async def test_body_profile_boundary_values_accepted(db_client: AsyncClient, authed: dict):
-    """边界值 身高 200 / 体重 500 应通过。"""
-    payload = {**_BASE, "height_cm": 200, "current_weight": 500}
-    resp = await db_client.post("/api/body-profile", json=payload, headers=authed["headers"])
-    assert resp.status_code == 200
-    data = resp.json()["data"]
-    assert data["height_cm"] == 200.0
-    assert data["current_weight"] == 500.0

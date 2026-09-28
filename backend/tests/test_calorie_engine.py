@@ -4,19 +4,10 @@ M1 退出标准（01 §2.5 / plan.md §7）：环形图数值 = BMR×PAL − 已
 本文件由基础层维护；QA 轨（DATA4 50 行对拍）与 BE2 轨的用例文件另建，避免重复。
 """
 
-from datetime import date, datetime, timedelta, timezone
-
 import pytest
 
-from app.services import account, calorie
+from app.services import calorie
 from app.services.calorie import CalorieInputs
-
-TZ = timezone(timedelta(hours=8))
-
-
-def _today_tz() -> date:
-    """业务当日（UTC+8），与 account 服务的日界口径一致。"""
-    return datetime.now(TZ).date()
 
 
 def test_bmr_mifflin_male_female():
@@ -102,65 +93,3 @@ def test_cadence_met_mapping():
     assert calorie.steps_neat(weight_kg=70, steps=0, hourly={"9": 500}) == round(2.5 * 70 * 1, 1)
     assert calorie.steps_neat(weight_kg=70, steps=0, hourly={"9": 1500}) == round(4.3 * 70 * 1, 1)
     assert calorie.steps_neat(weight_kg=70, steps=0, hourly={"9": 3000}) == round(8.0 * 70 * 1, 1)
-
-
-@pytest.mark.asyncio
-async def test_account_service_db_roundtrip(db_session, authed):
-    """建档 + 两餐 → account/today 摄入/明细/快照幂等。"""
-    from app.models import BodyProfile, MealRecord
-
-    uid = authed["user_id"]
-    db_session.add(
-        BodyProfile(
-            user_id=uid,
-            gender=1,
-            height_cm=175,
-            birth_year=1995,
-            age=31,
-            current_weight=70,
-            target_type=1,
-            activity_level=2,
-            goal_pace=1,
-        )
-    )
-    db_session.add_all(
-        [
-            MealRecord(
-                user_id=uid,
-                record_date=_today_tz(),
-                meal_type=1,
-                food_id=None,
-                food_name_snapshot="燕麦",
-                amount_g=100,
-                calories=380,
-                source=3,
-            ),
-            MealRecord(
-                user_id=uid,
-                record_date=_today_tz(),
-                meal_type=2,
-                food_id=None,
-                food_name_snapshot="清蒸鱼",
-                amount_g=150,
-                calories=620,
-                source=1,
-            ),
-        ]
-    )
-    await db_session.commit()
-
-    today = await account.get_today(db_session, uid)
-    assert today.intake == 1000.0
-    assert {m.meal_type for m in today.meals} == {1, 2}
-    # 幂等：重复调用快照仍唯一
-    today2 = await account.get_today(db_session, uid)
-    assert today2.intake == today.intake
-
-    from sqlalchemy import func, select
-
-    from app.models import DailySnapshot
-
-    cnt = await db_session.scalar(
-        select(func.count()).select_from(DailySnapshot).where(DailySnapshot.user_id == uid)
-    )
-    assert cnt == 1

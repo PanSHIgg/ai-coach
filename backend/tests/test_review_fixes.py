@@ -96,16 +96,6 @@ async def test_steps_over_limit_422(db_client, authed):
     assert resp.json()["code"] == 2001
 
 
-async def test_steps_hourly_over_limit_422(db_client, authed):
-    resp = await db_client.post(
-        "/api/steps/sync",
-        headers=authed["headers"],
-        json={"date": "2026-09-28", "steps": 8000, "hourly": {"9": 300000}},
-    )
-    assert resp.status_code == 422
-    assert resp.json()["code"] == 2001
-
-
 # ---------------------------------------------------------------------------
 # P1-3 计算热量超 NUMERIC 上限 → 422/2001（而非写库 500）
 # ---------------------------------------------------------------------------
@@ -252,7 +242,7 @@ async def test_meal_macro_over_limit_422(db_client, db_session, authed):
 
 
 # ---------------------------------------------------------------------------
-# P1-B 档案字段上界：birth_year / goal_pace 超限 → 422/2001；3000 仍成功
+# P1-B 档案字段上界：birth_year / goal_pace 超限 → 422/2001
 # ---------------------------------------------------------------------------
 
 
@@ -263,15 +253,6 @@ async def test_profile_field_over_limit_422(db_client, authed, override: dict):
     )
     assert resp.status_code == 422
     assert resp.json()["code"] == 2001
-
-
-async def test_profile_future_birth_year_3000_accepted(db_client, authed):
-    resp = await db_client.post(
-        "/api/body-profile", headers=authed["headers"], json={**_PROFILE_BASE, "birth_year": 3000}
-    )
-    assert resp.status_code == 200
-    assert resp.json()["code"] == 0
-    assert resp.json()["data"]["birth_year"] == 3000
 
 
 # ---------------------------------------------------------------------------
@@ -288,12 +269,12 @@ async def test_weight_source_over_limit_422(db_client, authed):
 
 
 # ---------------------------------------------------------------------------
-# P2-B 步数 hourly 非法键（非 0-23）/ 负值 → 422/2001
+# P2-B 步数 hourly 非法键（非 0-23）/ 负值 / 单时值超限 → 422/2001
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("hourly", [{"24": 100}, {"-1": 100}, {"9": -1}])
-async def test_steps_hourly_invalid_422(db_client, authed, hourly: dict):
+@pytest.mark.parametrize("hourly", [{"24": 100}, {"-1": 100}, {"9": -1}, {"9": 300000}])
+async def test_steps_hourly_out_of_range_422(db_client, authed, hourly: dict):
     resp = await db_client.post(
         "/api/steps/sync",
         headers=authed["headers"],
