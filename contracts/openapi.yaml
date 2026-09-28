@@ -1,0 +1,1971 @@
+# AI 饮食管控教练 · API 契约（P0-d 冻结版）
+# 来源：docs/split/05-API接口文档.md §8.3（34 接口）；统一响应/错误码见 §8.1/8.2 与 04-后端技术架构与数据库.md。
+# 修改纪律：先改本文件 → 重新生成 TS（bash gen-ts.sh）→ 同步 pydantic schemas → 通知对端。
+openapi: 3.1.0
+info:
+  title: AI 饮食管控教练 API
+  version: 0.1.0
+  description: |
+    统一响应 envelope：
+      成功 {"code":0,"message":"ok","data":{...},"request_id":"..."}
+      失败 {"code":<非0>,"message":"...","data":null,"errors":{...}}
+    HTTP 状态码映射：参数错 422(2001) / 未认证 401(1001) / 无权限 403(1002) / 资源不存在 404(3001) / 业务错 409(4001~7001) / 限流 429 / 服务错 500。
+    通用错误码：0 成功 / 1001 未登录 / 1002 无权限 / 2001 参数校验失败 / 3001 资源不存在 / 4001 余额次数不足 /
+    5001 商家停业 / 5002 券不可用 / 5003 订单已超时 / 5004 核销码已使用 / 6001 AI 服务暂不可用 / 7001 邀请已达上限。
+    【假设】限流(429)与服务错(500)的业务 code 复用 HTTP 状态码（05 文档错误码表未定义）。
+    【假设】/api/ai/chat 首期统一返回 JSON；SSE 流式由 Accept: text/event-stream 预留，后续另行扩展。
+    【假设】埋点 tag 为预留分组，34 接口清单中暂无埋点上报接口。
+    【假设】列表默认按 created_at DESC，每页 20 条（page/page_size 上限 100）；金额单位元（2 位小数）、重量单位 g、热量单位 kcal。
+servers:
+  - url: /
+    description: 同源部署（Nginx 反代 FastAPI）
+security:
+  - bearerAuth: []
+tags:
+  - name: 认证
+    description: 微信登录、当前用户
+  - name: 用户档案
+    description: 身体档案（BMR/TDEE 输入）
+  - name: 热量账户
+    description: 每日热量快照与趋势
+  - name: 记录
+    description: 食物库、饮食/运动/步数记录
+  - name: AI
+    description: AI 对话、次数、饭点推荐
+  - name: 商家
+    description: LBS 商家列表/详情、标准 SKU 目录
+  - name: 券
+    description: 用户券列表
+  - name: 订单
+    description: 下单、支付、回调、核销、订单列表
+  - name: 社区
+    description: 邀请、动态、约战
+  - name: 管理
+    description: 运营看板
+  - name: 埋点
+    description: 【假设】预留分组，暂无接口
+paths:
+  /api/auth/login:
+    post:
+      tags: [认证]
+      summary: 微信登录，code 换 token
+      operationId: authLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LoginData'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/auth/me:
+    get:
+      tags: [认证]
+      summary: 当前用户
+      operationId: authMe
+      responses:
+        '200':
+          description: 当前登录用户信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/body-profile:
+    post:
+      tags: [用户档案]
+      summary: 创建/更新身体档案
+      operationId: upsertBodyProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BodyProfileIn'
+      responses:
+        '200':
+          description: 已保存（含服务端计算的 BMR/目标热量）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BodyProfileOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    get:
+      tags: [用户档案]
+      summary: 查询身体档案
+      operationId: getBodyProfile
+      responses:
+        '200':
+          description: 身体档案；未创建时 data 为 null
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        oneOf:
+                          - $ref: '#/components/schemas/BodyProfileOut'
+                          - type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/account/today:
+    get:
+      tags: [热量账户]
+      summary: 今日热量账户
+      operationId: getAccountToday
+      responses:
+        '200':
+          description: 今日热量快照（BMR/PAL/NEAT/TEF/TEE/摄入/缺口/步数）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DailyAccount'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/account/trend:
+    get:
+      tags: [热量账户]
+      summary: 账户趋势（按日）
+      operationId: getAccountTrend
+      parameters:
+        - name: start_date
+          in: query
+          schema: { type: string, format: date }
+        - name: end_date
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 按日趋势；【假设】缺省返回最近 7 天
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AccountTrendData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/food/search:
+    post:
+      tags: [记录]
+      summary: 食物搜索（PG 全文检索 + 别名）
+      operationId: searchFood
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FoodSearchIn'
+      responses:
+        '200':
+          description: 搜索结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FoodSearchData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/meal/recognize:
+    post:
+      tags: [记录]
+      summary: 拍照识别食物
+      operationId: recognizeMeal
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: 识别结果；置信度 < 0.7 时 need_confirm=true
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RecognizeData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '409':
+          $ref: '#/components/responses/AiUnavailable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/meal:
+    post:
+      tags: [记录]
+      summary: 新增饮食记录
+      operationId: createMeal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MealCreateIn'
+      responses:
+        '200':
+          description: 已写入并重算今日摄入
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MealCreatedData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/meal/{id}:
+    put:
+      tags: [记录]
+      summary: 编辑饮食记录
+      operationId: updateMeal
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MealUpdateIn'
+      responses:
+        '200':
+          description: 已更新并重算今日摄入
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MealCreatedData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [记录]
+      summary: 删除饮食记录
+      operationId: deleteMeal
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 已删除
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MealDeleteData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/meal/list:
+    get:
+      tags: [记录]
+      summary: 饮食记录列表
+      operationId: listMeals
+      parameters:
+        - name: date
+          in: query
+          schema: { type: string, format: date }
+        - name: meal_type
+          in: query
+          schema: { $ref: '#/components/schemas/MealType' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页列表（默认按 created_at DESC）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MealPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/sport:
+    post:
+      tags: [记录]
+      summary: 新增运动记录
+      operationId: createSport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SportIn'
+      responses:
+        '200':
+          description: 已写入并计入今日消耗
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SportCreatedData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/sport/list:
+    get:
+      tags: [记录]
+      summary: 运动记录列表
+      operationId: listSports
+      parameters:
+        - name: date
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SportPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/steps/sync:
+    post:
+      tags: [记录]
+      summary: 同步步数（NEAT 校准）
+      operationId: syncSteps
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StepsSyncIn'
+      responses:
+        '200':
+          description: 校准结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/StepsSyncData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/ai/chat:
+    post:
+      tags: [AI]
+      summary: AI 对话（校验剩余次数）
+      operationId: aiChat
+      parameters:
+        - name: Accept
+          in: header
+          required: false
+          description: 传 text/event-stream 预留流式；首期固定 JSON
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiChatIn'
+      responses:
+        '200':
+          description: 对话回复（引用知识库 id）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiChatData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: 业务错（4001 次数用尽 / 6001 AI 服务暂不可用）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/Envelope'
+                      - type: object
+                        properties:
+                          code: { const: 4001 }
+                  - allOf:
+                      - $ref: '#/components/schemas/Envelope'
+                      - type: object
+                        properties:
+                          code: { const: 6001 }
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/ai/times:
+    get:
+      tags: [AI]
+      summary: 查询剩余对话次数
+      operationId: getAiTimes
+      responses:
+        '200':
+          description: 剩余次数
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiTimesData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/ai/recommend:
+    post:
+      tags: [AI]
+      summary: 饭点决策推荐
+      operationId: aiRecommend
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiRecommendIn'
+      responses:
+        '200':
+          description: 推荐选项（含推荐理由）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiRecommendData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/AiUnavailable'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/merchant/list:
+    get:
+      tags: [商家]
+      summary: 商家列表（LBS）
+      operationId: listMerchants
+      parameters:
+        - name: lat
+          in: query
+          schema: { type: number, format: double }
+        - name: lng
+          in: query
+          schema: { type: number, format: double }
+        - name: radius
+          in: query
+          description: 搜索半径（米）
+          schema: { type: integer, default: 3000 }
+        - name: category
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 按距离升序的商家列表；【假设】不传经纬度时按默认城市返回
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/merchant/{id}:
+    get:
+      tags: [商家]
+      summary: 商家详情
+      operationId: getMerchant
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 商家详情（含在售 SKU）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/MerchantClosed'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/sku/catalog:
+    get:
+      tags: [商家]
+      summary: 标准目录（平台运营维护）
+      operationId: listSkuCatalog
+      parameters:
+        - name: category
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 标准 SKU 目录（含限价区间）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CatalogData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/order:
+    post:
+      tags: [订单]
+      summary: 创建订单
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreateIn'
+      responses:
+        '200':
+          description: 下单成功（金额服务端重算）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OrderCreatedData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          description: 业务错（5001 商家停业 / 5002 券不可用）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/Envelope'
+                      - type: object
+                        properties:
+                          code: { const: 5001 }
+                  - allOf:
+                      - $ref: '#/components/schemas/Envelope'
+                      - type: object
+                        properties:
+                          code: { const: 5002 }
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/order/{id}/pay:
+    post:
+      tags: [订单]
+      summary: 微信支付预下单
+      operationId: payOrder
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 【假设】透传微信小程序拉起支付所需参数
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PayData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/OrderTimeout'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/order/notify:
+    post:
+      tags: [订单]
+      summary: 微信支付回调
+      operationId: orderPayNotify
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: 【假设】按内部 envelope 应答，微信协议转换在网关层处理
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          result:
+                            type: string
+                            const: ok
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/order/{id}/redeem:
+    post:
+      tags: [订单]
+      summary: 核销
+      operationId: redeemOrder
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemIn'
+      responses:
+        '200':
+          description: 核销成功（核销码唯一，防重复）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RedeemData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          description: 业务错（5003 订单已超时 / 5004 核销码已使用）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/Envelope'
+                      - type: object
+                        properties:
+                          code: { const: 5003 }
+                  - allOf:
+                      - $ref: '#/components/schemas/Envelope'
+                      - type: object
+                        properties:
+                          code: { const: 5004 }
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/order/list:
+    get:
+      tags: [订单]
+      summary: 我的订单
+      operationId: listOrders
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/OrderStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页订单列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OrderPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/coupon/list:
+    get:
+      tags: [券]
+      summary: 我的券
+      operationId: listCoupons
+      parameters:
+        - name: status
+          in: query
+          description: 1未用 2已用 3过期 4作废
+          schema: { $ref: '#/components/schemas/CouponStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页券列表；不满足门槛的券灰显返回（不隐藏）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CouponPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/invite:
+    post:
+      tags: [社区]
+      summary: 创建邀请/绑定
+      operationId: createInvite
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteIn'
+      responses:
+        '200':
+          description: 无 invite_code 则生成我的邀请码；有则绑定（被邀请人完成 1 次拍照记录算有效）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/InviteData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/InviteLimit'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/invite/progress:
+    get:
+      tags: [社区]
+      summary: 邀请进度与权益
+      operationId: getInviteProgress
+      responses:
+        '200':
+          description: 邀请人数、下一档奖励、当前权益
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/InviteProgressData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/post/list:
+    get:
+      tags: [社区]
+      summary: 社区动态列表
+      operationId: listCommunityPosts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页动态（仅含审核通过的帖子）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PostPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/post:
+    post:
+      tags: [社区]
+      summary: 发动态
+      operationId: createCommunityPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommunityPostIn'
+      responses:
+        '200':
+          description: 发帖成功（内容走安全审核，违规进入审核队列）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommunityPostCreated'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/battle/list:
+    get:
+      tags: [社区]
+      summary: 约战列表
+      operationId: listBattles
+      parameters:
+        - name: city
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          description: 1招募中 2满员 3进行中 4结束
+          schema: { type: integer, minimum: 1, maximum: 4 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页约战列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BattlePageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/battle/join:
+    post:
+      tags: [社区]
+      summary: 加入约战
+      operationId: joinBattle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BattleJoinIn'
+      responses:
+        '200':
+          description: 加入成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BattleJoinData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/dashboard:
+    get:
+      tags: [管理]
+      summary: 运营看板
+      operationId: getAdminDashboard
+      parameters:
+        - name: date
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 【假设】看板核心指标字段（用户/活跃/记录/订单/GMV/AI 调用）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DashboardData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Authorization: Bearer <token>；未带返回 1001'
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, default: 1, minimum: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+  responses:
+    Unauthorized:
+      description: 未认证（code=1001 未登录/Token 失效）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 1001 }
+    Forbidden:
+      description: 无权限（code=1002）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 1002 }
+    Validation422:
+      description: 参数校验失败（code=2001，errors 带字段明细）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 2001 }
+                  errors:
+                    type: object
+                    additionalProperties: true
+                    example: { amount_g: 'must be greater than 0' }
+    NotFound404:
+      description: 资源不存在（code=3001）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 3001 }
+    MerchantClosed:
+      description: 商家停业（code=5001）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 5001 }
+    CouponInvalid:
+      description: 券不可用（code=5002 过期/不满足门槛）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 5002 }
+    OrderTimeout:
+      description: 订单已超时（code=5003）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 5003 }
+    RedeemUsed:
+      description: 核销码已使用（code=5004）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 5004 }
+    QuotaExceeded:
+      description: 余额/次数不足（code=4001）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 4001 }
+    AiUnavailable:
+      description: AI 服务暂不可用（code=6001，降级返回预设 FAQ，不卡死）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 6001 }
+    InviteLimit:
+      description: 邀请已达上限（code=7001）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 7001 }
+    RateLimited:
+      description: 限流（【假设】code 复用 HTTP 429）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 429 }
+    ServerError:
+      description: 服务错（【假设】code 复用 HTTP 500）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  code: { const: 500 }
+  schemas:
+    Envelope:
+      type: object
+      description: 统一响应 envelope；失败时 data 为 null、errors 可选
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          description: 0 成功；非 0 见 05 文档 §8.2 错误码表
+        message:
+          type: string
+        data:
+          description: 业务数据，失败时为 null
+        request_id:
+          type: string
+        errors:
+          type: object
+          additionalProperties: true
+          description: 校验/业务错误明细，成功时缺省
+    PageMeta:
+      type: object
+      required: [page, page_size, total]
+      properties:
+        page: { type: integer, example: 1 }
+        page_size: { type: integer, example: 20 }
+        total: { type: integer, example: 1 }
+    MealType:
+      type: integer
+      description: 1早餐 2午餐 3晚餐 4加餐
+      enum: [1, 2, 3, 4]
+    RecordSource:
+      type: integer
+      description: 1拍照 2语音 3手动 4AI推荐
+      enum: [1, 2, 3, 4]
+    OrderStatus:
+      type: integer
+      description: 1待支付 2已支付待核销 3已完成 4已取消 5已退款
+      enum: [1, 2, 3, 4, 5]
+    CouponStatus:
+      type: integer
+      description: 1未用 2已用 3过期 4作废
+      enum: [1, 2, 3, 4]
+    CouponType:
+      type: integer
+      description: 1满减 2折扣 3免费 4体验
+      enum: [1, 2, 3, 4]
+    CouponScope:
+      type: integer
+      description: 1吃 2动 3异业 4通用
+      enum: [1, 2, 3, 4]
+    UserBrief:
+      type: object
+      required: [id, nickname]
+      properties:
+        id: { type: integer }
+        nickname: { type: string }
+        avatar_url: { type: string, nullable: true }
+    LoginRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: 微信 wx.login 返回的 code
+        encrypted_data: { type: string, nullable: true }
+        iv: { type: string, nullable: true }
+    LoginData:
+      type: object
+      required: [token, refresh_token, is_new, need_profile, user]
+      properties:
+        token: { type: string }
+        refresh_token: { type: string }
+        is_new: { type: boolean }
+        need_profile: { type: boolean, description: 需要引导补全身体档案 }
+        user:
+          $ref: '#/components/schemas/UserBrief'
+    UserBenefit:
+      type: object
+      properties:
+        tier: { type: integer, description: 0基础 1进阶 2高级 3终身 }
+        ai_times_left: { type: integer }
+    UserDetail:
+      type: object
+      required: [id, nickname]
+      properties:
+        id: { type: integer }
+        nickname: { type: string }
+        avatar_url: { type: string, nullable: true }
+        gender: { type: integer, nullable: true, description: 0未知 1男 2女 }
+        benefit:
+          $ref: '#/components/schemas/UserBenefit'
+    TargetType:
+      type: integer
+      description: 1减脂 2增肌 3维持
+      enum: [1, 2, 3]
+    ActivityLevel:
+      type: integer
+      description: 1卧床 2久坐 3轻度 4中度 5高度
+      enum: [1, 2, 3, 4, 5]
+    BodyProfileIn:
+      type: object
+      required: [gender, height_cm, current_weight, target_type, activity_level]
+      properties:
+        gender: { enum: [1, 2], description: 1男 2女, type: integer }
+        height_cm: { type: number, example: 175.0 }
+        birth_year: { type: integer, nullable: true, example: 1995 }
+        current_weight: { type: number, description: kg, example: 75.5 }
+        target_weight: { type: number, nullable: true, description: kg }
+        target_type: { $ref: '#/components/schemas/TargetType' }
+        activity_level: { $ref: '#/components/schemas/ActivityLevel' }
+        goal_pace:
+          type: integer
+          nullable: true
+          description: 每周目标 kg 档位；【假设】缺省 1（每周 0.5kg）
+          example: 1
+    BodyProfileOut:
+      type: object
+      required: [id, gender, height_cm, current_weight, target_type, activity_level, bmr, target_calories]
+      properties:
+        id: { type: integer }
+        gender: { $ref: '#/components/schemas/BodyProfileIn/properties/gender' }
+        height_cm: { type: number }
+        birth_year: { type: integer, nullable: true }
+        current_weight: { type: number }
+        target_weight: { type: number, nullable: true }
+        target_type: { $ref: '#/components/schemas/TargetType' }
+        activity_level: { $ref: '#/components/schemas/ActivityLevel' }
+        goal_pace: { type: integer, nullable: true }
+        bmr: { type: number, description: 基础代谢 kcal }
+        target_calories: { type: integer, description: 每日热量预算 kcal }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    MealSummary:
+      type: object
+      required: [meal_type, name, calories]
+      properties:
+        meal_type: { $ref: '#/components/schemas/MealType' }
+        name: { type: string, example: 午餐 }
+        calories: { type: number, example: 620 }
+    DailyAccount:
+      type: object
+      required: [date, bmr, pal, neat, tef, tee, intake, deficit, steps]
+      properties:
+        date: { type: string, format: date }
+        bmr: { type: number }
+        pal: { type: number }
+        neat: { type: number }
+        eat: { type: number, nullable: true }
+        tef: { type: number }
+        tee: { type: number }
+        intake: { type: number, description: 今日摄入 kcal }
+        deficit: { type: number, description: 负值为热量缺口 }
+        steps: { type: integer }
+        calories_burnt: { type: number, description: 运动消耗 kcal }
+        calibration_used: { type: boolean }
+        meals:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealSummary'
+    DailyTrendItem:
+      type: object
+      required: [date, intake, tee, deficit]
+      properties:
+        date: { type: string, format: date }
+        intake: { type: number }
+        tee: { type: number }
+        deficit: { type: number }
+        steps: { type: integer }
+        calories_burnt: { type: number }
+    AccountTrendData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyTrendItem'
+    FoodSearchIn:
+      type: object
+      required: [keyword]
+      properties:
+        keyword: { type: string, minLength: 1 }
+        limit: { type: integer, default: 20, maximum: 100 }
+    FoodItem:
+      type: object
+      required: [id, name, calories_100g]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        calories_100g: { type: number, description: 每 100g 热量 kcal }
+        protein_100g: { type: number, nullable: true }
+        fat_100g: { type: number, nullable: true }
+        carb_100g: { type: number, nullable: true }
+        gi: { type: number, nullable: true, description: 血糖生成指数 }
+    FoodSearchData:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FoodItem'
+        total: { type: integer }
+    RecognizedItem:
+      type: object
+      required: [food_id, name, confidence, amount_g, calories]
+      properties:
+        food_id: { type: integer }
+        name: { type: string, example: 清蒸鱼 }
+        confidence: { type: number, description: 置信度；<0.7 需用户确认 }
+        amount_g: { type: number, description: 估计分量 g }
+        calories: { type: number, description: kcal }
+    RecognizeData:
+      type: object
+      required: [request_id, items, need_confirm]
+      properties:
+        request_id: { type: string }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecognizedItem'
+        need_confirm: { type: boolean }
+    MealCreateIn:
+      type: object
+      required: [meal_type, food_id, amount_g, source]
+      properties:
+        meal_type: { $ref: '#/components/schemas/MealType' }
+        food_id: { type: integer }
+        amount_g: { type: number, description: 分量 g }
+        source: { $ref: '#/components/schemas/RecordSource' }
+        image_url: { type: string, nullable: true }
+    MealUpdateIn:
+      type: object
+      description: 部分更新；至少提供一个字段
+      properties:
+        meal_type: { $ref: '#/components/schemas/MealType' }
+        food_id: { type: integer }
+        amount_g: { type: number }
+        source: { $ref: '#/components/schemas/RecordSource' }
+        image_url: { type: string, nullable: true }
+    MealCreatedData:
+      type: object
+      required: [id, calories, today_intake, today_left]
+      properties:
+        id: { type: integer }
+        calories: { type: number }
+        today_intake: { type: number, description: 重算后的今日摄入 kcal }
+        today_left: { type: number, description: 今日剩余额度 kcal }
+    MealDeleteData:
+      type: object
+      required: [id, deleted]
+      properties:
+        id: { type: integer }
+        deleted: { const: true }
+    MealRecordOut:
+      type: object
+      required: [id, meal_type, food_name, amount_g, calories, source, created_at]
+      properties:
+        id: { type: integer }
+        meal_type: { $ref: '#/components/schemas/MealType' }
+        food_id: { type: integer, nullable: true }
+        food_name: { type: string, description: 快照，防食物库变更 }
+        amount_g: { type: number }
+        calories: { type: number }
+        protein: { type: number, nullable: true }
+        fat: { type: number, nullable: true }
+        carb: { type: number, nullable: true }
+        confidence: { type: number, nullable: true }
+        source: { $ref: '#/components/schemas/RecordSource' }
+        image_url: { type: string, nullable: true }
+        record_date: { type: string, format: date }
+        created_at: { type: string, format: date-time }
+    MealPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MealRecordOut'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    SportIn:
+      type: object
+      required: [duration_min]
+      properties:
+        sport_name: { type: string, nullable: true, example: 慢跑 }
+        met: { type: number, nullable: true, description: MET；不传按 sport_name 映射标准表 }
+        duration_min: { type: integer, minimum: 1 }
+        record_at: { type: string, format: date-time, nullable: true }
+    SportCreatedData:
+      type: object
+      required: [id, calories]
+      properties:
+        id: { type: integer }
+        calories: { type: number }
+        today_burnt: { type: number, description: 今日运动总消耗 kcal }
+    SportRecordOut:
+      type: object
+      required: [id, duration_min, calories, record_at]
+      properties:
+        id: { type: integer }
+        sport_name: { type: string, nullable: true }
+        met: { type: number, nullable: true }
+        duration_min: { type: integer }
+        calories: { type: number }
+        record_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    SportPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SportRecordOut'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    StepsSyncIn:
+      type: object
+      required: [date, steps]
+      properties:
+        date: { type: string, format: date }
+        steps: { type: integer, minimum: 0 }
+        hourly:
+          type: object
+          description: 逐时步数（键为 0-23 小时），用于校准
+          additionalProperties: { type: integer }
+    StepsSyncData:
+      type: object
+      required: [neat_calibrated, met, delta_calories]
+      properties:
+        neat_calibrated: { type: number }
+        met: { type: number }
+        delta_calories: { type: number }
+    AiChatIn:
+      type: object
+      required: [session_id, message]
+      properties:
+        session_id: { type: string, format: uuid }
+        message: { type: string, minLength: 1 }
+    AiChatData:
+      type: object
+      required: [reply, intent, times_left]
+      properties:
+        reply: { type: string }
+        intent: { type: string, example: hunger_rescue }
+        times_left: { type: integer }
+        references:
+          type: array
+          items: { type: string }
+          description: 引用知识库条目 id
+    AiTimesData:
+      type: object
+      required: [times_left]
+      properties:
+        times_left: { type: integer }
+    GeoLocation:
+      type: object
+      properties:
+        lat: { type: number }
+        lng: { type: number }
+    AiRecommendIn:
+      type: object
+      required: [meal_type]
+      properties:
+        meal_type: { $ref: '#/components/schemas/MealType' }
+        location:
+          $ref: '#/components/schemas/GeoLocation'
+        budget:
+          type: number
+          nullable: true
+          description: 预算上限（元）
+    RecommendOption:
+      type: object
+      required: [name, calories, reason]
+      properties:
+        food_id: { type: integer, nullable: true }
+        name: { type: string }
+        calories: { type: number }
+        reason: { type: string }
+        merchant_id: { type: integer, nullable: true }
+    AiRecommendData:
+      type: object
+      required: [options]
+      properties:
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecommendOption'
+    MerchantBrief:
+      type: object
+      required: [id, name, category, rating, status]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        category: { type: string, example: 轻食 }
+        distance_m: { type: integer, nullable: true }
+        rating: { type: number }
+        cover_url: { type: string, nullable: true }
+        status: { type: integer, description: 1营业 0停业 }
+    SkuOut:
+      type: object
+      required: [id, name, price]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        price: { type: number, description: 元 }
+        stock: { type: integer, description: -1 表示不限量 }
+    MerchantDetail:
+      type: object
+      required: [id, name, category, address, rating, status]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        category: { type: string }
+        address: { type: string }
+        lat: { type: number, nullable: true }
+        lng: { type: number, nullable: true }
+        phone: { type: string, nullable: true }
+        rating: { type: number }
+        status: { type: integer, description: 1营业 0停业 }
+        distance_m: { type: integer, nullable: true }
+        skus:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkuOut'
+    MerchantPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MerchantBrief'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    CatalogItem:
+      type: object
+      required: [id, code, name, base_price, min_price, max_price]
+      properties:
+        id: { type: integer }
+        code: { type: string, example: FD-001 }
+        name: { type: string }
+        category: { type: string, nullable: true }
+        calories_low: { type: integer, nullable: true }
+        calories_high: { type: integer, nullable: true }
+        base_price: { type: number }
+        min_price: { type: number }
+        max_price: { type: number }
+        unit: { type: string, nullable: true, example: 份 }
+    CatalogData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogItem'
+    OrderItemIn:
+      type: object
+      required: [sku_id, qty]
+      properties:
+        sku_id: { type: integer }
+        qty: { type: integer, minimum: 1 }
+    OrderCreateIn:
+      type: object
+      required: [merchant_id, items]
+      properties:
+        merchant_id: { type: integer }
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OrderItemIn'
+        coupon_id: { type: integer, nullable: true }
+    OrderCreatedData:
+      type: object
+      required: [order_id, order_no, total_amount, discount_amount, pay_amount, expire_at]
+      properties:
+        order_id: { type: integer }
+        order_no: { type: string, example: DD202609280001 }
+        total_amount: { type: number }
+        discount_amount: { type: number }
+        pay_amount: { type: number, description: 服务端重算，不信任前端 }
+        expire_at: { type: string, format: date-time, description: 支付截止时间 }
+    PayData:
+      type: object
+      required: [order_id, status, pay_params]
+      properties:
+        order_id: { type: integer }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        pay_params:
+          type: object
+          additionalProperties: true
+          description: 微信小程序拉起支付参数（timeStamp/nonceStr/package/paySign）
+    RedeemIn:
+      type: object
+      required: [redeem_code, merchant_id]
+      properties:
+        redeem_code: { type: string }
+        merchant_id: { type: integer }
+    RedeemData:
+      type: object
+      required: [status, redeemed_at]
+      properties:
+        status: { type: string, const: redeemed }
+        redeemed_at: { type: string, format: date-time }
+    OrderBrief:
+      type: object
+      required: [id, order_no, merchant_id, pay_amount, status, created_at]
+      properties:
+        id: { type: integer }
+        order_no: { type: string }
+        merchant_id: { type: integer }
+        merchant_name: { type: string, nullable: true }
+        total_amount: { type: number }
+        discount_amount: { type: number }
+        pay_amount: { type: number }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        redeem_code: { type: string, nullable: true }
+        expire_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+    OrderPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderBrief'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    CouponOut:
+      type: object
+      required: [id, code, type, scope, amount, status]
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        type: { $ref: '#/components/schemas/CouponType' }
+        scope: { $ref: '#/components/schemas/CouponScope' }
+        amount: { type: number, description: 减免金额（元），折扣券为 0 }
+        discount_rate: { type: number, nullable: true }
+        min_spend: { type: number, description: 门槛金额（元） }
+        merchant_id: { type: integer, nullable: true }
+        status: { $ref: '#/components/schemas/CouponStatus' }
+        valid_from: { type: string, format: date-time, nullable: true }
+        valid_to: { type: string, format: date-time, nullable: true }
+    CouponPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CouponOut'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    InviteIn:
+      type: object
+      description: 缺省=创建我的邀请码；带 invite_code=绑定邀请关系
+      properties:
+        invite_code: { type: string, nullable: true }
+    InviteData:
+      type: object
+      required: [bound]
+      properties:
+        bound: { type: boolean }
+        invite_code: { type: string, nullable: true, description: 创建时返回 }
+        poster_url: { type: string, nullable: true, description: 邀请海报地址 }
+    NextTier:
+      type: object
+      required: [need, reward]
+      properties:
+        need: { type: integer, description: 距下一档还差人数 }
+        reward: { type: string, example: 进阶版90天 }
+    BenefitInfo:
+      type: object
+      required: [tier]
+      properties:
+        tier: { type: integer, description: 0基础 1进阶 2高级 3终身 }
+        valid_to: { type: string, format: date-time, nullable: true }
+    InviteProgressData:
+      type: object
+      required: [invitee_count, next_tier, benefit, poster_url]
+      properties:
+        invitee_count: { type: integer }
+        next_tier:
+          $ref: '#/components/schemas/NextTier'
+        benefit:
+          $ref: '#/components/schemas/BenefitInfo'
+        poster_url: { type: string, nullable: true }
+    CommunityPostIn:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1, maxLength: 2000 }
+        images:
+          type: array
+          items: { type: string }
+        anonymous: { type: boolean, default: false }
+    CommunityPostCreated:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer }
+    CommunityPostOut:
+      type: object
+      required: [id, user, content, created_at]
+      properties:
+        id: { type: integer }
+        user:
+          $ref: '#/components/schemas/UserBrief'
+        content: { type: string }
+        images:
+          type: array
+          items: { type: string }
+        like_count: { type: integer }
+        comment_count: { type: integer }
+        created_at: { type: string, format: date-time }
+    PostPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommunityPostOut'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    BattleItem:
+      type: object
+      required: [id, title, meet_at, need_count, join_count, status]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        sport_type: { type: string, nullable: true }
+        merchant_id: { type: integer, nullable: true }
+        city: { type: string, nullable: true }
+        meet_at: { type: string, format: date-time }
+        need_count: { type: integer }
+        join_count: { type: integer }
+        status: { type: integer, description: 1招募中 2满员 3进行中 4结束 }
+    BattlePageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BattleItem'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    BattleJoinIn:
+      type: object
+      required: [battle_id]
+      properties:
+        battle_id: { type: integer }
+    BattleJoinData:
+      type: object
+      required: [battle_id, joined, join_count]
+      properties:
+        battle_id: { type: integer }
+        joined: { const: true }
+        join_count: { type: integer }
+    DashboardData:
+      type: object
+      required: [date, user_count, active_users_today, meal_records_today, orders_today, gmv_today, ai_calls_today]
+      properties:
+        date: { type: string, format: date }
+        user_count: { type: integer }
+        active_users_today: { type: integer }
+        meal_records_today: { type: integer }
+        orders_today: { type: integer }
+        gmv_today: { type: number, description: 元 }
+        ai_calls_today: { type: integer }
+    WeightRecordIn:
+      type: object
+      description: 【假设】P1 体重记录预留 schema（34 接口清单暂无对应端点）
+      required: [weight]
+      properties:
+        weight: { type: number, description: kg }
+        record_at: { type: string, format: date }
+        source: { type: integer, description: 1手动 2智能秤 }
+        note: { type: string, nullable: true }
+    WeightRecordOut:
+      type: object
+      description: 【假设】P1 体重记录预留 schema
+      required: [id, weight, record_at]
+      properties:
+        id: { type: integer }
+        weight: { type: number }
+        record_at: { type: string, format: date }
+        source: { type: integer }
+        note: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }

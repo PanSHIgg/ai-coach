@@ -1,0 +1,107 @@
+// ============================================================
+// base.scss · 全局基础样式（P0-b）
+// 引入方式：App.vue 的 <style lang="scss"> 中
+//           `@import './styles/base.scss';`（全项目仅此一次）
+// 注意：不要在 uni.scss 中引入本文件（会产生每组件重复输出）。
+// ============================================================
+@import './tokens.scss';
+@import './mixins.scss';
+
+page {
+  @include css-tokens;
+
+  background: $bg;
+  color: $text-1;
+  font-family: $font-family;
+  font-size: $t-26;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+// ---------- 极简 reset ----------
+view,
+text,
+image,
+button,
+input,
+textarea,
+scroll-view,
+swiper {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+// 小程序 button 原生样式重置（配合 CButton 用 view 实现，此处兜底）
+button {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+
+  &::after {
+    border: none;
+  }
+}
+
+image {
+  display: block;
+}
+
+// ---------- 全局 keyframes（mixin 引用的动画均在此定义）----------
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16rpx);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// ---------- 工具类（少量，常用优先）----------
+.flex-center {
+  @include flex-center;
+}
+
+.flex-between {
+  @include flex-between;
+}
+
+.ellipsis {
+  @include ellipsis;
+}
+
+.ellipsis-2 {
+  @include ellipsis-multi(2);
+}
+
+.safe-bottom {
+  @include safe-area-bottom;
+}
+
+// 标准卡片外观（§4.11：白底 / 圆角 --radius / 投影 --shadow / 内边距 lg）
+.card {
+  background: $card;
+  border-radius: $radius;
+  box-shadow: $shadow;
+  padding: $space-lg;
+}

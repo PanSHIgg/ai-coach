@@ -1,0 +1,8 @@
+// ============================================================
+// uni.scss · uni-app 约定入口（自动注入每个组件的 <style>）
+// 【重要】只放变量与 mixin 定义，禁止出现任何选择器 /
+// keyframes，否则每个组件都会重复输出一份 CSS。
+// 全局选择器样式请写入 styles/base.scss（App.vue 引入一次）。
+// ============================================================
+@import './styles/tokens.scss'; // 设计令牌（SCSS 变量 + css-tokens mixin）
+@import './styles/mixins.scss'; // 通用 mixin
