@@ -3,6 +3,8 @@
 > **用途**：任何开发、测试、联调开始前，先按本文件确认环境；不满足就先修环境，**不要带着坏环境跑测试**（否则产生大量假失败）。
 >
 > 同源：本文件与 `AGENTS.md §7.1 环境事实块` 保持一致，环境变更时**两处同步**。CI 参照 `.github/workflows/ci.yml`。
+>
+> **约定**：下文 `$PY` 代表你的 Python ≥3.12 解释器。**不假设虚拟环境，也不假设 venv 目录名/路径**——venv / conda / pyenv / 系统解释器均可，探测见 §1.1。
 
 ---
 
@@ -10,7 +12,9 @@
 
 ```bash
 # ---- 语言 / 工具链 ----
-/workspace/.venv312/bin/python --version     # 期望 Python 3.12.x（勿用系统 python 3.14）
+# Python：任选一个 >=3.12 的解释器（不假设虚拟环境/目录）
+python3 --version                            # 期望 >= 3.12；不符见 §1.1
+PY="${PY:-$(command -v python3.12 || command -v python3)}"   # 后续命令统一用 "$PY"
 node --version && npm --version              # 期望 Node >= 20 / npm >= 10
 
 # ---- 数据库 / 缓存 ----
@@ -20,10 +24,10 @@ pg_isready -h 127.0.0.1 -p 5432              # 期望 "accepting connections"
 redis-cli -h 127.0.0.1 ping                  # 期望 PONG
 
 # ---- 浏览器自动化（H5 验收用）----
-agent-browser --version                      # 缺失见 §5
+agent-browser --version                      # 缺失见 §6；能力/用法见 .agents/skills/agent-browser/SKILL.md
 ```
 
-任一不满足 → 按 §2–§5 处理。**环境事实以本机当次实测为准，不要臆测。**
+任一不满足 → 按 §2–§6 处理。**环境事实以本机当次实测为准，不要臆测。**
 
 ---
 
@@ -31,14 +35,30 @@ agent-browser --version                      # 缺失见 §5
 
 | 工具 | 版本要求 | 本机实测 | 校验命令 | 说明 |
 | --- | --- | --- | --- | --- |
-| Python | 3.12.x | 3.12.13 | `/workspace/.venv312/bin/python --version` | venv = `/workspace/.venv312`；系统 `python3` 为 3.14，装不上依赖，**勿用** |
+| Python | ≥ 3.12 | 视环境而定（本沙箱实测 3.12.13） | `"$PY" --version` | **不限定虚拟环境或目录**：venv/conda/pyenv/系统均可，只要 ≥3.12；探测见 §1.1 |
 | Node.js | ≥ 20 | v24.1.0 | `node --version` | 前端 uni-app 构建 |
 | npm | ≥ 10 | 11.4.2 | `npm --version` | |
 | PostgreSQL | 16.x | 16.15 | `psql --version` / `pg_isready` | `127.0.0.1:5432`，user/pass = `postgres/postgres`，db = `ai_coach` |
 | Redis | 7.x | 7.0.15 | `redis-cli ping` | `127.0.0.1:6379` |
-| agent-browser | 最新 | 需安装 | `agent-browser --version` | H5 页面浏览器自动化验收，见 §5 |
+| agent-browser | 最新 | 需安装（仓库内有 skill） | `agent-browser --version` | H5 浏览器自动化验收；能力/用法见 `.agents/skills/agent-browser/SKILL.md`（§6） |
 
 > 代码要求 `python >= 3.12`（见 `backend/pyproject.toml`）。使用错误解释器是最常见的“依赖装不上”根因。
+
+### 1.1 Python 解释器探测（不要假设固定路径）
+
+本仓库只要求 `python >= 3.12`，**既不要求虚拟环境，也不假设 venv 目录名/路径**。任选一个满足要求的解释器即可：
+
+```bash
+# ① 已有 venv / conda 环境：直接激活（路径按你的实际填）
+#    source <your-venv>/bin/activate        # 或：conda activate <env>
+# ② 否则探测系统 / 工具链中的 3.12+
+command -v python3.12 || command -v python3 || command -v python
+"$PY" -c 'import sys; assert sys.version_info[:2] >= (3, 12), sys.version'   # 校验版本
+# ③ 都没有再新建（示例）
+python3 -m venv .venv && . .venv/bin/activate && pip install -r backend/requirements.txt
+```
+
+> **本沙箱参考值**：`/workspace/.venv312/bin/python`（3.12.13）。**仅为示例**；其它环境请用你自己的 ≥3.12 解释器，**勿照抄该路径**。下文所有 `$PY` 均指你选定的解释器。
 
 ---
 
@@ -69,8 +89,8 @@ psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE ai_coach;"
 # 建表（36 表；与 Alembic 0001 同源，二者择一）
 psql -h 127.0.0.1 -U postgres -d ai_coach -v ON_ERROR_STOP=1 -f data/sql/001_schema.sql
 
-# 种子：食物库 + 别名（CSV 用 utf-8-sig 兼容 BOM）
-/workspace/.venv312/bin/python data/load_seeds.py \
+# 种子：食物库 + 别名（CSV 用 utf-8-sig 兼容 BOM；$PY = 你的 ≥3.12 解释器）
+"$PY" data/load_seeds.py \
   --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach" \
   --file food:data/seeds/food_full.csv --file food_alias:data/seeds/food_alias_full.csv
 ```
@@ -83,18 +103,18 @@ psql -h 127.0.0.1 -U postgres -d ai_coach -v ON_ERROR_STOP=1 -f data/sql/001_sch
 # 回归测试（真实 PostgreSQL；conftest 函数级清库保证隔离）
 cd /workspace/ai-coach/backend
 DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
-  /workspace/.venv312/bin/python -m pytest -q
+  "$PY" -m pytest -q
 
 # 起后端（本地调试）
 DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
-  /workspace/.venv312/bin/python -m uvicorn app.main:app --reload --port 8000
+  "$PY" -m uvicorn app.main:app --reload --port 8000
 
 # Mock server（前后端对 Mock 解耦联调；PORT 默认 9000）
 node contracts/mock/server.mjs
 ```
 
 - **测试基线**：以当次实跑为准（每次迭代会变化，不要引用过期数字）。当前阶段基线见 `AGENTS.md §7.1`。
-- AI 无 Key 时自动落 mock（`backend/app/ai/`）；连通性自检：`/workspace/.venv312/bin/python backend/scripts/ai_hello.py --task chat|vision`。
+- AI 无 Key 时自动落 mock（`backend/app/ai/`）；连通性自检：`"$PY" backend/scripts/ai_hello.py --task chat|vision`。
 
 ---
 
@@ -117,13 +137,15 @@ npm run dev:h5              # H5 开发服务（Vite，默认 http://localhost:5
 
 **用途**：对 **H5 页面**（uni-app H5 产物 / 管理后台）做真实渲染与交互验收——布局、样式、路由跳转、点击、表单、响应式断点。可作为前端/UI 波次双审查的一环（见 `AGENTS.md §5`）。
 
+> **本仓库已内置该能力的 skill**：`.agents/skills/agent-browser/SKILL.md`（**使用前先读它**）。该文件是发现入口，明确要求：动手前先执行 `agent-browser skills get core` 载入与**已安装版本一致**的 workflow / 命令参考，**勿凭记忆敲命令**；页面之外的场景（Electron、exploratory QA 等）用 `agent-browser skills list` 查专用 skill。
+
 > **能力边界**：微信小程序（`mp-weixin`）运行时是微信客户端，**agent-browser 无法驱动**。小程序侧请用**微信开发者工具**导入 `miniapp/dist/build/mp-weixin` 预览；自动化可用 `@dcloudio/uni-automator`（依赖微信开发者工具）。agent-browser 只用于 H5 / 浏览器页面。
 
-**安装**
+**安装（未安装时）**
 
 ```bash
 npm i -g agent-browser && agent-browser install
-agent-browser skills get core        # 用法指南（随已安装版本更新，必看）
+agent-browser skills get core        # 载入用法指南（随已安装版本更新，必看，见上方 skill）
 ```
 
 **H5 验收流程**
@@ -146,12 +168,12 @@ agent-browser screenshot --path /tmp/h5-index.png     # 截图留证
 
 | 现象 | 原因 | 处置 |
 | --- | --- | --- |
-| `pip install` 装不上依赖 | 用了系统 `python3`（3.14） | 改用 `/workspace/.venv312/bin/python` |
+| `pip install` 装不上依赖 | 解释器 < 3.12（如系统 `python3` 为 3.14） | 换成任意 ≥3.12 的解释器（见 §1.1） |
 | pytest 大量假失败 / 数据互相污染 | 多个 Agent 并行共享同一 PG，`conftest` 的 `TRUNCATE` 互清 | 按 `AGENTS.md §3` 隔离（独立 schema / Redis db / 端口）；无法隔离则串行 |
 | pytest 报连接失败 | PG 未起 / 未建表 | 见 §2、§3 |
 | 限流用例结果异常 | `conftest` 故意把 Redis 指向不可达端口（6390）以走进程内兜底 | 属预期，无需修 |
 | H5 端口被占用 | 5173 被占 | `npm run dev:h5 -- --port 5174`，agent-browser 打开对应端口 |
-| `agent-browser` 命令不存在 | 未安装 | `npm i -g agent-browser && agent-browser install` |
+| `agent-browser` 命令不存在 | 未安装 | `npm i -g agent-browser && agent-browser install`；用法见 `.agents/skills/agent-browser/SKILL.md` |
 
 ---
 
@@ -159,3 +181,4 @@ agent-browser screenshot --path /tmp/h5-index.png     # 截图留证
 
 - 本文件 = 环境**确认清单**；`AGENTS.md §7.1` = 给子 Agent 任务书**原样引用的环境事实块**。二者内容须一致。
 - 变更环境（升级版本 / 改端口 / 换 DSN）时：**先改本文件，再同步 `AGENTS.md §7.1`**。
+- **解释器路径仅为当前环境示例**：本文件不假设虚拟环境或固定目录，任何环境请按 §1.1 探测自己的 ≥3.12 解释器（`AGENTS.md §7.1` 中的具体路径同理）。

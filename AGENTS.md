@@ -113,20 +113,22 @@
 
 ```
 仓库根：/workspace/ai-coach
-Python：3.12 venv = /workspace/.venv312（项目要求 >=3.12；系统默认 python 可能为 3.14 装不上依赖，勿用）
+Python：要求 >=3.12（不限定 venv/目录；venv/conda/pyenv/系统均可）；本工作区实测解释器
+       /workspace/.venv312/bin/python（示例，其它环境用自带 >=3.12，探测见 dev_env.md §1.1）
 后端测试：cd backend && DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
-          /workspace/.venv312/bin/python -m pytest -q     # 当前基线：107 passed（以当次实跑为准）
+          "${PY:-/workspace/.venv312/bin/python}" -m pytest -q   # PY=你的 >=3.12 解释器；基线：107 passed
 PostgreSQL：127.0.0.1:5432  user=postgres password=postgres  db=ai_coach
             建表：psql -f data/sql/001_schema.sql（36 表；Alembic 0001 与之同源，二者择一）
 Redis：127.0.0.1:6379
-种子导入：/workspace/.venv312/bin/python data/load_seeds.py \
+种子导入："${PY:-/workspace/.venv312/bin/python}" data/load_seeds.py \
           --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach" \
           --file food:data/seeds/food_full.csv --file food_alias:data/seeds/food_alias_full.csv
           dry-run：... --dry-run（CSV 用 utf-8-sig 兼容 BOM）
 Mock：node contracts/mock/server.mjs（PORT 默认 9000）
 前端：cd miniapp && npm install → npm run type-check → npm run build:mp-weixin / npm run build:h5
       前端交付必须过「type-check 0 错误 + 双端 build 通过」
-浏览器自动化：agent-browser（装：npm i -g agent-browser && agent-browser install）
+浏览器自动化：能力见仓库内 skill .agents/skills/agent-browser/SKILL.md（用前先读，并按其指引
+      先执行 `agent-browser skills get core`）；未装则 npm i -g agent-browser && agent-browser install
       仅用于 H5/浏览器页面验收（布局/交互/控制台），小程序用微信开发者工具；详见 dev_env.md §6
 环境自检：动工/测试前先按 dev_env.md §0 确认（Python/Node/PG/Redis/agent-browser）
 ```
