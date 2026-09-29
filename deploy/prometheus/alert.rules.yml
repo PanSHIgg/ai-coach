@@ -1,0 +1,54 @@
+# 告警规则（F9 / docs/split/08 §10.7、plan.md §16）
+# 覆盖 4 类：① 服务不可用 5min ② 错误率 >5% ③ 磁盘 >80% ④ AI 日成本超预算。
+# 说明：② ④ 直接基于 api 暴露的指标；① 依赖 `up`；③ 需要外部 node_exporter
+# （本仓 compose 未内置，故该规则在未接入 exporter 时不会触发，见注释）。
+
+groups:
+  - name: ai-coach-api
+    rules:
+      # ---- ① 服务不可用（连续 5 分钟抓取失败）----
+      - alert: ServiceDown
+        expr: up{job="ai-coach-api"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "后端 API 不可用（>5min）"
+          description: "Prometheus 连续 5 分钟无法抓取 {{ $labels.instance }} 的 /metrics。"
+
+      # ---- ② 错误率 >5%（5 分钟窗口，5xx 占全部请求比）----
+      - alert: HighErrorRate
+        expr: >-
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API 5xx 错误率 > 5%"
+          description: "近 5 分钟 5xx 占比 {{ $value | humanizePercentage }}，超过 5% 阈值。"
+
+      # ---- ③ 磁盘使用率 >80% ----
+      # 依赖外部 node_exporter（见 deploy/README.md「监控」）：未接入时本规则不产生数据。
+      - alert: DiskUsageHigh
+        expr: >-
+          (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}
+          / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "磁盘使用率 > 80%"
+          description: "{{ $labels.instance }} 挂载点 {{ $labels.mountpoint }} 使用率 {{ $value | humanizePercentage }}。"
+
+      # ---- ④ AI 日成本超预算 ----
+      # 口径：ai_cost_usd_total = Σ(调用次数 × 单价)；阈值 50 为占位，按实际日预算调整。
+      - alert: AIBudgetExceeded
+        expr: sum(increase(ai_cost_usd_total[24h])) > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI 日成本超预算"
+          description: "近 24h AI 成本估算 ${{ $value | humanize }} 超过预算阈值 $50。"

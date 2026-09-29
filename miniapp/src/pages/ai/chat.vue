@@ -98,6 +98,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import { chat, getTimes } from '@/api/ai'
 import { useUserStore } from '@/stores/user'
 import { useToast } from '@/composables/useToast'
+import { track } from '@/utils/track'
 
 /** 单条消息：role=user 用户 / ai 教练；error=true 时以警示色展示 */
 interface ChatMessage {
@@ -224,6 +225,8 @@ async function onSend() {
     })
     // 成功后以服务端返回为准同步剩余次数
     if (data && typeof data.times_left === 'number') timesLeft.value = data.times_left
+    // AI 满意度（分母/关联）：完成一次问答
+    track('ai_chat', { session_id: sessionId.value, intent: data?.intent || '' })
   } catch (e) {
     handleChatError(e)
   } finally {

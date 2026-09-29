@@ -21,6 +21,7 @@ class ErrorCode(IntEnum):
     VALIDATION_ERROR = 2001  # 参数校验失败
     NOT_FOUND = 3001  # 资源不存在
     QUOTA_EXCEEDED = 4001  # 余额/次数不足
+    DUPLICATE_REQUEST = 4002  # 幂等拦截：同 Idempotency-Key 的重复请求（HTTP 409）
     MERCHANT_CLOSED = 5001  # 商家停业
     COUPON_UNAVAILABLE = 5002  # 券不可用（过期/不满足门槛）
     ORDER_TIMEOUT = 5003  # 订单已超时
@@ -39,6 +40,7 @@ class ErrorCode(IntEnum):
             cls.VALIDATION_ERROR: "参数校验失败",
             cls.NOT_FOUND: "资源不存在",
             cls.QUOTA_EXCEEDED: "余额/次数不足",
+            cls.DUPLICATE_REQUEST: "重复请求（已拦截重放）",
             cls.MERCHANT_CLOSED: "商家停业",
             cls.COUPON_UNAVAILABLE: "券不可用（过期/不满足门槛）",
             cls.ORDER_TIMEOUT: "订单已超时",

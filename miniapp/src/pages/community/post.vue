@@ -161,9 +161,13 @@ async function loadDetail() {
 
 async function toggleLike() {
   if (!post.value) return
-  const res = post.value.liked ? await unlikePost(post.value.id) : await likePost(post.value.id)
-  post.value.liked = res.liked
-  post.value.like_count = res.like_count
+  try {
+    const res = post.value.liked ? await unlikePost(post.value.id) : await likePost(post.value.id)
+    post.value.liked = res.liked
+    post.value.like_count = res.like_count
+  } catch {
+    // request 层已 toast；失败不改本地态
+  }
 }
 
 async function submitComment() {

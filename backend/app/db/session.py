@@ -19,15 +19,24 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 def get_engine() -> AsyncEngine:
     """进程级单例引擎。
 
-    【假设】使用 NullPool：asyncpg 连接绑定事件循环，而 pytest 每个用例独立 loop、
-    复用连接池会报「attached to a different loop」；NullPool 即用即关，跨 loop 安全。
-    生产如需连接池，可在此改回默认池并保证单 loop 运行。
+    Phase 5（F5）：默认改用**异步连接池**（SQLAlchemy 默认 AsyncAdaptedQueuePool），
+    避免每请求新建 asyncpg 连接导致高并发下延迟劣化（perf/report.md 实测根因）。
+    `DB_POOL_DISABLED=True` 时回退 NullPool —— 供「多事件循环复用同一 engine」的场景
+    （pytest 的函数级 loop）使用；测试侧 `conftest.db_engine` 自建引擎，不受此处影响。
     """
     global _engine
     if _engine is None:
-        _engine = create_async_engine(
-            get_settings().DATABASE_URL, pool_pre_ping=True, poolclass=NullPool
-        )
+        settings = get_settings()
+        kwargs: dict = {"pool_pre_ping": True}
+        if settings.DB_POOL_DISABLED:
+            kwargs["poolclass"] = NullPool
+        else:
+            kwargs.update(
+                pool_size=settings.DB_POOL_SIZE,
+                max_overflow=settings.DB_POOL_MAX_OVERFLOW,
+                pool_recycle=settings.DB_POOL_RECYCLE,
+            )
+        _engine = create_async_engine(settings.DATABASE_URL, **kwargs)
     return _engine
 
 

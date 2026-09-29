@@ -9,6 +9,13 @@
       class="fallback-alert"
     />
 
+    <el-alert v-if="catalogError" type="error" show-icon :closable="false" class="fallback-alert">
+      <template #title>
+        <span>{{ catalogError }}</span>
+        <el-button link type="primary" size="small" class="retry-btn" @click="loadCatalog">重试</el-button>
+      </template>
+    </el-alert>
+
     <el-row :gutter="16">
       <el-col :md="12" :xs="24">
         <el-card class="page-card" header="商家选品定价">
@@ -17,7 +24,7 @@
               <el-input-number v-model="form.merchant_id" :min="1" controls-position="right" style="width: 200px" />
             </el-form-item>
             <el-form-item label="标准目录" required>
-              <el-select v-model="form.catalog_id" placeholder="请选择标准 SKU" style="width: 100%" @change="onCatalogChange">
+              <el-select v-loading="catalogLoading" v-model="form.catalog_id" placeholder="请选择标准 SKU" style="width: 100%" @change="onCatalogChange">
                 <el-option
                   v-for="c in catalog"
                   :key="c.id"
@@ -77,10 +84,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getSkuCatalog, upsertMerchantSku } from '@/api/admin'
+import { isNetworkError } from '@/api/client'
 import type { AdminMerchantSkuData, CatalogItem } from '@/types/api'
 
 const catalog = ref<CatalogItem[]>([])
 const catalogFallback = ref(false)
+const catalogError = ref<string | null>(null)
+const catalogLoading = ref(false)
 const form = reactive({
   merchant_id: 1,
   catalog_id: undefined as number | undefined,
@@ -100,16 +110,28 @@ const FALLBACK_CATALOG: CatalogItem[] = [
 
 const selectedCatalog = computed(() => catalog.value.find((c) => c.id === form.catalog_id) ?? null)
 
-onMounted(async () => {
+async function loadCatalog(): Promise<void> {
+  catalogLoading.value = true
+  catalogError.value = null
   try {
     const data = await getSkuCatalog()
     catalog.value = data.items
     catalogFallback.value = false
-  } catch {
-    catalog.value = FALLBACK_CATALOG
-    catalogFallback.value = true
+  } catch (err) {
+    if (isNetworkError(err)) {
+      catalog.value = FALLBACK_CATALOG
+      catalogFallback.value = true
+    } else {
+      catalog.value = []
+      catalogFallback.value = false
+      catalogError.value = err instanceof Error ? err.message : '标准目录加载失败'
+    }
+  } finally {
+    catalogLoading.value = false
   }
-})
+}
+
+onMounted(loadCatalog)
 
 function onCatalogChange(): void {
   lastError.value = null
@@ -123,6 +145,15 @@ async function onSubmit(): Promise<void> {
   lastError.value = null
   if (!form.catalog_id) {
     ElMessage.warning('请选择标准目录')
+    return
+  }
+  if (form.price <= 0) {
+    ElMessage.warning('售价需大于 0')
+    return
+  }
+  const c = selectedCatalog.value
+  if (c && (form.price < c.min_price || form.price > c.max_price)) {
+    ElMessage.warning(`售价需在目录限价区间 ¥${c.min_price} - ¥${c.max_price} 内`)
     return
   }
   submitting.value = true
@@ -145,6 +176,10 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <style scoped>
+.retry-btn {
+  margin-left: 8px;
+}
+
 .range-tip {
   font-size: 12px;
   color: #6b7280;

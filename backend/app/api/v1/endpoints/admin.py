@@ -44,7 +44,7 @@ from app.services.admin_service import AdminPrincipal
 
 router = APIRouter(tags=["管理"])
 
-_admin_bearer = HTTPBearer(auto_error=False)
+_admin_bearer = HTTPBearer(auto_error=False, scheme_name="bearerAuth")
 
 
 async def get_current_admin(

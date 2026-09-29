@@ -2,15 +2,22 @@
   <div>
     <el-alert
       v-if="isFallback"
-      title="后端未连接，演示数据"
+      title="后端未连接，展示演示数据"
       type="warning"
       show-icon
       :closable="false"
       class="fallback-alert"
     />
 
-    <el-row :gutter="16">
-      <el-col v-for="card in cards" :key="card.label" :xs="12" :sm="8" :md="8" :lg="4">
+    <el-alert v-if="error" type="error" show-icon :closable="false" class="fallback-alert">
+      <template #title>
+        <span>{{ error }}</span>
+        <el-button link type="primary" size="small" class="retry-btn" @click="load">重试</el-button>
+      </template>
+    </el-alert>
+
+    <el-row v-loading="loading" :gutter="16">
+      <el-col v-for="card in cards" :key="card.label" :xs="24" :sm="12" :md="8" :lg="4">
         <el-card class="page-card stat-card">
           <div class="stat-label">{{ card.label }}</div>
           <div class="stat-value">{{ card.value }}</div>
@@ -30,10 +37,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { getDashboard } from '@/api/admin'
+import { isNetworkError } from '@/api/client'
 import type { DashboardData } from '@/types/api'
 
 const data = ref<DashboardData | null>(null)
 const isFallback = ref(false)
+const loading = ref(false)
+const error = ref<string | null>(null)
 
 /** 后端未就绪时的内置演示数据 */
 const FALLBACK: DashboardData = {
@@ -59,18 +69,36 @@ const cards = computed(() => {
   ]
 })
 
-onMounted(async () => {
+async function load(): Promise<void> {
+  loading.value = true
+  error.value = null
   try {
     data.value = await getDashboard()
     isFallback.value = false
-  } catch {
-    data.value = FALLBACK
-    isFallback.value = true
+  } catch (err) {
+    if (isNetworkError(err)) {
+      // 后端未启动：走内置演示数据，保证看板不白屏
+      data.value = FALLBACK
+      isFallback.value = true
+    } else {
+      // 403/5xx 等真实错误：明确提示并给重试入口，不再伪装成演示数据
+      data.value = null
+      isFallback.value = false
+      error.value = err instanceof Error ? err.message : '看板加载失败'
+    }
+  } finally {
+    loading.value = false
   }
-})
+}
+
+onMounted(load)
 </script>
 
 <style scoped>
+.retry-btn {
+  margin-left: 8px;
+}
+
 .stat-card {
   text-align: center;
 }

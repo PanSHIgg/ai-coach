@@ -13,16 +13,24 @@ import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { useToast } from '@/composables/useToast'
+import { track } from '@/utils/track'
 
 const userStore = useUserStore()
 const toast = useToast()
 const loading = ref(false)
 
+/** 冷启动标记：登录页为未登录冷启动首屏，app_open 的 from 口径 */
+let firstShow = true
+
 // 已登录直接进首页
 onShow(() => {
   if (userStore.isLogined) {
     uni.reLaunch({ url: '/pages/index/index' })
+    return
   }
+  // 匿名可达：冷启动进入登录页也上报活跃，保证未登录活跃可观测
+  track('app_open', { from: firstShow ? 'cold_start' : 'login' })
+  firstShow = false
 })
 
 async function onLogin() {
@@ -44,6 +52,9 @@ async function onLogin() {
     }
     // #endif
     const data = await userStore.login(code)
+    // 登录成功 / 新用户注册（留存 cohort 依赖 register + user.created_at）
+    track('login', { from: 'wechat' })
+    if (data.is_new) track('register', {})
     toast.success({ title: data.is_new ? '欢迎加入' : '欢迎回来' })
     // 未建档 → 先去建档；已建档 → 进首页
     if (data.need_profile) {

@@ -118,7 +118,7 @@
 Python：要求 >=3.12（不限定 venv/目录；venv/conda/pyenv/系统均可）；本工作区实测解释器
        /workspace/.venv312/bin/python（示例，其它环境用自带 >=3.12，探测见 dev_env.md §1.1）
 后端测试：cd backend && DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
-          "${PY:-/workspace/.venv312/bin/python}" -m pytest -q   # PY=你的 >=3.12 解释器；基线：231 passed（Phase 4 后实测）
+          "${PY:-/workspace/.venv312/bin/python}" -m pytest -q   # PY=你的 >=3.12 解释器；基线：242 passed（Phase 4 后实测）
 PostgreSQL：127.0.0.1:5432  user=postgres password=postgres  db=ai_coach
             建表：psql -f data/sql/001_schema.sql（36 表；Alembic 0001 与之同源，二者择一）
 Redis：127.0.0.1:6379
@@ -140,10 +140,11 @@ Mock：node contracts/mock/server.mjs（PORT 默认 9000）
 
 ### 7.2 契约与真源
 
-- **契约真源**：`contracts/openapi.yaml`（路径含 `/api` 前缀；统一 envelope + 错误码 + Bearer JWT）。当前 48 路径（含 Phase 1 新增 `weight*` / `subscription*` / `auth/refresh`，Phase 3 增补 `/api/admin/*` 9 个）。
+- **契约真源**：`contracts/openapi.yaml`（路径含 `/api` 前缀；统一 envelope + 错误码 + Bearer JWT）。当前 **72 路径 / 78 ops**（Phase 1 `weight*`/`subscription*`/`auth/refresh`；Phase 3 `/api/admin/*` 9 个；Phase 4 社区/社交 22 个；Phase 5 新增 `/api/track`、`/api/order/{id}/refund`）。
 - **TS 类型有两份手写副本**（`contracts/ts/api.d.ts` 与 `miniapp/src/types/api.d.ts`）：**由主 Agent 单点同步**，禁止子 Agent 双写；变更后两份必须一致。
 - **Mock**：`contracts/mock/routes.mjs`（新增接口须同步 canned data）。
-- **错误码**：`0` 成功 / `1001` 未登录 / `1002` 无权限 / `2001` 参数校验 / `3001` 资源不存在 / `4001` 次数不足 / `5001` 商家停业 / `5002` 券不可用 / `5003` 订单超时 / `5004` 核销码已用 / `6001` AI 不可用 / `7001` 邀请上限；HTTP 映射 422/401/403/404/409/429/500。
+- **错误码**：`0` 成功 / `1001` 未登录 / `1002` 无权限 / `2001` 参数校验 / `3001` 资源不存在 / `4001` 次数不足 / `4002` 重复请求（幂等拦截，Phase 5 新增） / `5001` 商家停业 / `5002` 券不可用 / `5003` 订单超时 / `5004` 核销码已用 / `6001` AI 不可用 / `7001` 邀请上限；HTTP 映射 422/401/403/404/409/429/500。
+- **幂等约定（Phase 5 / F6）**：写接口可带 `Idempotency-Key` 头；同身份同 key 在 300s 内重放 → `409 + 4002`（见 `app/core/idempotency.py`）。**不带该头则行为不变**（协作式幂等，非强制）。
 
 ### 7.3 其它已固化事实
 

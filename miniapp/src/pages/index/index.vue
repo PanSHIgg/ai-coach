@@ -196,6 +196,7 @@ import { useUserStore } from '@/stores/user'
 import { useAccountStore } from '@/stores/account'
 import { useToast } from '@/composables/useToast'
 import { getTimes } from '@/api/ai'
+import { track } from '@/utils/track'
 import type { MealSummary } from '@/types/api'
 
 const userStore = useUserStore()
@@ -357,11 +358,17 @@ const services = [
 ]
 
 /* ---------- 生命周期 ---------- */
+/** 首次进入首页标记：区分冷启动与从子页返回（app_open 的 from 口径） */
+let firstShow = true
+
 onShow(() => {
   if (!userStore.isLogined) {
     uni.reLaunch({ url: '/pages/login/login' })
     return
   }
+  // 活跃埋点：进入首页（日活 / 留存判定）
+  track('app_open', { from: firstShow ? 'cold_start' : 'back' })
+  firstShow = false
   if (!userStore.detail) userStore.fetchMe()
   accountStore.refresh() // 拍照 / 记录返回后刷新账户
   if (!userStore.profileLoaded) userStore.fetchProfile()

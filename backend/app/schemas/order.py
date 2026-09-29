@@ -79,3 +79,19 @@ class OrderPageData(BaseModel):
 
     items: list[OrderBrief]
     page: PageMeta
+
+
+class RefundIn(BaseModel):
+    """退款申请（可选原因，最长 128）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    reason: Optional[str] = Field(default=None, max_length=128)
+
+
+class RefundData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    order_id: int
+    status: int  # 5已退款
+    refunded: bool

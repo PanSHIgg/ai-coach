@@ -212,9 +212,13 @@ async function reload() {
 }
 
 async function toggleLike(p: CommunityPostOut) {
-  const res = p.liked ? await unlikePost(p.id) : await likePost(p.id)
-  p.liked = res.liked
-  p.like_count = res.like_count
+  try {
+    const res = p.liked ? await unlikePost(p.id) : await likePost(p.id)
+    p.liked = res.liked
+    p.like_count = res.like_count
+  } catch {
+    // request 层已 toast；失败不改本地态，避免点赞数错乱
+  }
 }
 
 function switchTab(key: TabKey) {

@@ -197,6 +197,9 @@ CREATE TABLE meal_record (
     CHECK (source IN (1, 2, 3, 4))
 );
 CREATE INDEX idx_meal_user_date ON meal_record(user_id, record_date DESC, meal_type);
+-- Phase 5 F5：列表按 created_at DESC, id DESC 排序；缺该索引时深分页需对全量行排序并落盘
+-- （external merge sort），百万行 offset≈50w 实测 ~920ms。此索引覆盖过滤列 user_id + 排序键。
+CREATE INDEX idx_meal_user_created ON meal_record(user_id, created_at DESC, id DESC);
 CREATE INDEX idx_meal_food ON meal_record(food_id);
 COMMENT ON TABLE meal_record IS '饮食记录：一行一个食物条目，含营养快照；写后触发当日摄入重算（BE2/BE3）';
 COMMENT ON COLUMN meal_record.confidence IS 'AI 识别置信度：<0.7 必须用户确认（§13.3）';

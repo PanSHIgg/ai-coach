@@ -2,12 +2,19 @@
   <div>
     <el-alert
       v-if="isFallback"
-      title="后端未连接，演示数据"
+      title="后端未连接，展示演示数据"
       type="warning"
       show-icon
       :closable="false"
       class="fallback-alert"
     />
+
+    <el-alert v-if="error" type="error" show-icon :closable="false" class="fallback-alert">
+      <template #title>
+        <span>{{ error }}</span>
+        <el-button link type="primary" size="small" class="retry-btn" @click="load">重试</el-button>
+      </template>
+    </el-alert>
 
     <el-card class="page-card">
       <el-tabs v-model="activeTab" @tab-change="onTabChange">
@@ -80,6 +87,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { listOrders } from '@/api/admin'
+import { isNetworkError } from '@/api/client'
 import { getAuth } from '@/composables/auth'
 import type { OrderBrief, OrderStatus } from '@/types/api'
 
@@ -93,6 +101,7 @@ const pageSize = ref(20)
 const activeTab = ref<'all' | '1' | '2' | '3' | '4' | '5'>('all')
 const loading = ref(false)
 const isFallback = ref(false)
+const error = ref<string | null>(null)
 
 const FALLBACK: OrderBrief[] = [
   {
@@ -146,6 +155,7 @@ function statusTagType(s: OrderStatus): 'warning' | 'primary' | 'success' | 'inf
 
 async function load(): Promise<void> {
   loading.value = true
+  error.value = null
   try {
     const params: { status?: number; merchant_id?: number; page: number; page_size: number } = {
       page: page.value,
@@ -162,10 +172,17 @@ async function load(): Promise<void> {
     items.value = data.items
     total.value = data.page.total
     isFallback.value = false
-  } catch {
-    items.value = FALLBACK
-    total.value = FALLBACK.length
-    isFallback.value = true
+  } catch (err) {
+    if (isNetworkError(err)) {
+      items.value = FALLBACK
+      total.value = FALLBACK.length
+      isFallback.value = true
+    } else {
+      items.value = []
+      total.value = 0
+      isFallback.value = false
+      error.value = err instanceof Error ? err.message : '订单列表加载失败'
+    }
   } finally {
     loading.value = false
   }
@@ -180,6 +197,10 @@ onMounted(load)
 </script>
 
 <style scoped>
+.retry-btn {
+  margin-left: 8px;
+}
+
 .pager {
   margin-top: 16px;
   justify-content: flex-end;

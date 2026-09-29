@@ -102,10 +102,14 @@ async function create() {
 }
 
 async function join(b: BattleItem) {
-  const res = await joinBattle({ battle_id: b.id })
-  b.join_count = res.join_count
-  if (b.join_count >= b.need_count) b.status = 2
-  toast.success({ title: '已加入约战' })
+  try {
+    const res = await joinBattle({ battle_id: b.id })
+    b.join_count = res.join_count
+    if (b.join_count >= b.need_count) b.status = 2
+    toast.success({ title: '已加入约战' })
+  } catch {
+    // request 层已 toast（满员 2001 等）；失败不改本地态
+  }
 }
 
 onShow(() => {

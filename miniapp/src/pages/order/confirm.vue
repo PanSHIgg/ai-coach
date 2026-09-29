@@ -97,6 +97,7 @@ import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { createOrder, payOrder, getCoupons } from '@/api/order'
 import { useToast } from '@/composables/useToast'
+import { track } from '@/utils/track'
 import type { CouponOut } from '@/types/api'
 
 const SCOPE_TEXT: Record<number, string> = { 1: '吃', 2: '动', 3: '异业', 4: '通用' }
@@ -235,6 +236,12 @@ async function submit() {
     })
     // H5/开发态无法拉起微信支付：拿到 pay_params 后直接视为支付成功（模拟）
     await payOrder(created.order_id)
+    // 扫码转化率（分子）：订单支付成功
+    track('order_pay', {
+      order_id: created.order_id,
+      merchant_id: merchantId.value,
+      amount: payAmount.value,
+    })
     toast.success({ title: '支付成功(模拟)' })
     setTimeout(() => {
       uni.redirectTo({ url: '/pages/order/list' })

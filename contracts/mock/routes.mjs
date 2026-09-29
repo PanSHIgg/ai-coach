@@ -1,4 +1,4 @@
-// 路由表：method + 路径模板 → canned envelope data（覆盖 openapi.yaml 全部 76 接口）。
+// 路由表：method + 路径模板 → canned envelope data（覆盖 openapi.yaml 全部 78 接口）。
 // 匹配规则（宽松）：/api 前缀可有可无、结尾斜杠与多斜杠忽略、{param} 匹配任意单段。
 // 零依赖：仅用标准 JS，供 server.mjs 消费。
 
@@ -161,6 +161,7 @@ export const routes = [
   },
   { m: 'POST', p: '/api/order/notify', d: { result: 'ok' } },
   { m: 'POST', p: '/api/order/{id}/redeem', d: { status: 'redeemed', redeemed_at: '2026-09-28T13:00:00+08:00' } },
+  { m: 'POST', p: '/api/order/{id}/refund', d: { order_id: 66001, status: 5, refunded: true } },
   {
     m: 'GET', p: '/api/order/list',
     d: {
@@ -399,6 +400,9 @@ export const routes = [
     m: 'POST', p: '/api/admin/audit/{id}/review',
     d: { id: 1, target_type: 1, target_id: 2, status: 2, reject_reason: '内容不合规', reviewed_at: now() },
   },
+
+  // ---- 埋点（F3，允许匿名） ----
+  { m: 'POST', p: '/api/track', d: { accepted: 2 } },
 ];
 
 /** 宽松匹配：/api 前缀可有可无、结尾/重复斜杠忽略；{param} 匹配任意单段。 */

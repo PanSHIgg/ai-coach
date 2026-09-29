@@ -1,10 +1,9 @@
-"""订单域接口（openapi: /api/order、/{id}/pay、/notify、/{id}/redeem、/order/list）。
+"""订单域接口（openapi: /api/order、/{id}/pay、/notify、/{id}/redeem、/{id}/refund、/order/list）。
 
 Phase 3 BE6：全部走 order_service 真实现（服务端重算金额 / 验签 / 幂等 / 核销留痕）。
+Phase 5 F1：新增退款（2→5 幂等）；真实支付拉起参数由 wechat_pay 预下单产出。
 """
 
-import secrets
-import time
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Body, Depends, Query
@@ -23,6 +22,8 @@ from app.schemas.order import (
     PayData,
     RedeemData,
     RedeemIn,
+    RefundData,
+    RefundIn,
 )
 from app.services import order_service
 
@@ -56,22 +57,12 @@ async def pay_order(
     request_id: str | None = Depends(get_request_id),
     session: AsyncSession = Depends(get_db),
 ) -> Envelope[PayData]:
-    """【假设】mock 微信统一下单：paySign 用 HMAC 伪造。
+    """预下单：mock 模式直接推进支付成功并返回本地签名参数（含 mock 标记）；
+    真实模式由 wechat_pay 预下单（未配置密钥时降级返回 degraded 占位参数）。
 
-    PAY_MOCK_MODE（沙箱支付）开启时 pay 即推进支付成功（演示闭环）；
-    关闭时订单保持待支付，等 notify 推进。
+    订单状态推进统一由 service/notify 收敛，本接口只负责下发拉起参数。
     """
-    order = await order_service.pay_order(session, user.id, id, settings)
-    ts = str(int(time.time()))
-    nonce = secrets.token_hex(8)
-    pay_params: dict = {
-        "timeStamp": ts,
-        "nonceStr": nonce,
-        "package": f"prepay_id=mock_{order.order_no}",
-        "paySign": order_service.pay_sign(order.order_no, ts, nonce),
-    }
-    if settings.PAY_MOCK_MODE:
-        pay_params["mock"] = True  # 沙箱标记：前端/测试可识别（additionalProperties 允许）
+    order, pay_params = await order_service.pay_order(session, user.id, id, settings)
     data = PayData(order_id=order.id, status=order.status, pay_params=pay_params)
     return ok(data, request_id=request_id)
 
@@ -98,6 +89,24 @@ async def redeem_order(
     """商家侧核销（登录态仅作网关入口，归属以 body.merchant_id 校验）。"""
     await order_service.redeem_order(session, id, payload.redeem_code, payload.merchant_id, user.id)
     data = RedeemData(status="redeemed", redeemed_at=datetime.now(UTC))
+    return ok(data, request_id=request_id)
+
+
+@router.post("/order/{id}/refund", response_model=Envelope[RefundData], summary="申请退款")
+async def refund_order(
+    id: int,
+    payload: RefundIn | None = Body(default=None),
+    user: CurrentUser = Depends(get_current_user),
+    request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
+) -> Envelope[RefundData]:
+    """退款：2 已支付待核销 → 5 已退款（幂等，重复申请返回成功）。
+
+    不存在 3001 / 非本人 1002 / 状态不可退 2001；成功 refunded=true。
+    """
+    reason = payload.reason if payload is not None else None
+    order = await order_service.refund_order(session, user.id, id, reason)
+    data = RefundData(order_id=order.id, status=order.status, refunded=True)
     return ok(data, request_id=request_id)
 
 

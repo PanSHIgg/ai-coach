@@ -33,6 +33,8 @@ const loading = ref(true)
 const loaded = ref(false)
 const error = ref(false)
 const groups = ref<GroupItem[]>([])
+/** 加入/打卡进行中：防止连点重复请求 */
+const busy = ref(false)
 
 async function load() {
   loading.value = true
@@ -48,14 +50,30 @@ async function load() {
 }
 
 async function join(g: GroupItem) {
-  const res = await joinGroup(g.id)
-  g.member_count = res.member_count
-  toast.success({ title: '已加入社群' })
+  if (busy.value) return
+  busy.value = true
+  try {
+    const res = await joinGroup(g.id)
+    g.member_count = res.member_count
+    toast.success({ title: '已加入社群' })
+  } catch {
+    // request 层已 toast；失败不改本地态
+  } finally {
+    busy.value = false
+  }
 }
 
 async function checkin(g: GroupItem) {
-  const res = await checkinGroup(g.id)
-  toast.success({ title: `打卡成功，累计 ${res.checkin_days} 天` })
+  if (busy.value) return
+  busy.value = true
+  try {
+    const res = await checkinGroup(g.id)
+    toast.success({ title: `打卡成功，累计 ${res.checkin_days} 天` })
+  } catch {
+    // request 层已 toast
+  } finally {
+    busy.value = false
+  }
 }
 
 onShow(() => {

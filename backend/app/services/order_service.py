@@ -7,13 +7,14 @@ DB 层 numeric(10,2) + CHECK(pay_amount=total-discount)，Python 侧统一 round
 全流程只 flush/改属性，函数末尾一次 commit 原子提交，不提前放锁。
 
 状态机（冻结枚举）：1待支付 → 2已支付待核销 → 3已完成；
-超时/取消 1→4（同时释放券）；5 仅保留给退款语义。
+超时/取消 1→4（同时释放券）；退款 2→5 已退款（幂等，仅状态流转）。
 """
 
 import hashlib
 import hmac
 import secrets
 import string
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -25,6 +26,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppException
 from app.models import Coupon, Merchant, MerchantSku, Order, OrderItem, RedeemLog, SkuCatalog
 from app.schemas.common import ErrorCode
+from app.services import wechat_pay
 
 ORDER_EXPIRE_MINUTES = 15  # 待支付有效期
 _GYM_CATEGORY = "健身房"  # 【假设】scope 1/2 以 merchant.category == '健身房' 划分
@@ -276,13 +278,28 @@ async def _mark_paid(session: AsyncSession, order: Order) -> None:
             sku.stock -= it.quantity
 
 
+def _mock_pay_params(order: Order) -> dict[str, Any]:
+    """沙箱拉起参数：paySign 用 HMAC 伪造（演示/测试专用，生产禁用）。"""
+    ts = str(int(time.time()))
+    nonce = secrets.token_hex(8)
+    return {
+        "timeStamp": ts,
+        "nonceStr": nonce,
+        "package": f"prepay_id=mock_{order.order_no}",
+        "paySign": pay_sign(order.order_no, ts, nonce),
+        "mock": True,  # 沙箱标记：前端/测试可识别
+    }
+
+
 async def pay_order(
     session: AsyncSession, user_id: int, order_id: int, settings: Settings | None = None
-) -> Order:
-    """预下单：校验归属+待支付+未过期。
+) -> tuple[Order, dict[str, Any]]:
+    """预下单：校验归属+待支付+未过期；返回 (订单, 拉起支付参数)。
 
-    PAY_MOCK_MODE（沙箱支付，演示默认开）：直接执行支付成功推进（与 notify 同一 _mark_paid）；
-    为假时维持现状只返回拉起参数，等 notify 推进。
+    PAY_MOCK_MODE（沙箱支付，演示默认开）：直接执行支付成功推进（与 notify 同一 _mark_paid），
+    返回带 mock 标记的本地签名参数；
+    为假（真实接入）：调用 wechat_pay.prepare_payment 预下单——已配置走真实统一下单，
+    未配置则明确降级返回 degraded 占位参数；订单保持待支付，等 notify 推进。
     """
     order = await _get_user_order(session, order_id, user_id)
     if order.status == 1 and order.expire_at is not None and order.expire_at < _now():
@@ -295,7 +312,9 @@ async def pay_order(
     if s.PAY_MOCK_MODE:
         await _mark_paid(session, order)
         await session.commit()
-    return order
+        return order, _mock_pay_params(order)
+    prep = await wechat_pay.prepare_payment(order, s)
+    return order, prep.pay_params
 
 
 async def handle_notify(session: AsyncSession, payload: dict[str, Any]) -> dict[str, str]:
@@ -382,6 +401,36 @@ async def redeem_order(
     }
     reason, err = table.get(order.status, ("订单状态不可核销", ErrorCode.VALIDATION_ERROR))
     raise await _fail(reason, err)
+
+
+# ---------------------------------------------------------------------------
+# 退款
+# ---------------------------------------------------------------------------
+
+
+async def refund_order(
+    session: AsyncSession, user_id: int, order_id: int, reason: str | None = None
+) -> Order:
+    """退款：2 已支付待核销 → 5 已退款（幂等：已退款直接返回成功，不重复流转）。
+
+    - 订单不存在 → 3001；非本人订单 → 1002；状态非 2/5 → 2001；
+    - `SELECT ... FOR UPDATE` 锁订单行，防并发重复退款；
+    - 【假设】退款仅做状态流转 2→5，不回滚库存/券（订单表结构冻结，无退款字段列）。
+    """
+    order = (
+        await session.execute(select(Order).where(Order.id == order_id).with_for_update())
+    ).scalar_one_or_none()
+    if order is None:
+        raise AppException(ErrorCode.NOT_FOUND, "订单不存在")
+    if order.user_id != user_id:  # 越权（非本人订单）→ 1002(403)
+        raise AppException(ErrorCode.FORBIDDEN, "无权操作该订单")
+    if order.status == 5:  # 幂等：已退款重复申请 → 成功且不重复流转
+        return order
+    if order.status != 2:  # 仅「已支付待核销」可退（1/3/4 → 2001）
+        raise AppException(ErrorCode.VALIDATION_ERROR, "订单状态不可退款")
+    order.status = 5
+    await session.commit()
+    return order
 
 
 # ---------------------------------------------------------------------------

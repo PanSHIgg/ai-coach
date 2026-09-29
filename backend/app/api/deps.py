@@ -12,7 +12,7 @@ from app.db.session import get_db
 from app.models import User
 from app.schemas.common import ErrorCode
 
-_bearer_scheme = HTTPBearer(auto_error=False)
+_bearer_scheme = HTTPBearer(auto_error=False, scheme_name="bearerAuth")
 
 
 class CurrentUser(BaseModel):
@@ -48,3 +48,29 @@ async def get_current_user(
 def get_request_id(request: Request) -> str | None:
     """取中间件注入的 request_id（envelope 回显用）。"""
     return getattr(request.state, "request_id", None)
+
+
+async def get_optional_user(
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> CurrentUser | None:
+    """可选登录：无 token / 无效 token / 已删用户统一返回 None（不抛 1001）。
+
+    用于允许匿名访问的接口（如埋点上报的登录前事件）；带了有效 token 则关联用户。
+
+    注意：这里**直接读 Authorization 头**而不依赖 `HTTPBearer` 安全类，避免 FastAPI 把
+    `/api/track` 自动标注为需要 bearerAuth —— 契约（openapi.yaml）声明该接口 `security: []`。
+    """
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    try:
+        payload = decode_token(token, expected_type="access")
+        if payload.get("dom") == "admin":  # admin 域 token 不关联 C 端用户
+            return None
+        user_id = int(payload.get("sub", ""))
+    except (AppException, TypeError, ValueError, KeyError):
+        return None
+    if await session.scalar(select(User.id).where(User.id == user_id)) is None:
+        return None
+    return CurrentUser(id=user_id, openid=payload.get("openid"))

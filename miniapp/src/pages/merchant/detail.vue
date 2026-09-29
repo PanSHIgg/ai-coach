@@ -101,6 +101,7 @@
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { getMerchantDetail } from '@/api/merchant'
+import { track } from '@/utils/track'
 import type { MerchantDetail, SkuOut } from '@/types/api'
 
 /** 每 SKU 选择上限（不限量 SKU 统一按 9 件封顶，防误触） */
@@ -213,7 +214,12 @@ function goConfirm() {
 /* ---------- 生命周期 ---------- */
 
 onLoad((options) => {
-  const id = Number((options as { id?: string } | undefined)?.id) || MOCK_DETAILS[0].id
+  const opt = options as { id?: string; scene?: string } | undefined
+  const id = Number(opt?.id) || MOCK_DETAILS[0].id
+  // 扫码转化率（分母）：扫码（商家码/券码）进入，带 merchant_id + scene
+  if (opt?.scene) {
+    track('scan_in', { merchant_id: id, scene: decodeURIComponent(opt.scene) })
+  }
   void loadDetail(id)
 })
 </script>

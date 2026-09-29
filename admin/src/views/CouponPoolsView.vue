@@ -2,12 +2,19 @@
   <div>
     <el-alert
       v-if="isFallback"
-      title="后端未连接，演示数据"
+      title="后端未连接，展示演示数据"
       type="warning"
       show-icon
       :closable="false"
       class="fallback-alert"
     />
+
+    <el-alert v-if="error" type="error" show-icon :closable="false" class="fallback-alert">
+      <template #title>
+        <span>{{ error }}</span>
+        <el-button link type="primary" size="small" class="retry-btn" @click="load">重试</el-button>
+      </template>
+    </el-alert>
 
     <el-card class="page-card">
       <template #header>
@@ -124,7 +131,8 @@
           <el-input-number v-model="grantForm.user_id" :min="1" controls-position="right" style="width: 180px" />
         </el-form-item>
         <el-form-item label="发放数量">
-          <el-input-number v-model="grantForm.count" :min="1" :max="10" controls-position="right" style="width: 180px" />
+          <el-input-number v-model="grantForm.count" :min="1" :max="grantMax" controls-position="right" style="width: 180px" />
+          <span class="tip">最多 {{ grantMax }} 张（券池余量）</span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -136,8 +144,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { createCouponPool, grantCoupon, listCouponPools } from '@/api/admin'
 import { isNetworkError } from '@/api/client'
 import type { AdminCouponPoolOut } from '@/types/api'
@@ -148,6 +156,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
 const isFallback = ref(false)
+const error = ref<string | null>(null)
 
 const FALLBACK: AdminCouponPoolOut[] = [
   {
@@ -212,15 +221,23 @@ function pct(row: AdminCouponPoolOut): number {
 
 async function load(): Promise<void> {
   loading.value = true
+  error.value = null
   try {
     const data = await listCouponPools({ page: page.value, page_size: pageSize.value })
     items.value = data.items
     total.value = data.page.total
     isFallback.value = false
-  } catch {
-    items.value = FALLBACK
-    total.value = FALLBACK.length
-    isFallback.value = true
+  } catch (err) {
+    if (isNetworkError(err)) {
+      items.value = FALLBACK
+      total.value = FALLBACK.length
+      isFallback.value = true
+    } else {
+      items.value = []
+      total.value = 0
+      isFallback.value = false
+      error.value = err instanceof Error ? err.message : '券池列表加载失败'
+    }
   } finally {
     loading.value = false
   }
@@ -243,6 +260,7 @@ const createForm = reactive({
 
 function openCreate(): void {
   createForm.name = ''
+  validRange.value = null
   createVisible.value = true
 }
 
@@ -253,6 +271,14 @@ function fmtIso(d: Date): string {
 async function onCreate(): Promise<void> {
   if (!createForm.name.trim()) {
     ElMessage.warning('请输入券池名称')
+    return
+  }
+  if (createForm.type === 1 && createForm.amount <= 0) {
+    ElMessage.warning('满减券的减免金额需大于 0')
+    return
+  }
+  if (createForm.total_count < 1) {
+    ElMessage.warning('发行总量至少为 1')
     return
   }
   creating.value = true
@@ -271,6 +297,7 @@ async function onCreate(): Promise<void> {
     })
     ElMessage.success('券池已创建')
     createVisible.value = false
+    page.value = 1 // 回到首页，确保新券池可见
   } catch (err) {
     if (isNetworkError(err)) {
       ElMessage.warning('后端未连接，已本地模拟创建')
@@ -287,6 +314,13 @@ const granting = ref(false)
 const grantPool = ref<AdminCouponPoolOut | null>(null)
 const grantForm = reactive({ user_id: 1, count: 1 })
 
+/** 券池剩余可发放张数：发放数量上限，避免超额发放 */
+const grantMax = computed(() => {
+  const p = grantPool.value
+  if (!p) return 1
+  return Math.max(1, p.total_count - p.granted_count)
+})
+
 function openGrant(row: AdminCouponPoolOut): void {
   grantPool.value = row
   grantForm.user_id = 1
@@ -295,11 +329,30 @@ function openGrant(row: AdminCouponPoolOut): void {
 }
 
 async function onGrant(): Promise<void> {
-  if (!grantPool.value) return
+  const pool = grantPool.value
+  if (!pool) return
+  const remaining = pool.total_count - pool.granted_count
+  if (grantForm.count < 1) {
+    ElMessage.warning('发放数量至少为 1')
+    return
+  }
+  if (grantForm.count > remaining) {
+    ElMessage.warning(`发放数量超出券池余量（剩余 ${remaining} 张）`)
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认向用户 ${grantForm.user_id} 发放「${pool.name}」${grantForm.count} 张？`,
+      '发放确认',
+      { confirmButtonText: '确认发放', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return // 用户取消
+  }
   granting.value = true
   try {
     const data = await grantCoupon({
-      pool_id: grantPool.value.id,
+      pool_id: pool.id,
       user_id: grantForm.user_id,
       count: grantForm.count,
     })
@@ -320,6 +373,10 @@ onMounted(load)
 </script>
 
 <style scoped>
+.retry-btn {
+  margin-left: 8px;
+}
+
 .card-header {
   display: flex;
   align-items: center;

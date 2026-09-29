@@ -19,37 +19,37 @@ const router = createRouter({
           path: 'dashboard',
           name: 'dashboard',
           component: () => import('@/views/DashboardView.vue'),
-          meta: { title: '运营看板' },
+          meta: { title: '运营看板', roles: [1, 2, 3] },
         },
         {
           path: 'merchants',
           name: 'merchants',
           component: () => import('@/views/MerchantsView.vue'),
-          meta: { title: '商家审核' },
+          meta: { title: '商家审核', roles: [1, 2] },
         },
         {
           path: 'merchant-skus',
           name: 'merchant-skus',
           component: () => import('@/views/MerchantSkusView.vue'),
-          meta: { title: '选品定价' },
+          meta: { title: '选品定价', roles: [1, 2] },
         },
         {
           path: 'coupon-pools',
           name: 'coupon-pools',
           component: () => import('@/views/CouponPoolsView.vue'),
-          meta: { title: '券池管理' },
+          meta: { title: '券池管理', roles: [1, 2] },
         },
         {
           path: 'orders',
           name: 'orders',
           component: () => import('@/views/OrdersView.vue'),
-          meta: { title: '订单监控' },
+          meta: { title: '订单监控', roles: [1, 2, 3] },
         },
         {
           path: 'content-audit',
           name: 'content-audit',
           component: () => import('@/views/ContentAuditView.vue'),
-          meta: { title: '内容审核' },
+          meta: { title: '内容审核', roles: [1, 2] },
         },
       ],
     },
@@ -63,6 +63,11 @@ router.beforeEach((to) => {
     return { name: 'login' }
   }
   if (to.name === 'login' && auth) {
+    return { name: 'dashboard' }
+  }
+  // 角色门禁：与 AdminLayout 菜单可见性保持一致，防止越权直达
+  const roles = to.meta.roles as number[] | undefined
+  if (roles && auth && !roles.includes(auth.role)) {
     return { name: 'dashboard' }
   }
   return true

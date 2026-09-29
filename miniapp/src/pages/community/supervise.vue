@@ -75,15 +75,23 @@ async function match() {
 
 async function remind() {
   if (!supervise.value) return
-  const res = await remindSupervise(supervise.value.id)
-  toast.info({ title: res.message })
+  try {
+    const res = await remindSupervise(supervise.value.id)
+    toast.info({ title: res.message })
+  } catch {
+    // request 层已 toast
+  }
 }
 
 async function toggleRecords() {
   if (!supervise.value) return
   showRecords.value = !showRecords.value
   if (showRecords.value && !records.value) {
-    records.value = await superviseRecords(supervise.value.id)
+    try {
+      records.value = await superviseRecords(supervise.value.id)
+    } catch {
+      // request 层已 toast；失败保持无记录态
+    }
   }
 }
 

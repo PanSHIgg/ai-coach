@@ -35,12 +35,14 @@ agent-browser --version                      # 缺失见 §6；能力/用法见 
 
 | 工具 | 版本要求 | 本机实测 | 校验命令 | 说明 |
 | --- | --- | --- | --- | --- |
-| Python | ≥ 3.12 | 视环境而定（本沙箱实测 3.12.13） | `"$PY" --version` | **不限定虚拟环境或目录**：venv/conda/pyenv/系统均可，只要 ≥3.12；探测见 §1.1 |
+| Python | ≥ 3.12 | 3.12.3（`/workspace/.venv312/bin/python`） | `"$PY" --version` | **不限定虚拟环境或目录**：venv/conda/pyenv/系统均可，只要 ≥3.12；探测见 §1.1 |
 | Node.js | ≥ 20 | v24.1.0 | `node --version` | 前端 uni-app 构建 |
 | npm | ≥ 10 | 11.4.2 | `npm --version` | |
 | PostgreSQL | 16.x | 16.15 | `psql --version` / `pg_isready` | `127.0.0.1:5432`，user/pass = `postgres/postgres`，db = `ai_coach` |
 | Redis | 7.x | 7.0.15 | `redis-cli ping` | `127.0.0.1:6379` |
-| agent-browser | 最新 | 需安装（仓库内有 skill） | `agent-browser --version` | H5 浏览器自动化验收；能力/用法见 `.agents/skills/agent-browser/SKILL.md`（§6） |
+| agent-browser | 最新 | 0.38.1（系统 Chrome 可用） | `agent-browser --version` | H5 浏览器自动化验收；能力/用法见 `.agents/skills/agent-browser/SKILL.md`（§6） |
+| Docker | 需要 | **不可用** | `docker --version` | 沙箱无 docker，且缺 `CAP_SYS_ADMIN`、子命名空间挂载 /proc 被拒 → 容器无法运行；**测试一律用原生 PG/Redis + uvicorn**（见 §9） |
+| 压测工具 | 任选 | **未安装**（k6/locust/hey/wrk/ab/jmeter 均无） | `command -v k6` | Phase 5 性能用 `httpx`+asyncio 自研 harness（httpx 0.28.1 已装，见 §9） |
 
 > 代码要求 `python >= 3.12`（见 `backend/pyproject.toml`）。使用错误解释器是最常见的“依赖装不上”根因。
 
@@ -188,3 +190,21 @@ agent-browser screenshot --path /tmp/h5-index.png     # 截图留证
 - 本文件 = 环境**确认清单**；`AGENTS.md §7.1` = 给子 Agent 任务书**原样引用的环境事实块**。二者内容须一致。
 - 变更环境（升级版本 / 改端口 / 换 DSN）时：**先改本文件，再同步 `AGENTS.md §7.1`**。
 - **解释器路径仅为当前环境示例**：本文件不假设虚拟环境或固定目录，任何环境请按 §1.1 探测自己的 ≥3.12 解释器（`AGENTS.md §7.1` 中的具体路径同理）。
+
+---
+
+## 9. Phase 5 环境事实（本沙箱实测，2026-09-29）
+
+> 结论：**测试不用容器**，一律原生 PG/Redis + `uvicorn`。以下为实测事实，子 Agent 任务书可直接引用，勿重新探测。
+
+| 能力 | 实测结论 | 影响 |
+| --- | --- | --- |
+| Docker / podman / containerd | **全无**；`CapEff/CapBnd=0xa80425fb` 缺 `CAP_SYS_ADMIN`；`unshare -rmpf --mount-proc` 报 `Operation not permitted` | `deploy/docker-compose.yml` **不可实跑**，F9 只做静态校验 + 产物 |
+| 压测工具 | k6/locust/hey/wrk/ab/jmeter/vegeta 全部**未安装**；`promtool` 未安装 | F5 用 `httpx`(0.28.1, 已装) + asyncio 写 harness；⚠️ 容量上限见下 |
+| `prometheus_client` | **未安装** | F9 的 `/metrics` 需先 `pip install prometheus-client` 并写入 `backend/requirements.txt` |
+| agent-browser | 0.38.1；系统 Chrome 可用（`chrome`/`chrome-headless-shell`） | F7/F3/F4 可做 H5 真实渲染；mp-weixin 仍不可（见 §6） |
+| Node / npm | v24.1.0 / 11.4.2；`miniapp/node_modules` 与 `admin/node_modules` **均已装** | 前端可直接 `type-check`/`build` |
+| 内存 | cgroup `memory.max` = **4 GiB**，无 swap；CPU 3 核 | **压测必须串行**，勿与其他重活并行，否则 OOM/假失败 |
+| 微信支付商户号 / 微信开发者工具 / AI Key | 均无 | F1 真机联调、F7 小程序真机、F3 识别准确率不可真跑 → 产出产物 + 替代验证 |
+
+**F5 压测约定**：本机起 `uvicorn`（`127.0.0.1:8000`，单 worker 可控）后串行压测；百万行分页用 `EXPLAIN ANALYZE` + 实测耗时（真实可做）；100 并发 5 分钟 soak 在 4 GiB 内需降低并发或缩短时长，并在报告中标注实际参数与偏差。

@@ -65,6 +65,19 @@ jobs:
         working-directory: .
         run: psql -h 127.0.0.1 -U postgres -d ai_coach -v ON_ERROR_STOP=1 -f data/sql/001_schema.sql
 
+      - name: Load reference seeds
+        # 参照数据是大量用例的前置：sku_catalog（如 code=FD-001）、食物库与别名、RAG 知识库。
+        # 只建表不导种子会让 test_merchants / smoke 等批量 NoResultFound 失败
+        # （Phase 5 审查实测：空库口径 66 条失败，导入后全绿）。
+        working-directory: .
+        run: |
+          python data/load_seeds.py \
+            --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach" \
+            --file food:data/seeds/food_full.csv \
+            --file food_alias:data/seeds/food_alias_full.csv \
+            --file sku_catalog:data/seeds/standard_sku.sample.csv \
+            --file ai_knowledge:data/seeds/rag_knowledge.sample.jsonl
+
       - name: Ruff check (non-blocking)
         # 仅提示不阻断：仓库既有后端源码存在存量告警（B008：FastAPI 以 Depends(...)
         # 作函数默认值；UP045/I001 等风格项），属脚手架既有风格。
@@ -99,3 +112,25 @@ jobs:
           npm run type-check
           npm run build:mp-weixin
           npm run build:h5
+
+  admin:
+    name: Admin type-check & build (guarded)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # admin 脚手架由 P0 交付，尚不存在时整段跳过（与 frontend job 同风格）。
+      - uses: actions/setup-node@v4
+        if: ${{ hashFiles('admin/package.json') != '' }}
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      # admin 的 build 脚本 = vue-tsc --noEmit && vite build，兼作类型门禁。
+      - name: Install & build
+        if: ${{ hashFiles('admin/package.json') != '' }}
+        working-directory: admin
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build

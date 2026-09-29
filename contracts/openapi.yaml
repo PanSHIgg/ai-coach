@@ -11,7 +11,12 @@ info:
       失败 {"code":<非0>,"message":"...","data":null,"errors":{...}}
     HTTP 状态码映射：参数错 422(2001) / 未认证 401(1001) / 无权限 403(1002) / 资源不存在 404(3001) / 业务错 409(4001~7001) / 限流 429 / 服务错 500。
     通用错误码：0 成功 / 1001 未登录 / 1002 无权限 / 2001 参数校验失败 / 3001 资源不存在 / 4001 余额次数不足 /
-    5001 商家停业 / 5002 券不可用 / 5003 订单已超时 / 5004 核销码已使用 / 6001 AI 服务暂不可用 / 7001 邀请已达上限。
+    4002 重复请求（幂等拦截）/ 5001 商家停业 / 5002 券不可用 / 5003 订单已超时 / 5004 核销码已使用 /
+    6001 AI 服务暂不可用 / 7001 邀请已达上限。
+    幂等与防重放（Phase 5 / F6）：写接口（POST/PUT/PATCH/DELETE）可携带 `Idempotency-Key` 请求头
+      （客户端为每个逻辑操作生成唯一值）。同一身份 + 同一 key 在 300s 窗口内重复到达时，仅首次放行，
+      其余返回 **409 + 4002**（响应体另含 "idempotency_replayed": true）。未携带该头的请求行为不变。
+    运维端点（不在 /api 契约内）：GET /healthz（存活探针）、GET /metrics（Prometheus 指标）。
     【假设】限流(429)与服务错(500)的业务 code 复用 HTTP 状态码（05 文档错误码表未定义）。
     【假设】/api/ai/chat 首期统一返回 JSON；SSE 流式由 Accept: text/event-stream 预留，后续另行扩展。
     【假设】埋点 tag 为预留分组，34 接口清单中暂无埋点上报接口。
@@ -779,6 +784,42 @@ paths:
           $ref: '#/components/responses/NotFound404'
         '409':
           $ref: '#/components/responses/OrderTimeout'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/order/{id}/refund:
+    post:
+      tags: [订单]
+      summary: 申请退款（已支付待核销订单 → 已退款）
+      operationId: refundOrder
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundIn'
+      responses:
+        '200':
+          description: 退款受理结果（订单 status=5 已退款）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RefundData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
         '500':
           $ref: '#/components/responses/ServerError'
   /api/order/notify:
@@ -1919,7 +1960,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          $ref: '#/components/responses/NotFound404'
         '422':
           $ref: '#/components/responses/Validation422'
         '500':
@@ -1953,7 +1994,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          $ref: '#/components/responses/NotFound404'
         '422':
           $ref: '#/components/responses/Validation422'
         '500':
@@ -1987,7 +2028,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          $ref: '#/components/responses/NotFound404'
         '422':
           $ref: '#/components/responses/Validation422'
         '500':
@@ -2089,7 +2130,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
-          $ref: '#/components/responses/NotFound'
+          $ref: '#/components/responses/NotFound404'
         '422':
           $ref: '#/components/responses/Validation422'
         '500':
@@ -2380,6 +2421,37 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '422':
           $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/track:
+    post:
+      tags: [埋点]
+      summary: 埋点事件批量上报（允许匿名，最多 50 条/次）
+      operationId: reportTrack
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackIn'
+      responses:
+        '200':
+          description: 成功受理的事件条数
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TrackData'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
 components:
@@ -3721,3 +3793,54 @@ components:
         status: { type: integer }
         subscribe_count: { type: integer }
         last_subscribe_at: { type: string, format: date-time, nullable: true }
+    TrackEventIn:
+      type: object
+      required: [event]
+      properties:
+        event:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: '事件名，如 login / meal_photo / ai_chat / order_pay / scan_in'
+        properties:
+          type: object
+          additionalProperties: true
+          description: 事件属性（渠道、页面、时长等）
+        occurred_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 缺省用服务端 NOW()
+    TrackIn:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/TrackEventIn'
+        device_id: { type: string, maxLength: 64, nullable: true }
+        platform:
+          type: integer
+          minimum: 1
+          maximum: 3
+          default: 1
+          description: 1小程序 2H5 3admin后台
+    TrackData:
+      type: object
+      required: [accepted]
+      properties:
+        accepted: { type: integer, description: 成功受理的事件条数 }
+    RefundIn:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 128, nullable: true }
+    RefundData:
+      type: object
+      required: [order_id, status, refunded]
+      properties:
+        order_id: { type: integer }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        refunded: { type: boolean }

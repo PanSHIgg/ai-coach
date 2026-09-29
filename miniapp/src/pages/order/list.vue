@@ -77,6 +77,7 @@ import { ref } from 'vue'
 import { onLoad, onReachBottom } from '@dcloudio/uni-app'
 import { getOrders, payOrder } from '@/api/order'
 import { useToast } from '@/composables/useToast'
+import { track } from '@/utils/track'
 import type { OrderBrief } from '@/types/api'
 
 const TABS = [
@@ -174,6 +175,12 @@ async function repay(o: OrderBrief) {
   payingId.value = o.id
   try {
     await payOrder(o.id)
+    // 扫码转化率（分子）：继续支付成功
+    track('order_pay', {
+      order_id: o.id,
+      merchant_id: o.merchant_id,
+      amount: o.pay_amount,
+    })
     toast.success({ title: '支付成功(模拟)' })
     expandedId.value = null
     await loadPage(true)

@@ -1,0 +1,142 @@
+# ============================================================
+# CD · 构建镜像（git short sha 打标）→ 推送占位 → 分环境部署 + 回滚（F9）
+# 触发：打 tag（v*）自动走 staging；prod 需人工在 Environment 审核后放行。
+# 说明：镜像仓/服务器凭据用占位（secrets + echo），未配置时仅演练不实际推送/部署。
+# ============================================================
+name: CD
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "目标环境"
+        type: choice
+        options: [staging, prod]
+        default: staging
+      image_sha:
+        description: "回滚目标 git short sha（仅 rollback 使用）"
+        type: string
+        default: ""
+
+env:
+  # 占位：替换为真实镜像仓地址
+  IMAGE_REPO: registry.example.com/ai-coach/api
+
+jobs:
+  build:
+    name: Build & push image (git sha)
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve git short sha
+        id: meta
+        run: |
+          SHA="$(git rev-parse --short HEAD)"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE_REPO}:${SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Docker build (backend)
+        run: |
+          docker build \
+            -f deploy/Dockerfile.backend \
+            -t "${IMAGE_REPO}:${{ steps.meta.outputs.sha }}" \
+            .
+
+      - name: Login registry (占位)
+        # 需在仓库 Secrets 配置 REGISTRY_USERNAME / REGISTRY_PASSWORD
+        run: |
+          echo "docker login ${IMAGE_REPO%%/*} --username \"\$REGISTRY_USERNAME\" --password-stdin"
+          # echo "$REGISTRY_PASSWORD" | docker login "${IMAGE_REPO%%/*}" -u "$REGISTRY_USERNAME" --password-stdin
+
+      - name: Push image (占位)
+        run: |
+          echo "docker push ${IMAGE_REPO}:${{ steps.meta.outputs.sha }}"
+          # docker push "${IMAGE_REPO}:${{ steps.meta.outputs.sha }}"
+
+      - name: Save image digest as artifact
+        run: |
+          echo "image=${IMAGE_REPO}:${{ steps.meta.outputs.sha }}" > image-ref.txt
+          echo "sha=${{ steps.meta.outputs.sha }}" >> image-ref.txt
+          cat image-ref.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-ref
+          path: image-ref.txt
+
+  deploy-staging:
+    name: Deploy → staging
+    needs: build
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging') }}
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Migration (先测后 prod：staging 先跑 alembic)
+        run: |
+          echo "在 staging 执行：docker compose exec -T api alembic upgrade head"
+          # ssh $STAGING_HOST "cd /srv/ai-coach && docker compose -f deploy/docker-compose.yml exec -T api alembic upgrade head"
+
+      - name: Roll out new image
+        run: |
+          echo "GIT_SHA=${{ needs.build.outputs.sha }} docker compose -f deploy/docker-compose.yml up -d --build"
+          # ssh $STAGING_HOST "cd /srv/ai-coach && GIT_SHA=${{ needs.build.outputs.sha }} docker compose -f deploy/docker-compose.yml pull && GIT_SHA=${{ needs.build.outputs.sha }} docker compose -f deploy/docker-compose.yml up -d"
+
+      - name: Smoke check
+        run: |
+          echo "curl -fsS https://staging.example.com/healthz"
+
+  deploy-prod:
+    name: Deploy → prod
+    needs: build
+    # 生产仅允许：打 tag 发布，或手动指定 prod 环境（Environment 需配置审批人）
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'prod') }}
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pre-deploy backup (执行前备份)
+        run: |
+          echo "pg_dump 备份 + 记录当前镜像 sha（用于回滚）"
+          # ssh $PROD_HOST "pg_dump ... > /backup/ai_coach_$(date +%F_%H%M).sql"
+
+      - name: Migration (prod)
+        run: |
+          echo "在 prod 执行：alembic upgrade head（只加字段，保证可回滚）"
+
+      - name: Canary rollout (10% → 100%)
+        run: |
+          echo "灰度：先 10% 放量，观察 N 分钟，再 100%"
+
+      - name: Verify (行数/健康)
+        run: |
+          echo "curl -fsS https://example.com/healthz && 校验关键表行数"
+
+  rollback:
+    name: Rollback → previous image
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.image_sha != '' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Roll back to previous git sha
+        run: |
+          echo "回滚到 sha=${{ inputs.image_sha }}"
+          # ssh $HOST "cd /srv/ai-coach && GIT_SHA=${{ inputs.image_sha }} docker compose -f deploy/docker-compose.yml up -d"
+
+      - name: Post-rollback check
+        run: |
+          echo "curl -fsS https://example.com/healthz"
+          echo "若迁移不可逆：执行 reverse migration（见 deploy/灰度发布方案.md 回滚章节）"

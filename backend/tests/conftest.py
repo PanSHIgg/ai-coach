@@ -28,6 +28,10 @@ for _k in ("WECHAT_APPID", "WECHAT_SECRET", "JWT_SECRET", "JWT_ALGORITHM"):
 # Phase 1：DB 基建指向本地 PG（真实 schema），可用环境变量覆盖。
 # 注意：不覆盖 REDIS_URL——限流用例需 Redis 不可达以走进程内兜底（见 make_settings）。
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach")
+# Phase 5：测试进程内禁用连接池。app 引擎是**进程级单例**，而 pytest 每个用例独立事件循环；
+# 一旦引擎以带池方式创建（如某用例走默认 Settings），该池即绑定到那个 loop，后续用例复用会报
+# 「attached to a different loop」。此处用环境变量兜住所有 Settings 构造路径（含默认 Settings）。
+os.environ.setdefault("DB_POOL_DISABLED", "true")
 
 from app.core.config import Settings  # noqa: E402
 from app.core.security import create_access_token  # noqa: E402
@@ -72,6 +76,8 @@ _TRUNCATE_TABLES = (
     "challenge",
     "leaderboard",
     "review",
+    # Phase 5 埋点域
+    "track_event",
 )
 
 
@@ -81,6 +87,10 @@ def make_settings(**overrides) -> Settings:
         RATE_LIMIT_ENABLED=False,
         DATABASE_URL=DB_URL,
         REDIS_URL="redis://127.0.0.1:6390/0",  # 不可达端口 → 限流走进程内兜底
+        # 测试用：app 级引擎回退 NullPool。pytest 每个用例独立事件循环，而 app 引擎是
+        # 模块级单例，复用连接池会报「attached to a different loop」（Phase 5 改池后暴露）。
+        # 生产单 loop 运行，走真实连接池（见 perf/report.md）。
+        DB_POOL_DISABLED=True,
     )
     defaults.update(overrides)
     return Settings(_env_file=None, **defaults)

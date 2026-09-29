@@ -84,6 +84,16 @@ class Settings(BaseSettings):
     RATE_LIMIT_AUTH_PER_MIN: int = 10
     RATE_LIMIT_ADMIN_LOGIN_PER_MIN: int = 5  # IS-007: admin 登录严格档
 
+    # ---- DB 连接池（Phase 5 F5：默认走真实池，替代全程 NullPool）----
+    DB_POOL_SIZE: int = 10
+    DB_POOL_MAX_OVERFLOW: int = 20
+    DB_POOL_RECYCLE: int = 1800
+    DB_POOL_DISABLED: bool = False  # True → 回退 NullPool（跨事件循环复用 engine 的场景）
+
+    # ---- 幂等 / 防重放（Phase 5 F6）----
+    IDEMPOTENCY_ENABLED: bool = True
+    IDEMPOTENCY_TTL_SECONDS: int = 300  # 同 Idempotency-Key 的去重窗口（秒）
+
 
 @lru_cache
 def get_settings() -> Settings:

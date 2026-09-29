@@ -761,3 +761,33 @@ export interface SubscriptionOut {
   subscribe_count: number;
   last_subscribe_at?: string | null;
 }
+
+/* ---------- 埋点（F3） ---------- */
+
+export interface TrackEventIn {
+  event: string; // 如 login/meal_photo/ai_chat/order_pay/scan_in
+  properties?: Record<string, unknown>;
+  occurred_at?: string | null; // 缺省用服务端时间
+}
+
+export interface TrackIn {
+  events: TrackEventIn[]; // 1-50 条
+  device_id?: string | null;
+  platform?: 1 | 2 | 3; // 1小程序 2H5 3admin后台
+}
+
+export interface TrackData {
+  accepted: number;
+}
+
+/* ---------- 退款（F1） ---------- */
+
+export interface RefundIn {
+  reason?: string | null;
+}
+
+export interface RefundData {
+  order_id: number;
+  status: 1 | 2 | 3 | 4 | 5; // 5已退款
+  refunded: boolean;
+}

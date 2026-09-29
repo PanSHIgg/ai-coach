@@ -2,15 +2,22 @@
   <div>
     <el-alert
       v-if="isFallback"
-      title="后端未连接，演示数据"
+      title="后端未连接，展示演示数据"
       type="warning"
       show-icon
       :closable="false"
       class="fallback-alert"
     />
 
+    <el-alert v-if="error" type="error" show-icon :closable="false" class="fallback-alert">
+      <template #title>
+        <span>{{ error }}</span>
+        <el-button link type="primary" size="small" class="retry-btn" @click="load">重试</el-button>
+      </template>
+    </el-alert>
+
     <el-card class="page-card">
-      <el-tabs v-model="activeTab" @tab-change="load">
+      <el-tabs v-model="activeTab" @tab-change="onTabChange">
         <el-tab-pane label="全部" name="all" />
         <el-tab-pane label="待审" name="0" />
         <el-tab-pane label="已通过" name="1" />
@@ -86,6 +93,7 @@ const pageSize = ref(20)
 const activeTab = ref<'all' | '0' | '1' | '2'>('all')
 const loading = ref(false)
 const isFallback = ref(false)
+const error = ref<string | null>(null)
 
 const FALLBACK: AdminAuditItem[] = [
   {
@@ -134,6 +142,7 @@ function statusTagType(s: number): 'warning' | 'success' | 'danger' | 'info' {
 
 async function load(): Promise<void> {
   loading.value = true
+  error.value = null
   try {
     const params: { status?: number; page: number; page_size: number } = {
       page: page.value,
@@ -146,13 +155,26 @@ async function load(): Promise<void> {
     items.value = data.items
     total.value = data.page.total
     isFallback.value = false
-  } catch {
-    items.value = FALLBACK
-    total.value = FALLBACK.length
-    isFallback.value = true
+  } catch (err) {
+    if (isNetworkError(err)) {
+      items.value = FALLBACK
+      total.value = FALLBACK.length
+      isFallback.value = true
+    } else {
+      items.value = []
+      total.value = 0
+      isFallback.value = false
+      error.value = err instanceof Error ? err.message : '审核队列加载失败'
+    }
   } finally {
     loading.value = false
   }
+}
+
+/** 切换筛选 tab 时回到第 1 页，避免分页越界导致空白页 */
+function onTabChange(): void {
+  page.value = 1
+  load()
 }
 
 async function onReview(row: AdminAuditItem, status: 1 | 2): Promise<void> {
@@ -194,6 +216,10 @@ onMounted(load)
 </script>
 
 <style scoped>
+.retry-btn {
+  margin-left: 8px;
+}
+
 .pager {
   margin-top: 16px;
   justify-content: flex-end;

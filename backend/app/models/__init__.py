@@ -710,6 +710,26 @@ class Review(Base):
     created_at: Mapped[datetime] = _ts()
 
 
+class TrackEvent(Base):
+    """埋点事件（track_event）：6 项核心指标数据源（F3）。
+
+    user_id 可空（登录前/匿名），高频写入不建 FK（对齐 001_schema.sql 表注释）。
+    """
+
+    __tablename__ = "track_event"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    event: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    device_id: Mapped[str | None] = mapped_column(String(64))
+    platform: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    properties: Mapped[dict | None] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = _ts()
+
+
 __all__ = [
     "AdminUser",
     "AiDialog",
@@ -742,6 +762,7 @@ __all__ = [
     "Subscription",
     "Supervise",
     "SkuCatalog",
+    "TrackEvent",
     "User",
     "UserAuth",
     "UserBenefit",

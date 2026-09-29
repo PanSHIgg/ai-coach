@@ -59,10 +59,14 @@ async function load() {
 }
 
 async function join(c: ChallengeItem) {
-  const res = await joinChallenge(c.id)
-  c.joined = true
-  c.join_count = res.join_count
-  toast.success({ title: '已参加挑战赛' })
+  try {
+    const res = await joinChallenge(c.id)
+    c.joined = true
+    c.join_count = res.join_count
+    toast.success({ title: '已参加挑战赛' })
+  } catch {
+    // request 层已 toast；失败不改本地态
+  }
 }
 
 async function showBoard(c: ChallengeItem) {
@@ -70,8 +74,12 @@ async function showBoard(c: ChallengeItem) {
     delete boards[c.id]
     return
   }
-  const res = await challengeLeaderboard(c.id)
-  boards[c.id] = res.items
+  try {
+    const res = await challengeLeaderboard(c.id)
+    boards[c.id] = res.items
+  } catch {
+    // request 层已 toast；失败保持收起态
+  }
 }
 
 onShow(() => {

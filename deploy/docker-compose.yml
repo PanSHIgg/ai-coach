@@ -2,7 +2,9 @@
 # AI 饮食管控教练 · 本地开发/部署编排（P0-g）
 # 启动：在 code/ 根目录执行
 #   cp .env.example .env
-#   docker compose -f deploy/docker-compose.yml up -d
+#   GIT_SHA=$(git rev-parse --short HEAD) \
+#     docker compose -f deploy/docker-compose.yml up -d --build
+# 镜像 tag 由 GIT_SHA 决定（§10.6 回滚：切回上一 sha 镜像即可）
 # ============================================================
 name: ai-coach
 
@@ -42,6 +44,7 @@ services:
     restart: unless-stopped
 
   api:
+    image: ai-coach-api:${GIT_SHA:-latest}
     build:
       context: ..
       dockerfile: deploy/Dockerfile.backend
@@ -59,6 +62,7 @@ services:
       PAY_MOCK_MODE: ${PAY_MOCK_MODE:-false}
     volumes:
       - uploads:/app/uploads
+      - logs:/var/log/app          # 日志落盘（§10.7；Cron 打包上传 COS 保留 30 天）
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,6 +75,44 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    # 日志落盘 + 轮转（宿主 /var/lib/docker/containers，单文件 20m、保留 5 份）
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    restart: unless-stopped
+
+  # 后台任务 worker（§10.3）：复用后端镜像，跑每日热量快照（app/tasks/snapshot.py）。
+  # Dockerfile.backend 无 worker 入口，故此处给出合理 CMD：每日循环执行一次幂等快照。
+  # 生产推荐改用 APScheduler/cron 或 Redis Streams 常驻消费者（见 snapshot.py 文档串）。
+  worker:
+    image: ai-coach-api:${GIT_SHA:-latest}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: ai-coach-worker
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
+      REDIS_URL: redis://redis:6379/0
+    command: ["sh", "-c", "while true; do python -m app.tasks.snapshot --once || true; sleep 86400; done"]
+    volumes:
+      - logs:/var/log/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     restart: unless-stopped
 
   nginx:
@@ -78,16 +120,58 @@ services:
     container_name: ai-coach-nginx
     ports:
       - "${NGINX_PORT:-80}:80"
+      - "${NGINX_SSL_PORT:-443}:443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - uploads:/uploads:ro
       # 管理后台构建产物就绪后挂载（admin 脚手架由并行代理交付）：
       # - ../admin/dist:/usr/share/nginx/html/admin:ro
+      # 生产 443：Let's Encrypt 证书目录（Certbot 自动续期）：
+      # - ./certbot/conf:/etc/letsencrypt:ro
     depends_on:
       - api
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    restart: unless-stopped
+
+  # ---- 监控（F9 / §10.7）：Prometheus 采集 /metrics，Grafana 看板 ----
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: ai-coach-prometheus
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - promdata:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: ai-coach-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafanadata:/var/lib/grafana
+      # 看板 JSON 挂载后手动导入（或后续用 provisioning 目录自动加载）：
+      - ./grafana/dashboard.json:/var/lib/grafana/dashboards/ai-coach-f9.json:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
     restart: unless-stopped
 
 volumes:
   pgdata:
   redisdata:
   uploads:
+  logs:
+  promdata:
+  grafanadata:

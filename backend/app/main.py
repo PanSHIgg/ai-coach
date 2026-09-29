@@ -1,6 +1,7 @@
 """应用入口：create_app 工厂（P0-e）。
 
-中间件顺序（外→内）：CORS → RequestId → RateLimit → 路由。
+中间件顺序（外→内）：Metrics → CORS → RequestId → RateLimit → Idempotency → 路由。
+运维端点：/healthz（存活）、/metrics（Prometheus 指标，Phase 5 F9）。
 异常处理：AppException → envelope（业务码映射 HTTP 状态）；
 RequestValidationError → 422/2001；HTTPException → 映射业务码；兜底 → 500。
 """
@@ -15,9 +16,11 @@ from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.context import get_request_id
 from app.core.errors import AppException
+from app.core.idempotency import IdempotencyMiddleware
 from app.core.logging import get_logger, setup_logging
 from app.core.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIdMiddleware
+from app.observability.metrics import install_metrics
 from app.schemas.common import ErrorCode, fail
 
 logger = get_logger(__name__)
@@ -91,7 +94,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content=fail(ErrorCode.SERVER_ERROR, request_id=get_request_id()),
         )
 
-    # ---- 中间件（add 顺序 = 内→外；执行顺序相反：CORS → RequestId → RateLimit）----
+    # ---- 中间件（add 顺序 = 内→外；执行顺序相反（外→内）：Metrics → CORS →
+    # RequestId → RateLimit → Idempotency）----
+    # 注：MetricsMiddleware 由 install_metrics() 最后 add → 最外层（最先执行、最后收尾计时）。
+    app.add_middleware(IdempotencyMiddleware, settings=s)
     app.add_middleware(RateLimitMiddleware, settings=s)
     app.add_middleware(RequestIdMiddleware)
     origins = [o.strip() for o in s.CORS_ALLOW_ORIGINS.split(",") if o.strip()]
@@ -108,8 +114,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def healthz() -> dict:
         return {"status": "ok"}
 
-    # ---- 业务路由（/api 前缀 → openapi.yaml 34 接口）----
+    # ---- 业务路由（/api 前缀 → openapi.yaml 全部接口）----
     app.include_router(api_router, prefix=s.API_PREFIX)
+
+    # ---- 可观测性（Phase 5 F9）：/metrics + 请求计数/延迟中间件 ----
+    install_metrics(app)
     return app
 
 

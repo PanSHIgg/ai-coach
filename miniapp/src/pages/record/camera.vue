@@ -78,6 +78,7 @@ import { useUserStore } from '@/stores/user'
 import { createMeal } from '@/api/records'
 import { BASE_URL, getToken } from '@/api/request'
 import { useToast } from '@/composables/useToast'
+import { track } from '@/utils/track'
 import type { Envelope, RecognizeData, RecognizedItem } from '@/types/api'
 
 /** 识别项 + 可编辑分量（字符串便于输入框双向绑定） */
@@ -159,6 +160,8 @@ function uploadRecognize(filePath: string): Promise<RecognizeData> {
 }
 
 async function recognize(path: string) {
+  // 识别成功率（分母）：发起一次拍照识别
+  track('meal_photo', { meal_type: mealType.value })
   recognizing.value = true
   failed.value = false
   items.value = []
@@ -172,6 +175,13 @@ async function recognize(path: string) {
     toast.error({ title: (e as Error).message || '识别失败，换个角度或手动搜索' })
   } finally {
     recognizing.value = false
+    // 识别成功率（分子/分母）：回传结果，供报表聚合 success/confidence/need_confirm
+    const confidence = items.value.reduce((max, it) => Math.max(max, it.confidence ?? 0), 0)
+    track('ai_recognize', {
+      success: !failed.value && items.value.length > 0,
+      confidence: Number(confidence.toFixed(4)),
+      need_confirm: needConfirm.value,
+    })
   }
 }
 
