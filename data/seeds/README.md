@@ -74,3 +74,7 @@ python3 data/testcases/gen_calorie_cases.py
 
 > 导入默认 `TRUNCATE` 目标表以保证幂等；`food` 使用 `TRUNCATE ... CASCADE`（会一并清空 `food_alias`），
 > 清空顺序为「子表→父表」。加 `--no-truncate` 可追加导入不清空。
+
+## DATA3 RAG 知识库
+
+正式语料文件为 `ai_knowledge_full.jsonl`，包含预置 FAQ 与体重管理 RAG 知识；可先执行 `python3 data/load_ai_knowledge.py --dry-run` 校验，再执行 `python3 data/load_ai_knowledge.py --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach" --truncate` 清空并导入，日常重复导入不加 `--truncate` 时会按 `title` 跳过已有条目。

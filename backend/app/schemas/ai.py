@@ -9,7 +9,8 @@ class AiChatIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     session_id: str  # uuid
-    message: str = Field(min_length=1)
+    # 上界防超长提示词打爆 LLM 费用/超时（>500 字 → 422/2001）
+    message: str = Field(min_length=1, max_length=500)
 
 
 class AiChatData(BaseModel):

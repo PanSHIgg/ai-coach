@@ -152,10 +152,14 @@
       </view>
     </CCard>
 
-    <!-- AI 教练卡占位（Phase 2 接入真数据） -->
+    <!-- AI 教练卡（Phase 2：次数接 api.getTimes()，入口进 AI 对话页） -->
     <CCard title="AI 教练" class="home__card">
       <text class="ai__line">{{ aiTip1 }}</text>
       <text class="ai__line">{{ aiTip2 }}</text>
+      <!-- 剩余次数：加载中 / 失败均有兜底文案，不空白 -->
+      <text class="ai__times" :class="{ 'ai__times--zero': aiTimesLeft === 0 }">
+        {{ aiTimesText }}
+      </text>
       <view class="ai__actions">
         <CButton size="sm" @click="onCoach">问教练</CButton>
         <CButton size="sm" type="secondary" @click="onHunger">饥饿急救</CButton>
@@ -186,11 +190,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { useAccountStore } from '@/stores/account'
 import { useToast } from '@/composables/useToast'
+import { getTimes } from '@/api/ai'
 import type { MealSummary } from '@/types/api'
 
 const userStore = useUserStore()
@@ -306,6 +311,31 @@ const coreMetrics = computed(() => {
   ]
 })
 
+/* ---------- AI 教练卡：剩余次数（Phase 2 接 api.getTimes()） ---------- */
+/** 今日剩余 AI 次数：null=未拉取/拉取失败（兜底文案，不锁入口） */
+const aiTimesLeft = ref<number | null>(null)
+const aiTimesLoaded = ref(false)
+
+const aiTimesText = computed(() => {
+  if (!aiTimesLoaded.value) return 'AI 次数加载中…'
+  if (aiTimesLeft.value === null) return 'AI 次数暂不可用'
+  if (aiTimesLeft.value === 0) return '今日剩余 0 次，邀请好友解锁'
+  return `今日剩余 ${aiTimesLeft.value} 次`
+})
+
+async function loadAiTimes() {
+  try {
+    const data = await getTimes()
+    aiTimesLeft.value = data?.times_left ?? null
+  } catch (e) {
+    // 失败保留 null（文案降级为"暂不可用"），不让卡片空白
+    aiTimesLeft.value = null
+    void e
+  } finally {
+    aiTimesLoaded.value = true
+  }
+}
+
 /* ---------- AI 教练卡文案（Phase 2 前静态占位） ---------- */
 const aiTip1 = computed(() => {
   if (userStore.needProfile) return '先完善身体档案，AI 才能给出个性化建议。'
@@ -320,6 +350,7 @@ const aiTip2 = computed(() =>
 /* ---------- 快捷服务 ---------- */
 const services = [
   { icon: '🔍', label: 'AI 检测', action: goCamera },
+  { icon: '🍽️', label: '吃什么', action: goEat },
   { icon: '📅', label: '一键预约', action: () => onPlaceholder('一键预约（Phase 3 接入）') },
   { icon: '🏪', label: '商家比价', action: goMerchant },
   { icon: '👨‍⚕️', label: '教练问诊', action: () => onPlaceholder('教练问诊（Phase 2 接入）') },
@@ -334,6 +365,7 @@ onShow(() => {
   if (!userStore.detail) userStore.fetchMe()
   accountStore.refresh() // 拍照 / 记录返回后刷新账户
   if (!userStore.profileLoaded) userStore.fetchProfile()
+  loadAiTimes()
 })
 
 /* ---------- 跳转 / 交互 ---------- */
@@ -345,6 +377,9 @@ function goAccountDetail() {
 }
 function goCamera() {
   uni.navigateTo({ url: '/pages/record/camera' })
+}
+function goEat() {
+  uni.navigateTo({ url: '/pages/eat/eat' })
 }
 function goFoodList() {
   uni.navigateTo({ url: '/pages/record/food-list' })
@@ -358,11 +393,12 @@ function goMerchant() {
 function onPlaceholder(text: string) {
   toast.info({ title: text })
 }
+/** 【假设】饥饿急救话术在 chat 页实现，首页直接带参跳转复用，避免两处维护 */
 function onCoach() {
-  onPlaceholder('AI 教练（Phase 2 接入）')
+  uni.navigateTo({ url: '/pages/ai/chat' })
 }
 function onHunger() {
-  onPlaceholder('饥饿急救（Phase 2 接入）')
+  uni.navigateTo({ url: '/pages/ai/chat?hunger=1' })
 }
 </script>
 
@@ -632,6 +668,18 @@ function onHunger() {
     font-size: $t-26;
     color: $text-1;
     line-height: 1.6;
+  }
+
+  &__times {
+    display: block;
+    margin-top: $space-xs;
+    font-size: $t-22;
+    color: $text-3;
+
+    // 次数用尽（06 §1.5 验收项用词一致）
+    &--zero {
+      color: $danger;
+    }
   }
 
   &__actions {

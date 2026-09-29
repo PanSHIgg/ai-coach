@@ -162,7 +162,7 @@ export interface FoodSearchData {
 }
 
 export interface RecognizedItem {
-  food_id: number;
+  food_id: number | null; // 未匹配到食物库时为 null（此时 need_confirm=true）
   name: string;
   confidence: number; // <0.7 需确认
   amount_g: number;

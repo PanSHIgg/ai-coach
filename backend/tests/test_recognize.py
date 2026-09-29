@@ -1,0 +1,183 @@
+"""拍照识别测试（Phase 2 BE4a）。
+
+独立成文理由：`/api/meal/recognize` 是 BE4a 新增行为，现有 `test_meal.py` 只覆盖 Phase 1 的
+饮食记录 CRUD，混写会稀释该文件主题；`test_food_search.py` 覆盖的是搜索列表，与识别无关。
+
+分层（禁止真实联网，视觉客户端一律本地注入）：
+- 纯逻辑：食物表命中/未命中的热量来源、need_confirm 判定、候选归一化与条数上限——不连库不联网；
+- 接口行为：multipart 上传结构、入参 422、AI 异常降级 6001——走 db_client + authed。
+  （401 鉴权与其它本波端点合并为 `test_ai_chat.py::test_ai_endpoints_require_auth`，见 §2.9）
+"""
+
+import httpx
+import pytest
+
+from app.ai.base import VisionClient
+from app.models import Food, FoodAlias
+from app.services import recognize_service as rs
+
+
+class _StubVision(VisionClient):
+    """本地视觉客户端桩：可注入固定候选或直接抛错（模拟超时/解析失败）。"""
+
+    def __init__(self, items: list[dict] | None = None, error: Exception | None = None):
+        self.items = items or []
+        self.error = error
+
+    def recognize_food(self, image_bytes: bytes) -> list[dict]:
+        if self.error is not None:
+            raise self.error
+        return self.items
+
+
+def _patch_vision(monkeypatch, client: VisionClient) -> None:
+    monkeypatch.setattr(
+        "app.services.recognize_service.get_vision_client", lambda settings: client
+    )
+
+
+async def _seed_food(db_session, name: str, kcal_100g: float) -> Food:
+    food = Food(name=name, calories_100g=kcal_100g, status=1)
+    db_session.add(food)
+    await db_session.commit()
+    return food
+
+
+def _upload(filename: str = "meal.jpg", size: int = 1024) -> dict:
+    return {"image": (filename, b"x" * size, "image/jpeg")}
+
+
+# ---------------------------------------------------------------------------
+# 纯逻辑
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "matched,expect",
+    [
+        (rs.MatchedFood(id=208, name="清蒸鱼", calories_100g=120.0), (208, "清蒸鱼", 180.0)),
+        (None, (rs.UNMATCHED_FOOD_ID, "清蒸鱼", 300.0)),
+    ],
+    ids=["matched", "unmatched"],
+)
+def test_build_item_calorie_source(matched, expect):
+    candidate = rs.Candidate(name="清蒸鱼", confidence=0.92, portion_g=150.0, kcal_100g=200.0)
+    item = rs.build_item(candidate, matched)
+    assert (item.food_id, item.name, item.calories) == expect
+
+
+@pytest.mark.parametrize(
+    "items,expect",
+    [
+        ([rs.Candidate("红烧肉", 0.61, 100.0, 480.0)], True),  # 置信度低于 0.7
+        ([rs.Candidate("清蒸鱼", 0.92, 150.0, 120.0)], False),  # 命中且置信度达标
+        ([rs.Candidate("米饭", 0.95, 100.0, 116.0)], True),  # 高置信但未命中 food 表
+    ],
+    ids=["low_confidence", "confirmed", "unmatched"],
+)
+def test_resolve_need_confirm(items, expect):
+    built = [
+        rs.build_item(c, None if c.name == "米饭" else rs.MatchedFood(1, c.name, 120.0))
+        for c in items
+    ]
+    assert rs.resolve_need_confirm(built, 0.7) is expect
+
+
+def test_normalize_candidates_caps_and_converts_calorie_estimate():
+    # Mock 客户端形态（只有总 kcal）+ 超过 5 条 → 截断；份量缺失 → 默认 150g
+    raw = [{"name": f"菜{i}", "confidence": 0.9, "calorie_estimate": 300} for i in range(6)]
+    items = rs.normalize_candidates(raw)
+    assert len(items) == rs.MAX_ITEMS
+    assert items[0] == rs.Candidate(name="菜0", confidence=0.9, portion_g=150.0, kcal_100g=200.0)
+
+
+# ---------------------------------------------------------------------------
+# 接口行为
+# ---------------------------------------------------------------------------
+
+
+async def test_recognize_matches_food_table(db_client, db_session, authed, monkeypatch):
+    fish = await _seed_food(db_session, "清蒸鱼", 120.0)
+    rice = await _seed_food(db_session, "米饭", 116.0)
+    _patch_vision(
+        monkeypatch,
+        _StubVision(
+            [
+                {"name": "清蒸鱼", "confidence": 0.92, "portion_g": 150, "kcal_100g": 999},
+                {"name": "米饭", "confidence": 0.75, "portion_g": 100, "kcal_100g": 999},
+            ]
+        ),
+    )
+    resp = await db_client.post(
+        "/api/meal/recognize", headers=authed["headers"], files=_upload()
+    )
+    body = resp.json()
+    assert resp.status_code == 200 and body["code"] == 0
+    data = body["data"]
+    assert data["request_id"] == body["request_id"] != ""
+    # 命中 food 表：热量按表里的 calories_100g 算，而非模型给的 999
+    assert [(i["food_id"], i["name"], i["calories"]) for i in data["items"]] == [
+        (fish.id, "清蒸鱼", 180.0),
+        (rice.id, "米饭", 116.0),
+    ]
+    assert data["need_confirm"] is False
+
+
+async def test_recognize_matches_food_alias(db_client, db_session, authed, monkeypatch):
+    """兜底路径：视觉给的是别名，须经 food_alias 命中到同一条食物。"""
+    food = await _seed_food(db_session, "番茄炒蛋", 88.0)
+    db_session.add(FoodAlias(food_id=food.id, alias="西红柿炒鸡蛋"))
+    await db_session.commit()
+    _patch_vision(
+        monkeypatch,
+        _StubVision(
+            [{"name": "西红柿炒鸡蛋", "confidence": 0.95, "portion_g": 200, "kcal_100g": 0}]
+        ),
+    )
+    body = (
+        await db_client.post("/api/meal/recognize", headers=authed["headers"], files=_upload())
+    ).json()["data"]
+    assert body["items"][0]["food_id"] == food.id
+    assert body["items"][0]["calories"] == 176.0
+    assert body["need_confirm"] is False
+
+
+async def test_recognize_unmatched_item_needs_confirm(db_client, db_session, authed, monkeypatch):
+    _patch_vision(
+        monkeypatch,
+        _StubVision(
+            [{"name": "招牌外星汉堡", "confidence": 0.95, "portion_g": 100, "kcal_100g": 480}]
+        ),
+    )
+    body = (
+        await db_client.post("/api/meal/recognize", headers=authed["headers"], files=_upload())
+    ).json()["data"]
+    item = body["items"][0]
+    assert item["food_id"] is None  # 未命中 food 表 → null（契约 nullable）
+    assert item["calories"] == 480.0  # 回落模型估算
+    assert body["need_confirm"] is True
+
+
+async def test_recognize_ai_unavailable_6001(db_client, db_session, authed, monkeypatch):
+    _patch_vision(monkeypatch, _StubVision(error=httpx.ReadTimeout("AI 超时")))
+    resp = await db_client.post(
+        "/api/meal/recognize", headers=authed["headers"], files=_upload()
+    )
+    assert resp.status_code == 409
+    assert resp.json()["code"] == 6001
+    assert resp.json()["message"] == "没看清，换个角度再拍或手动搜索"
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"image": ("empty.jpg", b"", "image/jpeg")},  # 空文件
+        {"image": ("note.txt", b"hello", "text/plain")},  # 非图片
+        {"image": ("big.jpg", b"x" * (5 * 1024 * 1024 + 1), "image/jpeg")},  # 超 5MB
+    ],
+    ids=["empty", "not_image", "oversize"],
+)
+async def test_recognize_rejects_invalid_image(db_client, db_session, authed, files):
+    resp = await db_client.post("/api/meal/recognize", headers=authed["headers"], files=files)
+    assert resp.status_code == 422
+    assert resp.json()["code"] == 2001

@@ -57,6 +57,20 @@ class Settings(BaseSettings):
     AI_VISION_BASE_URL: str = ""
     AI_LLM_MODEL: str = "deepseek-chat"
 
+    # ---- ModelScope / Qwen（ai_api.md：Qwen3.8-Flash-Next，自带视觉，对话+VLM 统一）----
+    MS_API_KEY: str = ""
+    MS_BASE_URL: str = "https://api-inference.modelscope.cn/v1"
+    MS_MODEL: str = "Qwen/Qwen3.8-Flash-Next"
+    MS_ENABLE_THINKING: bool = False  # 对话场景关闭思考，省 token、降延迟
+    MS_MAX_TOKENS: int = 1024
+    MS_TIMEOUT: float = 20.0  # 对齐 plan.md：AI P95 < 3s，超时降级预置 FAQ
+
+    # ---- AI 通用 ----
+    # 识别置信度低于该值 → need_confirm=true，须用户确认（06 文档 §六）
+    AI_CONFIDENCE_THRESHOLD: float = 0.7
+    # 每日 AI 对话次数配额（user_benefit.ai_times_left 初始值）
+    AI_DAILY_TIMES: int = 10
+
     # ---- 管理后台初始账号 ----
     ADMIN_INIT_USERNAME: str = "admin"
     ADMIN_INIT_PASSWORD: str = "admin123456"

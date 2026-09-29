@@ -191,7 +191,16 @@ function itemCalories(it: EditableItem): number {
 /** 写入饮食记录（source=1 拍照） */
 async function onSave() {
   if (!items.value.length) return
-  for (const it of items.value) {
+  // food_id 为 null = 未命中食物库（契约 nullable）；MealCreateIn.food_id 必填，故只能跳过
+  const matched = items.value.filter((it) => it.food_id != null)
+  if (matched.length < items.value.length) {
+    toast.error({ title: '未匹配到食物，请手动搜索录入' })
+    if (!matched.length) {
+      goManual()
+      return
+    }
+  }
+  for (const it of matched) {
     const g = Number(it.amountText)
     if (!g || g <= 0) {
       toast.error({ title: '请填写正确的分量' })
@@ -204,10 +213,10 @@ async function onSave() {
   }
   saving.value = true
   try {
-    for (const it of items.value) {
+    for (const it of matched) {
       await createMeal({
         meal_type: mealType.value,
-        food_id: it.food_id,
+        food_id: it.food_id as number,
         amount_g: Number(it.amountText),
         source: 1,
         // 【假设】本地临时路径非服务端 URL，首期 image_url 留空
@@ -215,6 +224,8 @@ async function onSave() {
       })
     }
     toast.success({ title: '已记下来' })
+    // 广播识别结果：吃什么页 uni.$on('eat:recognized') 接收（见 pages/eat/eat.vue）
+    uni.$emit('eat:recognized', { foods: items.value.map((i) => i.name) })
     setTimeout(() => uni.navigateBack(), 600)
   } catch (e) {
     // 错误信息已由 request 封装 toast

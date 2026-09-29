@@ -5,7 +5,6 @@
 """
 
 from .base import LLMClient, VisionClient
-from .prompts import AI_DISCLAIMER
 
 # 疾病类规则置顶，避免被普通问题抢先命中
 _FAQ_RULES: list[tuple[tuple[str, ...], str]] = [

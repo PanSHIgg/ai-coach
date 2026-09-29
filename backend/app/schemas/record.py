@@ -41,7 +41,8 @@ class FoodSearchData(BaseModel):
 class RecognizedItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    food_id: int
+    # 未匹配到 food 表时为 None（契约 nullable），此时 need_confirm 必为 True
+    food_id: int | None = None
     name: str
     confidence: float  # <0.7 需用户确认
     amount_g: float

@@ -25,7 +25,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -286,7 +288,57 @@ class Subscription(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# AI 域（Phase 2：对话流水 + RAG 知识库）
+# ---------------------------------------------------------------------------
+
+
+class AiDialog(Base):
+    """AI 对话流水（ai_dialog）：按 session_id 串会话，user/assistant 各一行。"""
+
+    __tablename__ = "ai_dialog"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    session_id: Mapped[Uuid | None] = mapped_column(  # type: ignore[valid-type]
+        Uuid, server_default=text("uuid_generate_v4()"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)  # user / assistant
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    intent: Mapped[str | None] = mapped_column(String(64))
+    tokens: Mapped[int | None] = mapped_column(Integer)
+    model: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = _ts()
+
+
+class AiKnowledge(Base):
+    """RAG 知识库（ai_knowledge）：embedding 为 JSONB 占位，检索走 search_vec。"""
+
+    __tablename__ = "ai_knowledge"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    category: Mapped[str | None] = mapped_column(String(64), index=True)
+    title: Mapped[str | None] = mapped_column(String(256))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[dict | None] = mapped_column(JSONB)  # 【假设】向量占位，不做检索
+    source: Mapped[str | None] = mapped_column(String(256))
+    # 生成列：只读映射，写入时由数据库维护
+    search_vec: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, ''))",
+            persisted=True,
+        ),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = _ts()
+
+
 __all__ = [
+    "AiDialog",
+    "AiKnowledge",
     "Base",
     "BodyProfile",
     "DailySnapshot",

@@ -83,6 +83,18 @@
       "style": {
         "navigationBarTitleText": "体重记录"
       }
+    },
+    {
+      "path": "pages/eat/eat",
+      "style": {
+        "navigationBarTitleText": "吃什么"
+      }
+    },
+    {
+      "path": "pages/ai/chat",
+      "style": {
+        "navigationBarTitleText": "AI 教练"
+      }
     }
   ],
   "tabBar": {

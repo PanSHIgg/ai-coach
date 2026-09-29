@@ -1710,7 +1710,7 @@ components:
       type: object
       required: [food_id, name, confidence, amount_g, calories]
       properties:
-        food_id: { type: integer }
+        food_id: { type: integer, nullable: true, description: 未匹配到食物库时为 null（此时 need_confirm=true） }
         name: { type: string, example: 清蒸鱼 }
         confidence: { type: number, description: 置信度；<0.7 需用户确认 }
         amount_g: { type: number, description: 估计分量 g }
@@ -1844,7 +1844,7 @@ components:
       required: [session_id, message]
       properties:
         session_id: { type: string, format: uuid }
-        message: { type: string, minLength: 1 }
+        message: { type: string, minLength: 1, maxLength: 500 }
     AiChatData:
       type: object
       required: [reply, intent, times_left]

@@ -1,13 +1,12 @@
 """记录域接口（openapi: /api/food/search、/api/meal/*、/api/sport*，共 8 接口）。
 
 BE3 真实实现：食物 tsvector 检索、饮食记录 CRUD（写后重算当日）、运动记录。
-/api/meal/recognize（拍照识别）属 Phase 2 BE4a，本阶段保留 stub。
+/api/meal/recognize（拍照识别）为 Phase 2 BE4a 实现，识别逻辑在 services/recognize_service.py。
 """
 
-import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_request_id
@@ -24,12 +23,11 @@ from app.schemas.record import (
     MealPageData,
     MealUpdateIn,
     RecognizeData,
-    RecognizedItem,
     SportCreatedData,
     SportIn,
     SportPageData,
 )
-from app.services import record_service
+from app.services import recognize_service, record_service
 
 router = APIRouter(tags=["记录"])
 
@@ -61,20 +59,15 @@ async def search_food(
 
 @router.post("/meal/recognize", response_model=Envelope[RecognizeData], summary="拍照识别食物")
 async def recognize_meal(
-    request: Request,
+    image: UploadFile = File(..., description="食物照片（multipart 字段 image，≤5MB）"),
     user: CurrentUser = Depends(get_current_user),
     request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
 ) -> Envelope[RecognizeData]:
-    # TODO(Phase2 BE4a): COS 上传 + 视觉 API 识别（本阶段保留 stub）
-    _image = await request.body()
-    data = RecognizeData(
-        request_id=request_id or uuid.uuid4().hex,
-        items=[
-            RecognizedItem(food_id=208, name="清蒸鱼", confidence=0.92, amount_g=150, calories=180),
-            RecognizedItem(food_id=512, name="红烧肉", confidence=0.61, amount_g=100, calories=320),
-        ],
-        need_confirm=True,
-    )
+    image_bytes = await image.read()
+    # 空文件/非图片/>5MB → 2001(422)；AI 不可用 → 6001(409)
+    recognize_service.ensure_valid_image(image_bytes, image.content_type)
+    data = await recognize_service.recognize(session, image_bytes, request_id=request_id)
     return ok(data, request_id=request_id)
 
 
