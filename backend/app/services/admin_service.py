@@ -23,7 +23,7 @@ import string
 from datetime import date, datetime, time, timedelta, timezone
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,18 +35,23 @@ from app.db.redis import get_redis
 from app.models import (
     AdminUser,
     AiDialog,
+    CommunityComment,
+    CommunityPost,
     Coupon,
     CouponPool,
     MealRecord,
     Merchant,
     MerchantSku,
     Order,
+    Review,
     SkuCatalog,
     SportRecord,
     User,
 )
 from app.schemas.admin import (
     AdminAuditIn,
+    AdminAuditItem,
+    AdminAuditPageData,
     AdminCouponPoolIn,
     AdminCouponPoolOut,
     AdminCouponPoolPageData,
@@ -58,6 +63,8 @@ from app.schemas.admin import (
     AdminMerchantPageData,
     AdminMerchantSkuData,
     AdminMerchantSkuIn,
+    AdminReviewData,
+    AdminReviewIn,
     AdminSkuStatusIn,
 )
 from app.schemas.common import ErrorCode, PageMeta
@@ -639,3 +646,119 @@ async def get_dashboard(session: AsyncSession, target_date: date | None = None) 
         "gmv_today": float(gmv_today),
         "ai_calls_today": ai_calls_today,
     }
+
+
+# ---- Phase 4 ADM：内容审核队列 ----
+
+
+def _audit_item(r: Review, nickname: str | None) -> AdminAuditItem:
+    return AdminAuditItem(
+        id=r.id,
+        target_type=r.target_type,
+        target_id=r.target_id,
+        user_id=r.user_id,
+        nickname=nickname,
+        content_snapshot=r.content_snapshot,
+        sec_check_result=r.sec_check_result,
+        status=r.status,
+        reject_reason=r.reject_reason,
+        reviewer_id=r.reviewer_id,
+        reviewed_at=r.reviewed_at,
+        created_at=r.created_at,
+    )
+
+
+async def list_audit(
+    session: AsyncSession,
+    principal: AdminPrincipal,
+    status: int | None,
+    page: int,
+    page_size: int,
+) -> AdminAuditPageData:
+    """审核队列分页（status 过滤：0待审 1通过 2驳回），仅超管/运营。"""
+    ensure_manager(principal)
+    conds = []
+    if status is not None:
+        conds.append(Review.status == status)
+    total = await session.scalar(select(func.count()).select_from(Review).where(*conds))
+    rows = (
+        (
+            await session.execute(
+                select(Review)
+                .where(*conds)
+                .order_by(Review.created_at.desc(), Review.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    nicknames: dict[int, str] = {}
+    uids = {r.user_id for r in rows if r.user_id}
+    if uids:
+        pairs = (
+            await session.execute(select(User.id, User.nickname).where(User.id.in_(uids)))
+        ).all()
+        nicknames = {uid: name for uid, name in pairs}
+    return AdminAuditPageData(
+        items=[_audit_item(r, nicknames.get(r.user_id)) for r in rows],
+        page=PageMeta(page=page, page_size=page_size, total=int(total or 0)),
+    )
+
+
+async def review_audit(
+    session: AsyncSession, principal: AdminPrincipal, review_id: int, payload: AdminReviewIn
+) -> AdminReviewData:
+    """处理审核：1 通过 / 2 驳回；同步回写目标内容 audit_status（动态/评论）。"""
+    ensure_manager(principal)
+    review = (
+        await session.execute(select(Review).where(Review.id == review_id))
+    ).scalar_one_or_none()
+    if review is None:
+        raise AppException(ErrorCode.NOT_FOUND, "审核记录不存在")
+    # 内容侧 audit_status：1通过 2驳回
+    audit_status = 1 if payload.status == 1 else 2
+    if review.target_type == 1:
+        await session.execute(
+            update(CommunityPost)
+            .where(CommunityPost.id == review.target_id)
+            .values(audit_status=audit_status)
+        )
+    elif review.target_type == 2:
+        comment = (
+            await session.execute(
+                select(CommunityComment).where(CommunityComment.id == review.target_id)
+            )
+        ).scalar_one_or_none()
+        if comment is not None:
+            comment.audit_status = audit_status
+            await session.flush()
+            # 权威重算：comment_count = 该帖可见评论数（audit_status=1），
+            # 与评论列表可见口径一致；反复审核/通过↔驳回切换天然幂等收敛。
+            visible_count = (
+                select(func.count())
+                .select_from(CommunityComment)
+                .where(
+                    CommunityComment.post_id == comment.post_id,
+                    CommunityComment.audit_status == 1,
+                )
+            )
+            await session.execute(
+                update(CommunityPost)
+                .where(CommunityPost.id == comment.post_id)
+                .values(comment_count=visible_count.scalar_subquery())
+            )
+    review.status = payload.status
+    review.reject_reason = payload.reason if payload.status == 2 else None
+    review.reviewer_id = principal.id
+    review.reviewed_at = datetime.now(_TZ)
+    await session.commit()
+    return AdminReviewData(
+        id=review.id,
+        target_type=review.target_type,
+        target_id=review.target_id,
+        status=review.status,
+        reject_reason=review.reject_reason,
+        reviewed_at=review.reviewed_at,
+    )

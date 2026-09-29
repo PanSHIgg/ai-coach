@@ -25,6 +25,36 @@
       }
     },
     {
+      "path": "pages/community/supervise",
+      "style": {
+        "navigationBarTitleText": "监督搭子"
+      }
+    },
+    {
+      "path": "pages/community/group",
+      "style": {
+        "navigationBarTitleText": "兴趣社群"
+      }
+    },
+    {
+      "path": "pages/community/battle",
+      "style": {
+        "navigationBarTitleText": "约战"
+      }
+    },
+    {
+      "path": "pages/community/challenge",
+      "style": {
+        "navigationBarTitleText": "挑战赛"
+      }
+    },
+    {
+      "path": "pages/community/post",
+      "style": {
+        "navigationBarTitleText": "动态"
+      }
+    },
+    {
       "path": "pages/merchant/merchant",
       "style": {
         "navigationBarTitleText": "商家"

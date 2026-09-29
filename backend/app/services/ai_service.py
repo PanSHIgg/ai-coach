@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from datetime import UTC, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import NamedTuple
 
 from sqlalchemy import func, or_, select
@@ -28,7 +28,8 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppException
 from app.core.logging import get_logger
 from app.core.rate_limit import check_rate_limit
-from app.models import AiDialog, AiKnowledge, UserBenefit
+from app.models import AiDialog, AiKnowledge, DailySnapshot, UserBenefit, WeightRecord
+from app.schemas.ai import WeeklyCommentData
 from app.schemas.common import ErrorCode
 
 logger = get_logger(__name__)
@@ -266,3 +267,137 @@ async def chat(
     benefit.ai_times_left = max(0, int(benefit.ai_times_left) - 1)
     await session.commit()
     return ChatResult(reply, intent, int(benefit.ai_times_left), references)
+
+
+# ---------------------------------------------------------------------------
+# BE7c：AI 周点评（每周热量控制周报）
+# ---------------------------------------------------------------------------
+
+
+class WeekStats(NamedTuple):
+    """周报聚合数据。"""
+
+    key: str
+    days: int
+    intake: float
+    deficit: float  # 负值为缺口
+    steps: int
+    weight_change: float | None
+
+
+def _iso_week_key(d: date) -> str:
+    year, week, _ = d.isocalendar()
+    return f"{year}-W{week:02d}"
+
+
+def _week_range(week: str | None) -> tuple[str, date, date]:
+    """周号 → (key, monday, sunday)；缺省取本周（UTC+8）。"""
+    if week:
+        try:
+            monday = datetime.strptime(f"{week}-1", "%G-W%V-%u").date()
+        except ValueError as exc:
+            raise AppException(ErrorCode.VALIDATION_ERROR, "周号格式应为 YYYY-Www") from exc
+        return week, monday, monday + timedelta(days=6)
+    today = datetime.now(TZ).date()
+    monday = today - timedelta(days=today.weekday())
+    return _iso_week_key(today), monday, monday + timedelta(days=6)
+
+
+async def _collect_week_stats(
+    session: AsyncSession, user_id: int, key: str, start: date, end: date
+) -> WeekStats:
+    rows = (
+        (
+            await session.execute(
+                select(DailySnapshot).where(
+                    DailySnapshot.user_id == user_id,
+                    DailySnapshot.snapshot_date >= start,
+                    DailySnapshot.snapshot_date <= end,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    intake = sum(float(r.intake or 0) for r in rows)
+    deficit = sum(float(r.deficit or 0) for r in rows)
+    steps = sum(int(r.steps or 0) for r in rows)
+    weights = (
+        (
+            await session.execute(
+                select(WeightRecord)
+                .where(
+                    WeightRecord.user_id == user_id,
+                    WeightRecord.record_at >= start,
+                    WeightRecord.record_at <= end,
+                )
+                .order_by(WeightRecord.record_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    change = (
+        round(float(weights[-1].weight) - float(weights[0].weight), 1)
+        if len(weights) >= 2
+        else None
+    )
+    return WeekStats(
+        key=key,
+        days=len(rows),
+        intake=round(intake, 1),
+        deficit=round(deficit, 1),
+        steps=steps,
+        weight_change=change,
+    )
+
+
+def _template_comment(stats: WeekStats) -> str:
+    """无 Key 降级：基于真实聚合数据的确定性周点评模板。"""
+    if stats.days == 0:
+        return "本周还没有记录，先完成 1 天饮食打卡，我们下周一起看趋势。"
+    total = abs(stats.deficit)
+    trend = "保持不错" if stats.deficit <= 0 else "略有盈余"
+    weight_part = (
+        f"，体重变化 {stats.weight_change:+g}kg" if stats.weight_change is not None else ""
+    )
+    daily_steps = int(stats.steps / max(stats.days, 1))
+    return (
+        f"本周你记录了 {stats.days} 天，总摄入 {stats.intake:.0f} kcal，"
+        f"热量缺口约 {total:.0f} kcal，{trend}，日均步数 {daily_steps} 步{weight_part}。"
+        "建议继续保持规律三餐与足量饮水，下周争取多完成 1 天打卡。"
+    )
+
+
+async def weekly_comment(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    week: str | None = None,
+    settings: Settings | None = None,
+    llm_client: LLMClient | None = None,
+) -> WeeklyCommentData:
+    """AI 周点评：聚合本周数据 → LLM 生成点评（无 Key 落 mock 模板）+ 免责声明。"""
+    s = settings or get_settings()
+    key, start, end = _week_range(week)
+    stats = await _collect_week_stats(session, user_id, key, start, end)
+    highlights = [
+        f"打卡天数 {stats.days} 天",
+        f"摄入 {stats.intake:.0f} kcal",
+        f"缺口 {(-stats.deficit):.0f} kcal",
+        f"步数 {stats.steps} 步",
+    ]
+    if not s.MS_API_KEY:
+        content = _template_comment(stats)
+    else:  # pragma: no cover - 无 Key 环境不触发
+        client = llm_client or factory.get_llm_client(s)
+        prompt = (
+            f"这是用户本周（{key}）的数据：打卡 {stats.days} 天，"
+            f"摄入 {stats.intake:.0f} kcal，缺口 {(-stats.deficit):.0f} kcal，"
+            f"步数 {stats.steps} 步，体重变化 {stats.weight_change}kg。"
+            "请用 2-3 句给出温和、可执行的周点评。"
+        )
+        content = await generate_reply(client, _build_messages(prompt, []), timeout=s.MS_TIMEOUT)
+    if AI_DISCLAIMER not in content:
+        content = f"{content}{AI_DISCLAIMER}"
+    return WeeklyCommentData(week=key, content=content, highlights=highlights, references=[])

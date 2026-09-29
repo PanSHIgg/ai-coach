@@ -45,5 +45,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[mock] AI 饮食管控教练 mock server: http://localhost:${PORT}（34 接口 canned）`);
+  console.log(`[mock] AI 饮食管控教练 mock server: http://localhost:${PORT}（76 接口 canned）`);
 });

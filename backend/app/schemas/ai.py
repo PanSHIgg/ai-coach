@@ -57,3 +57,20 @@ class AiRecommendData(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     options: list[RecommendOption]
+
+
+# ---- Phase 4 BE7c：AI 周点评 ----
+
+class WeeklyCommentIn(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    week: Optional[str] = Field(default=None, max_length=16)  # 期号 YYYY-Www；缺省=本周
+
+
+class WeeklyCommentData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    week: str  # 期号 YYYY-Www
+    content: str  # AI 周点评（含免责声明）
+    highlights: list[str] = []  # 关键指标要点
+    references: list[str] = []  # 引用知识库条目 id

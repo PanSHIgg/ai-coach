@@ -75,6 +75,9 @@ docker compose -f deploy/docker-compose.yml up -d postgres redis
 **方式 B：本机已装 PG/Redis**
 只需确认 `pg_isready -h 127.0.0.1 -p 5432` 与 `redis-cli ping` 正常。
 
+> 无 Docker 的环境（如本沙箱 Ubuntu 24.04）可直接 `apt-get install -y postgresql redis-server`，
+> 再 `service postgresql start` / `service redis-server start` 起服务；随后 `ALTER USER postgres PASSWORD 'postgres';` 建库口令。
+
 ---
 
 ## 3. 初始化数据库（首次 / 重建）
@@ -89,10 +92,13 @@ psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE ai_coach;"
 # 建表（36 表；与 Alembic 0001 同源，二者择一）
 psql -h 127.0.0.1 -U postgres -d ai_coach -v ON_ERROR_STOP=1 -f data/sql/001_schema.sql
 
-# 种子：食物库 + 别名（CSV 用 utf-8-sig 兼容 BOM；$PY = 你的 ≥3.12 解释器）
+# 种子（CSV 用 utf-8-sig 兼容 BOM；$PY = 你的 ≥3.12 解释器）
+# 注意：sku_catalog / ai_knowledge 必须一并导入，否则订单与 AI 相关测试会因缺参照数据失败
 "$PY" data/load_seeds.py \
   --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach" \
-  --file food:data/seeds/food_full.csv --file food_alias:data/seeds/food_alias_full.csv
+  --file food:data/seeds/food_full.csv --file food_alias:data/seeds/food_alias_full.csv \
+  --file sku_catalog:data/seeds/standard_sku.sample.csv \
+  --file ai_knowledge:data/seeds/rag_knowledge.sample.jsonl
 ```
 
 ---

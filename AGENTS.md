@@ -118,13 +118,16 @@
 Python：要求 >=3.12（不限定 venv/目录；venv/conda/pyenv/系统均可）；本工作区实测解释器
        /workspace/.venv312/bin/python（示例，其它环境用自带 >=3.12，探测见 dev_env.md §1.1）
 后端测试：cd backend && DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
-          "${PY:-/workspace/.venv312/bin/python}" -m pytest -q   # PY=你的 >=3.12 解释器；基线：107 passed
+          "${PY:-/workspace/.venv312/bin/python}" -m pytest -q   # PY=你的 >=3.12 解释器；基线：231 passed（Phase 4 后实测）
 PostgreSQL：127.0.0.1:5432  user=postgres password=postgres  db=ai_coach
             建表：psql -f data/sql/001_schema.sql（36 表；Alembic 0001 与之同源，二者择一）
 Redis：127.0.0.1:6379
 种子导入："${PY:-/workspace/.venv312/bin/python}" data/load_seeds.py \
           --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach" \
-          --file food:data/seeds/food_full.csv --file food_alias:data/seeds/food_alias_full.csv
+          --file food:data/seeds/food_full.csv --file food_alias:data/seeds/food_alias_full.csv \
+          --file sku_catalog:data/seeds/standard_sku.sample.csv \
+          --file ai_knowledge:data/seeds/rag_knowledge.sample.jsonl
+          （sku_catalog/ai_knowledge 必导，否则订单与 AI 用例失败）
           dry-run：... --dry-run（CSV 用 utf-8-sig 兼容 BOM）
 Mock：node contracts/mock/server.mjs（PORT 默认 9000）
 前端：cd miniapp && npm install → npm run type-check → npm run build:mp-weixin / npm run build:h5

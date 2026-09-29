@@ -172,3 +172,50 @@ class AdminGrantData(BaseModel):
     pool_id: int
     user_id: int
     coupons: list[CouponOut]
+
+
+# ---- Phase 4 ADM：内容审核队列（openapi /api/admin/audit/*）----
+
+
+class AdminAuditItem(BaseModel):
+    """审核队列条目（review 表）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    target_type: int  # 1动态 2评论 3图片 4商家入驻
+    target_id: int
+    user_id: Optional[int] = None
+    nickname: Optional[str] = None  # 内容提交者昵称
+    content_snapshot: Optional[str] = None
+    sec_check_result: Optional[int] = None  # 1通过 2可疑 3不通过
+    status: int  # 0待审 1通过 2驳回
+    reject_reason: Optional[str] = None
+    reviewer_id: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class AdminAuditPageData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[AdminAuditItem]
+    page: PageMeta
+
+
+class AdminReviewIn(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    status: Literal[1, 2]  # 1通过 2驳回
+    reason: Optional[str] = Field(default=None, max_length=200)
+
+
+class AdminReviewData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    target_type: int
+    target_id: int
+    status: int  # 1通过 2驳回
+    reject_reason: Optional[str] = None
+    reviewed_at: Optional[datetime] = None

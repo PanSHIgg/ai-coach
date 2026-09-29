@@ -219,3 +219,43 @@ export interface OrderPageData {
   items: OrderBrief[]
   page: PageMeta
 }
+
+/** 审核队列条目（contracts/openapi.yaml AdminAuditItem；Phase 4 ADM） */
+export interface AdminAuditItem {
+  id: number
+  /** 1动态 2评论 3图片 4商家入驻 */
+  target_type: number
+  target_id: number
+  user_id: number | null
+  nickname: string | null
+  content_snapshot: string | null
+  /** 1通过 2可疑 3不通过 */
+  sec_check_result: number | null
+  /** 0待审 1通过 2驳回 */
+  status: number
+  reject_reason: string | null
+  reviewer_id: number | null
+  reviewed_at: string | null
+  created_at: string
+}
+
+export interface AdminAuditPageData {
+  items: AdminAuditItem[]
+  page: PageMeta
+}
+
+/** 处理审核入参（contracts/openapi.yaml AdminReviewIn） */
+export interface AdminReviewIn {
+  status: 1 | 2
+  reason?: string | null
+}
+
+/** 处理审核返回（contracts/openapi.yaml AdminReviewData） */
+export interface AdminReviewData {
+  id: number
+  target_type: number
+  target_id: number
+  status: number
+  reject_reason: string | null
+  reviewed_at: string | null
+}

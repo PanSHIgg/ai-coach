@@ -1,6 +1,7 @@
 import { client, unwrap } from './client'
 import type {
   AdminAuditIn,
+  AdminAuditPageData,
   AdminCouponPoolIn,
   AdminCouponPoolOut,
   AdminCouponPoolPageData,
@@ -11,6 +12,8 @@ import type {
   AdminMerchantPageData,
   AdminMerchantSkuData,
   AdminMerchantSkuIn,
+  AdminReviewData,
+  AdminReviewIn,
   CatalogData,
   DashboardData,
   OrderPageData,
@@ -76,4 +79,18 @@ export function listOrders(params: {
   page_size?: number
 }): Promise<OrderPageData> {
   return unwrap(client.get('/admin/orders', { params }))
+}
+
+/** 内容审核队列 GET /api/admin/audit/list */
+export function listAudit(params: {
+  status?: number
+  page?: number
+  page_size?: number
+}): Promise<AdminAuditPageData> {
+  return unwrap(client.get('/admin/audit/list', { params }))
+}
+
+/** 处理审核 POST /api/admin/audit/{id}/review */
+export function reviewAudit(id: number, data: AdminReviewIn): Promise<AdminReviewData> {
+  return unwrap(client.post(`/admin/audit/${id}/review`, data))
 }

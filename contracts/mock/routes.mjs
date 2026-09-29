@@ -1,4 +1,4 @@
-// 路由表：method + 路径模板 → canned envelope data（覆盖 openapi.yaml 全部 34 接口）。
+// 路由表：method + 路径模板 → canned envelope data（覆盖 openapi.yaml 全部 76 接口）。
 // 匹配规则（宽松）：/api 前缀可有可无、结尾斜杠与多斜杠忽略、{param} 匹配任意单段。
 // 零依赖：仅用标准 JS，供 server.mjs 消费。
 
@@ -196,19 +196,102 @@ export const routes = [
   {
     m: 'GET', p: '/api/community/post/list',
     d: {
-      items: [{ id: 1, user: { id: 1002, nickname: '减友B', avatar_url: null }, content: '今天午餐打卡清蒸鱼', images: [], like_count: 3, comment_count: 1, created_at: now() }],
+      items: [
+        {
+          id: 1, user: { id: 1002, nickname: '减友B', avatar_url: null }, title: null,
+          content: '今天午餐打卡清蒸鱼', images: [], post_type: 1, like_count: 3,
+          comment_count: 1, anonymous: false, liked: false, created_at: now(),
+        },
+      ],
       page,
     },
   },
-  { m: 'POST', p: '/api/community/post', d: { id: 2 } },
+  { m: 'POST', p: '/api/community/post', d: { id: 2, audit_status: 1 } },
+  {
+    m: 'GET', p: '/api/community/post/{id}',
+    d: {
+      id: 1, user: { id: 1002, nickname: '减友B', avatar_url: null }, title: null,
+      content: '今天午餐打卡清蒸鱼', images: [], post_type: 1, like_count: 3,
+      comment_count: 1, anonymous: false, liked: false, created_at: now(),
+    },
+  },
+  { m: 'DELETE', p: '/api/community/post/{id}', d: { id: 1, deleted: true } },
+  { m: 'POST', p: '/api/community/post/{id}/like', d: { post_id: 1, liked: true, like_count: 4 } },
+  { m: 'DELETE', p: '/api/community/post/{id}/like', d: { post_id: 1, liked: false, like_count: 3 } },
+  {
+    m: 'GET', p: '/api/community/post/{id}/comment/list',
+    d: {
+      items: [{ id: 11, user: { id: 1003, nickname: '减友C', avatar_url: null }, content: '加油！', anonymous: false, created_at: now() }],
+      page,
+    },
+  },
+  {
+    m: 'POST', p: '/api/community/post/{id}/comment',
+    d: { id: 12, user: { id: 1001, nickname: '减友A', avatar_url: null }, content: '一起坚持', anonymous: false, created_at: now() },
+  },
+  {
+    m: 'GET', p: '/api/community/experience/list',
+    d: {
+      items: [{ id: 21, user: { id: 1002, nickname: '减友B', avatar_url: null }, title: '我的减脂经验', content: '少油少盐，规律三餐', like_count: 6, created_at: now() }],
+      page,
+    },
+  },
+  { m: 'GET', p: '/api/community/supervise', d: { id: 1, partner: { id: 1002, nickname: '减友B', avatar_url: null }, status: 1, days: 7, created_at: now() } },
+  { m: 'POST', p: '/api/community/supervise/match', d: { id: 2, partner: { id: 1003, nickname: '减友C', avatar_url: null }, status: 1, days: 0, created_at: now() } },
+  { m: 'POST', p: '/api/community/supervise/{id}/remind', d: { supervise_id: 1, reminded: true, message: '已提醒 减友B 打卡' } },
+  {
+    m: 'GET', p: '/api/community/supervise/{id}/records',
+    d: {
+      supervise_id: 1, partner: { id: 1002, nickname: '减友B', avatar_url: null },
+      items: [{ date: today(), intake: 1500, steps: 8000, deficit: -500 }],
+    },
+  },
+  {
+    m: 'GET', p: '/api/community/group/list',
+    d: {
+      items: [{ id: 1, name: '减脂餐交流社', category: '减脂', member_count: 2340, city: '上海', created_at: now() }],
+      page,
+    },
+  },
+  { m: 'GET', p: '/api/community/group/{id}', d: { id: 1, name: '减脂餐交流社', category: '减脂', member_count: 2340, city: '上海', created_at: now() } },
+  { m: 'POST', p: '/api/community/group/{id}/join', d: { group_id: 1, joined: true, member_count: 2341 } },
+  { m: 'POST', p: '/api/community/group/{id}/checkin', d: { group_id: 1, checked: true, checkin_days: 7, post_id: 31 } },
+  {
+    m: 'POST', p: '/api/community/battle',
+    d: { id: 2, title: '今晚7点天河羽毛球', sport_name: '羽毛球', merchant_id: 88, city: '广州', meet_at: '2026-10-01T19:00:00+08:00', need_count: 2, join_count: 1, status: 1, creator_id: 1001 },
+  },
   {
     m: 'GET', p: '/api/community/battle/list',
     d: {
-      items: [{ id: 1, title: '轻食约战·第1期', sport_name: '轻食', merchant_id: 88, city: '上海', meet_at: '2026-10-01T12:00:00+08:00', need_count: 2, join_count: 1, status: 1 }],
+      items: [{ id: 1, title: '轻食约战·第1期', sport_name: '轻食', merchant_id: 88, city: '上海', meet_at: '2026-10-01T12:00:00+08:00', need_count: 2, join_count: 1, status: 1, creator_id: 1002 }],
       page,
     },
   },
   { m: 'POST', p: '/api/community/battle/join', d: { battle_id: 1, joined: true, join_count: 2 } },
+  {
+    m: 'GET', p: '/api/community/challenge/list',
+    d: {
+      items: [{ id: 1, title: '21天不饿肚子挑战赛', start_at: '2026-09-20T00:00:00+08:00', end_at: '2026-10-10T23:59:59+08:00', badge_image: 'https://cos.example.com/badge/1.png', join_count: 12840, status: 1, joined: true }],
+      page,
+    },
+  },
+  { m: 'GET', p: '/api/community/challenge/{id}', d: { id: 1, title: '21天不饿肚子挑战赛', start_at: '2026-09-20T00:00:00+08:00', end_at: '2026-10-10T23:59:59+08:00', badge_image: null, join_count: 12840, status: 1, joined: true } },
+  { m: 'POST', p: '/api/community/challenge/{id}/join', d: { challenge_id: 1, joined: true, join_count: 12841 } },
+  {
+    m: 'GET', p: '/api/community/challenge/{id}/leaderboard',
+    d: { challenge_id: 1, items: [{ rank: 1, user: { id: 1002, nickname: '减友B', avatar_url: null }, score: 95.0 }] },
+  },
+  {
+    m: 'GET', p: '/api/community/leaderboard',
+    d: {
+      period_type: 2, period_key: '2026-W40',
+      items: [
+        { rank: 1, user: { id: 1002, nickname: '小A', avatar_url: null }, score: 92.0 },
+        { rank: 2, user: { id: 1001, nickname: '减友A', avatar_url: null }, score: 85.0 },
+      ],
+    },
+  },
+  { m: 'POST', p: '/api/ai/weekly-comment', d: { week: '2026-W40', content: '本周你记录了 5 天，热量缺口约 1800 kcal，保持不错。（AI 输出仅供参考，具体请遵医嘱）', highlights: ['打卡天数 5 天', '缺口 1800 kcal'], references: [] } },
 
   // ---- 管理 ----
   {
@@ -298,6 +381,23 @@ export const routes = [
   {
     m: 'GET', p: '/api/admin/dashboard',
     d: { date: today(), user_count: 1200, active_users_today: 356, meal_records_today: 980, orders_today: 120, gmv_today: 3360.0, ai_calls_today: 2100 },
+  },
+  {
+    m: 'GET', p: '/api/admin/audit/list',
+    d: {
+      items: [
+        {
+          id: 1, target_type: 1, target_id: 2, user_id: 1001, nickname: '减友A',
+          content_snapshot: '这是违规词内容', sec_check_result: 3, status: 0,
+          reject_reason: null, reviewer_id: null, reviewed_at: null, created_at: now(),
+        },
+      ],
+      page,
+    },
+  },
+  {
+    m: 'POST', p: '/api/admin/audit/{id}/review',
+    d: { id: 1, target_type: 1, target_id: 2, status: 2, reject_reason: '内容不合规', reviewed_at: now() },
   },
 ];
 

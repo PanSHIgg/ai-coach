@@ -529,27 +529,218 @@ class AdminUser(Base):
     created_at: Mapped[datetime] = _ts()
 
 
+# ---------------------------------------------------------------------------
+# 社区与社交域（Phase 4：BE7a 动态 / BE7b 五种社交 / BE7c 内容审核）
+# ---------------------------------------------------------------------------
+
+
+class CommunityPost(Base):
+    """社区动态（community_post）：仅 audit_status=1 对外可见，违规进审核队列。"""
+
+    __tablename__ = "community_post"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    title: Mapped[str | None] = mapped_column(String(256))
+    content: Mapped[str | None] = mapped_column(Text)
+    images: Mapped[list] = mapped_column(JSONB, server_default="'[]'::jsonb", default=list)
+    post_type: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    like_count: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    comment_count: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    anonymous: Mapped[bool] = mapped_column(Boolean, server_default="false", default=False)
+    audit_status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    created_at: Mapped[datetime] = _ts()
+
+
+class CommunityComment(Base):
+    """社区评论（community_comment）：违规内容走审核（msgSecCheck）。"""
+
+    __tablename__ = "community_comment"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("community_post.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    anonymous: Mapped[bool] = mapped_column(Boolean, server_default="false", default=False)
+    audit_status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    created_at: Mapped[datetime] = _ts()
+
+
+class CommunityLike(Base):
+    """社区点赞（community_like）：(post_id, user_id) 唯一，一人一赞。"""
+
+    __tablename__ = "community_like"
+    __table_args__ = (
+        UniqueConstraint("post_id", "user_id", name="community_like_post_id_user_id_key"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("community_post.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = _ts()
+
+
+class CommunityGroup(Base):
+    """兴趣社群（community_group）：长期打卡/活动（BE7b）。"""
+
+    __tablename__ = "community_group"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(64), index=True)
+    member_count: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    city: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = _ts()
+
+
+class Supervise(Base):
+    """监督关系（supervise）：互看记录/提醒打卡（BE7b），一人一对唯一。"""
+
+    __tablename__ = "supervise"
+    __table_args__ = (UniqueConstraint("user_a", "user_b", name="supervise_user_a_user_b_key"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_a: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    user_b: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    days: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    created_at: Mapped[datetime] = _ts()
+
+
+class Battle(Base):
+    """约战（battle）：LBS 匹配/加入/关联场馆券（BE7b）。"""
+
+    __tablename__ = "battle"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str | None] = mapped_column(String(256))
+    sport_type: Mapped[str | None] = mapped_column(String(64))
+    merchant_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("merchant.id"))
+    city: Mapped[str | None] = mapped_column(String(64), index=True)
+    meet_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    need_count: Mapped[int] = mapped_column(Integer, server_default="2", default=2)
+    join_count: Mapped[int] = mapped_column(Integer, server_default="1", default=1)
+    creator_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    created_at: Mapped[datetime] = _ts()
+
+
+class Challenge(Base):
+    """限时挑战赛（challenge）：进度/排行榜/徽章（BE7b）。"""
+
+    __tablename__ = "challenge"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    badge_image: Mapped[str | None] = mapped_column(Text)
+    join_count: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    created_at: Mapped[datetime] = _ts()
+
+
+class ChallengeJoin(Base):
+    """挑战赛参与（challenge_join）：(challenge_id, user_id) 唯一，一人一赛一次。"""
+
+    __tablename__ = "challenge_join"
+    __table_args__ = (
+        UniqueConstraint("challenge_id", "user_id", name="challenge_join_challenge_id_user_id_key"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    challenge_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("challenge.id"))
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    rank: Mapped[int | None] = mapped_column(Integer)
+    score: Mapped[float | None] = mapped_column(Numeric(8, 1, asdecimal=False))
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Leaderboard(Base):
+    """热量控制榜（leaderboard）：按期（日/周/月）预聚合名次。"""
+
+    __tablename__ = "leaderboard"
+    __table_args__ = (
+        UniqueConstraint(
+            "period_type",
+            "period_key",
+            "user_id",
+            name="leaderboard_period_type_period_key_user_id_key",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    period_type: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    period_key: Mapped[str] = mapped_column(String(16), nullable=False)
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE")
+    )
+    score: Mapped[float] = mapped_column(
+        Numeric(10, 1, asdecimal=False), server_default="0", default=0
+    )
+    rank: Mapped[int | None] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Review(Base):
+    """审核队列（review）：msgSecCheck/imgSecCheck 违规内容与商家入驻审核（BE7c/ADM）。"""
+
+    __tablename__ = "review"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    target_type: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # 1动态 2评论 3图 4商家
+    target_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    content_snapshot: Mapped[str | None] = mapped_column(Text)
+    sec_check_result: Mapped[int | None] = mapped_column(SmallInteger)  # 1通过 2可疑 3不通过
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="0", default=0)
+    reject_reason: Mapped[str | None] = mapped_column(String(256))
+    reviewer_id: Mapped[int | None] = mapped_column(BigInteger)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _ts()
+
+
 __all__ = [
     "AdminUser",
     "AiDialog",
     "AiKnowledge",
     "Base",
+    "Battle",
     "BodyProfile",
+    "Challenge",
+    "ChallengeJoin",
+    "CommunityComment",
+    "CommunityGroup",
+    "CommunityLike",
+    "CommunityPost",
     "Coupon",
     "CouponPool",
     "DailySnapshot",
     "Food",
     "FoodAlias",
     "Invite",
+    "Leaderboard",
     "MealRecord",
     "Merchant",
     "MerchantSku",
     "Order",
     "OrderItem",
     "RedeemLog",
+    "Review",
     "SportRecord",
     "StepRecord",
     "Subscription",
+    "Supervise",
     "SkuCatalog",
     "User",
     "UserAuth",

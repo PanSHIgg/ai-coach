@@ -446,23 +446,122 @@ export interface CommunityPostIn {
   content: string;
   images?: string[];
   anonymous?: boolean;
+  title?: string | null;
+  post_type?: 1 | 2 | 3; // 1普通 2经验 3打卡
 }
 
 export interface CommunityPostCreated {
   id: number;
+  audit_status: number; // 0待审 1通过
 }
 
 export interface CommunityPostOut {
   id: number;
   user: UserBrief;
+  title?: string | null;
   content: string;
   images: string[];
+  post_type: number;
   like_count: number;
   comment_count: number;
+  anonymous: boolean;
+  liked: boolean;
   created_at: string;
 }
 
 export type PostPageData = PageData<CommunityPostOut>;
+
+export interface PostDeleteData {
+  id: number;
+  deleted: true;
+}
+
+export interface LikeData {
+  post_id: number;
+  liked: boolean;
+  like_count: number;
+}
+
+export interface CommunityCommentIn {
+  content: string;
+  anonymous?: boolean;
+}
+
+export interface CommunityCommentOut {
+  id: number;
+  user: UserBrief;
+  content: string;
+  anonymous: boolean;
+  created_at: string;
+}
+
+export type CommentPageData = PageData<CommunityCommentOut>;
+
+export interface ExperienceItem {
+  id: number;
+  user: UserBrief;
+  title?: string | null;
+  content: string;
+  like_count: number;
+  created_at: string;
+}
+
+export type ExperiencePageData = PageData<ExperienceItem>;
+
+export interface SuperviseOut {
+  id: number;
+  partner: UserBrief;
+  status: number; // 1生效 0解除
+  days: number;
+  created_at: string;
+}
+
+export interface SuperviseMatchIn {
+  partner_id?: number | null;
+}
+
+export interface SuperviseRemindData {
+  supervise_id: number;
+  reminded: true;
+  message: string;
+}
+
+export interface SuperviseRecordItem {
+  date: string;
+  intake: number;
+  steps: number;
+  deficit: number; // 负值为缺口
+}
+
+export interface SuperviseRecordsData {
+  supervise_id: number;
+  partner: UserBrief;
+  items: SuperviseRecordItem[];
+}
+
+export interface GroupItem {
+  id: number;
+  name: string;
+  category?: string | null;
+  member_count: number;
+  city?: string | null;
+  created_at: string;
+}
+
+export type GroupPageData = PageData<GroupItem>;
+
+export interface GroupJoinData {
+  group_id: number;
+  joined: true;
+  member_count: number;
+}
+
+export interface GroupCheckinData {
+  group_id: number;
+  checked: true;
+  checkin_days: number;
+  post_id?: number | null;
+}
 
 export interface BattleItem {
   id: number;
@@ -474,9 +573,21 @@ export interface BattleItem {
   need_count: number;
   join_count: number;
   status: 1 | 2 | 3 | 4; // 1招募中 2满员 3进行中 4结束
+  creator_id?: number | null;
 }
 
 export type BattlePageData = PageData<BattleItem>;
+
+export interface BattleCreateIn {
+  title: string;
+  sport_name?: string | null;
+  merchant_id?: number | null;
+  city?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  meet_at: string;
+  need_count?: number;
+}
 
 export interface BattleJoinIn {
   battle_id: number;
@@ -486,6 +597,84 @@ export interface BattleJoinData {
   battle_id: number;
   joined: true;
   join_count: number;
+}
+
+export interface ChallengeItem {
+  id: number;
+  title: string;
+  start_at?: string | null;
+  end_at?: string | null;
+  badge_image?: string | null;
+  join_count: number;
+  status: number; // 1进行中 2结束
+  joined: boolean;
+}
+
+export type ChallengePageData = PageData<ChallengeItem>;
+
+export interface ChallengeJoinData {
+  challenge_id: number;
+  joined: true;
+  join_count: number;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  user: UserBrief;
+  score: number;
+}
+
+export interface ChallengeLeaderboardData {
+  challenge_id: number;
+  items: LeaderboardEntry[];
+}
+
+export interface LeaderboardData {
+  period_type: number; // 1日榜 2周榜 3月榜
+  period_key: string;
+  items: LeaderboardEntry[];
+}
+
+export interface WeeklyCommentIn {
+  week?: string | null;
+}
+
+export interface WeeklyCommentData {
+  week: string;
+  content: string;
+  highlights: string[];
+  references: string[];
+}
+
+export interface AdminAuditItem {
+  id: number;
+  target_type: number; // 1动态 2评论 3图片 4商家入驻
+  target_id: number;
+  user_id?: number | null;
+  nickname?: string | null;
+  content_snapshot?: string | null;
+  sec_check_result?: number | null; // 1通过 2可疑 3不通过
+  status: number; // 0待审 1通过 2驳回
+  reject_reason?: string | null;
+  reviewer_id?: number | null;
+  reviewed_at?: string | null;
+  created_at: string;
+}
+
+export type AdminAuditPageData = PageData<AdminAuditItem>;
+
+export interface AdminReviewIn {
+  status: 1 | 2;
+  reason?: string | null;
+}
+
+export interface AdminReviewData {
+  id: number;
+  target_type: number;
+  target_id: number;
+  status: number;
+  reject_reason?: string | null;
+  reviewed_at?: string | null;
 }
 
 /* ---------- 运营看板 ---------- */

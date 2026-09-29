@@ -61,6 +61,17 @@ _TRUNCATE_TABLES = (
     "merchant_sku",
     "merchant",
     "admin_user",
+    # Phase 4 社区/社交域（子表先于父表：comment/like 先于 post，challenge_join 先于 challenge）
+    "community_comment",
+    "community_like",
+    "community_post",
+    "community_group",
+    "supervise",
+    "battle",
+    "challenge_join",
+    "challenge",
+    "leaderboard",
+    "review",
 )
 
 

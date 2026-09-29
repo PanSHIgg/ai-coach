@@ -1009,6 +1009,10 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
+        - name: post_type
+          in: query
+          description: 1普通 2经验 3打卡；缺省=全部
+          schema: { type: integer, minimum: 1, maximum: 3 }
       responses:
         '200':
           description: 分页动态（仅含审核通过的帖子）
@@ -1120,6 +1124,670 @@ paths:
                         $ref: '#/components/schemas/BattleJoinData'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  # ---- Phase 4 新增（plan.md §10：BE7a 动态 / BE7b 五种社交 / BE7c 内容安全；由本轮单点增补）----
+  /api/community/post/{id}:
+    get:
+      tags: [社区]
+      summary: 动态详情
+      operationId: getCommunityPost
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 动态详情（未通过审核时仅作者可见，否则 3001）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommunityPostOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [社区]
+      summary: 删除动态（仅作者本人）
+      operationId: deleteCommunityPost
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PostDeleteData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/post/{id}/like:
+    post:
+      tags: [社区]
+      summary: 点赞动态（一人一赞，幂等）
+      operationId: likeCommunityPost
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 点赞成功（重复点赞不累加）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LikeData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [社区]
+      summary: 取消点赞
+      operationId: unlikeCommunityPost
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 取消成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LikeData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/post/{id}/comment/list:
+    get:
+      tags: [社区]
+      summary: 动态评论列表
+      operationId: listPostComments
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 评论分页（仅审核通过）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommentPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/post/{id}/comment:
+    post:
+      tags: [社区]
+      summary: 发表评论（内容安全审核）
+      operationId: createPostComment
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommunityCommentIn'
+      responses:
+        '200':
+          description: 评论成功（违规入审核队列不展示）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommunityCommentOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/experience/list:
+    get:
+      tags: [社区]
+      summary: 同款减友经验列表
+      operationId: listCommunityExperience
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 经验分页（post_type=2 动态视图）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExperiencePageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/supervise:
+    get:
+      tags: [社区]
+      summary: 我的监督搭子
+      operationId: getMySupervise
+      responses:
+        '200':
+          description: 监督关系（无则 3001）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SuperviseOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/supervise/match:
+    post:
+      tags: [社区]
+      summary: 匹配监督搭子（一人一对唯一）
+      operationId: matchSupervise
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuperviseMatchIn'
+      responses:
+        '200':
+          description: 匹配成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SuperviseOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/supervise/{id}/remind:
+    post:
+      tags: [社区]
+      summary: 提醒搭子打卡
+      operationId: remindSupervise
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 提醒成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SuperviseRemindData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/supervise/{id}/records:
+    get:
+      tags: [社区]
+      summary: 互看记录（搭子近 7 天）
+      operationId: listSuperviseRecords
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 搭子每日热量/步数/缺口
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SuperviseRecordsData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/group/list:
+    get:
+      tags: [社区]
+      summary: 兴趣社群列表
+      operationId: listCommunityGroups
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 社群分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GroupPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/group/{id}:
+    get:
+      tags: [社区]
+      summary: 社群详情
+      operationId: getCommunityGroup
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 社群详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GroupItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/group/{id}/join:
+    post:
+      tags: [社区]
+      summary: 加入社群（member_count 原子自增）
+      operationId: joinCommunityGroup
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 加入成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GroupJoinData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/group/{id}/checkin:
+    post:
+      tags: [社区]
+      summary: 社群打卡（沉淀 post_type=3 动态）
+      operationId: checkinCommunityGroup
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 打卡成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GroupCheckinData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/battle:
+    post:
+      tags: [社区]
+      summary: 发起约战（LBS/city、关联场馆券 merchant_id）
+      operationId: createBattle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BattleCreateIn'
+      responses:
+        '200':
+          description: 发起成功（发起人占 1 位）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BattleItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/challenge/list:
+    get:
+      tags: [社区]
+      summary: 挑战赛列表
+      operationId: listChallenges
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 挑战赛分页（含 joined）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ChallengePageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/challenge/{id}:
+    get:
+      tags: [社区]
+      summary: 挑战赛详情
+      operationId: getChallenge
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 挑战赛详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ChallengeItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/challenge/{id}/join:
+    post:
+      tags: [社区]
+      summary: 参加挑战赛（一人一赛一次）
+      operationId: joinChallenge
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 参加成功（重复 2001）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ChallengeJoinData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/challenge/{id}/leaderboard:
+    get:
+      tags: [社区]
+      summary: 挑战赛排行榜
+      operationId: getChallengeLeaderboard
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 按 score 降序排名
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ChallengeLeaderboardData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/community/leaderboard:
+    get:
+      tags: [社区]
+      summary: 热量控制榜（period_type/period_key）
+      operationId: getCommunityLeaderboard
+      parameters:
+        - name: period_type
+          in: query
+          description: 1日榜 2周榜 3月榜
+          schema: { type: integer, minimum: 1, maximum: 3, default: 2 }
+        - name: period_key
+          in: query
+          description: 期号；缺省=当前期（日 YYYY-MM-DD / 周 YYYY-Www / 月 YYYY-MM）
+          schema: { type: string, nullable: true, maxLength: 16 }
+      responses:
+        '200':
+          description: 榜单列表（score 降序）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LeaderboardData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/ai/weekly-comment:
+    post:
+      tags: [AI]
+      summary: AI 周点评（热量控制周报）
+      operationId: getWeeklyComment
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WeeklyCommentIn'
+      responses:
+        '200':
+          description: 周点评（无 Key 环境落本地模板；附免责声明）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WeeklyCommentData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/audit/list:
+    get:
+      tags: [管理]
+      summary: 内容审核队列（review；status 过滤）
+      operationId: adminListAudit
+      parameters:
+        - name: status
+          in: query
+          description: 0待审 1通过 2驳回
+          schema: { type: integer, minimum: 0, maximum: 2 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 审核队列分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminAuditPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/audit/{id}/review:
+    post:
+      tags: [管理]
+      summary: 处理审核（1通过 / 2驳回）
+      operationId: adminReviewAudit
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminReviewIn'
+      responses:
+        '200':
+          description: 处理成功（同步回写内容 audit_status）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminReviewData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound404'
         '422':
@@ -2475,11 +3143,14 @@ components:
           type: array
           items: { type: string }
         anonymous: { type: boolean, default: false }
+        title: { type: string, nullable: true, maxLength: 256 }
+        post_type: { type: integer, minimum: 1, maximum: 3, default: 1, description: 1普通 2经验 3打卡 }
     CommunityPostCreated:
       type: object
       required: [id]
       properties:
         id: { type: integer }
+        audit_status: { type: integer, description: 0待审（进审核队列）1通过 }
     CommunityPostOut:
       type: object
       required: [id, user, content, created_at]
@@ -2487,12 +3158,16 @@ components:
         id: { type: integer }
         user:
           $ref: '#/components/schemas/UserBrief'
+        title: { type: string, nullable: true }
         content: { type: string }
         images:
           type: array
           items: { type: string }
+        post_type: { type: integer, description: 1普通 2经验 3打卡 }
         like_count: { type: integer }
         comment_count: { type: integer }
+        anonymous: { type: boolean }
+        liked: { type: boolean, description: 当前用户是否已赞 }
         created_at: { type: string, format: date-time }
     PostPageData:
       type: object
@@ -2504,19 +3179,167 @@ components:
             $ref: '#/components/schemas/CommunityPostOut'
         page:
           $ref: '#/components/schemas/PageMeta'
+    PostDeleteData:
+      type: object
+      required: [id, deleted]
+      properties:
+        id: { type: integer }
+        deleted: { const: true }
+    LikeData:
+      type: object
+      required: [post_id, liked, like_count]
+      properties:
+        post_id: { type: integer }
+        liked: { type: boolean }
+        like_count: { type: integer }
+    CommunityCommentIn:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1, maxLength: 500 }
+        anonymous: { type: boolean, default: false }
+    CommunityCommentOut:
+      type: object
+      required: [id, user, content, created_at]
+      properties:
+        id: { type: integer }
+        user:
+          $ref: '#/components/schemas/UserBrief'
+        content: { type: string }
+        anonymous: { type: boolean }
+        created_at: { type: string, format: date-time }
+    CommentPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommunityCommentOut'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    ExperienceItem:
+      type: object
+      required: [id, user, content, created_at]
+      properties:
+        id: { type: integer }
+        user:
+          $ref: '#/components/schemas/UserBrief'
+        title: { type: string, nullable: true }
+        content: { type: string }
+        like_count: { type: integer }
+        created_at: { type: string, format: date-time }
+    ExperiencePageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExperienceItem'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    SuperviseOut:
+      type: object
+      required: [id, partner, status, days, created_at]
+      properties:
+        id: { type: integer }
+        partner:
+          $ref: '#/components/schemas/UserBrief'
+        status: { type: integer, description: 1生效 0解除 }
+        days: { type: integer }
+        created_at: { type: string, format: date-time }
+    SuperviseMatchIn:
+      type: object
+      properties:
+        partner_id: { type: integer, nullable: true, description: 缺省=系统匹配未配对的减友 }
+    SuperviseRemindData:
+      type: object
+      required: [supervise_id, reminded, message]
+      properties:
+        supervise_id: { type: integer }
+        reminded: { const: true }
+        message: { type: string }
+    SuperviseRecordItem:
+      type: object
+      required: [date, intake, steps, deficit]
+      properties:
+        date: { type: string, format: date }
+        intake: { type: number }
+        steps: { type: integer }
+        deficit: { type: number, description: 负值为缺口 }
+    SuperviseRecordsData:
+      type: object
+      required: [supervise_id, partner, items]
+      properties:
+        supervise_id: { type: integer }
+        partner:
+          $ref: '#/components/schemas/UserBrief'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SuperviseRecordItem'
+    GroupItem:
+      type: object
+      required: [id, name, member_count, created_at]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        category: { type: string, nullable: true }
+        member_count: { type: integer }
+        city: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+    GroupPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupItem'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    GroupJoinData:
+      type: object
+      required: [group_id, joined, member_count]
+      properties:
+        group_id: { type: integer }
+        joined: { const: true }
+        member_count: { type: integer }
+    GroupCheckinData:
+      type: object
+      required: [group_id, checked, checkin_days]
+      properties:
+        group_id: { type: integer }
+        checked: { const: true }
+        checkin_days: { type: integer }
+        post_id: { type: integer, nullable: true, description: 打卡沉淀的 post_type=3 动态 id }
     BattleItem:
       type: object
       required: [id, title, meet_at, need_count, join_count, status]
       properties:
         id: { type: integer }
         title: { type: string }
-        sport_type: { type: string, nullable: true }
+        sport_name: { type: string, nullable: true }
         merchant_id: { type: integer, nullable: true }
         city: { type: string, nullable: true }
         meet_at: { type: string, format: date-time }
         need_count: { type: integer }
         join_count: { type: integer }
         status: { type: integer, description: 1招募中 2满员 3进行中 4结束 }
+        creator_id: { type: integer, nullable: true }
+    BattleCreateIn:
+      type: object
+      required: [title, meet_at]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 256 }
+        sport_name: { type: string, nullable: true, maxLength: 64 }
+        merchant_id: { type: integer, nullable: true, description: 关联场馆券 }
+        city: { type: string, nullable: true, maxLength: 64 }
+        lat: { type: number, nullable: true, description: LBS 匹配用 }
+        lng: { type: number, nullable: true }
+        meet_at: { type: string, format: date-time }
+        need_count: { type: integer, minimum: 2, maximum: 50, default: 2 }
     BattlePageData:
       type: object
       required: [items, page]
@@ -2539,6 +3362,120 @@ components:
         battle_id: { type: integer }
         joined: { const: true }
         join_count: { type: integer }
+    ChallengeItem:
+      type: object
+      required: [id, title, join_count, status]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        start_at: { type: string, format: date-time, nullable: true }
+        end_at: { type: string, format: date-time, nullable: true }
+        badge_image: { type: string, nullable: true }
+        join_count: { type: integer }
+        status: { type: integer, description: 1进行中 2结束 }
+        joined: { type: boolean }
+    ChallengePageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChallengeItem'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    ChallengeJoinData:
+      type: object
+      required: [challenge_id, joined, join_count]
+      properties:
+        challenge_id: { type: integer }
+        joined: { const: true }
+        join_count: { type: integer }
+    LeaderboardEntry:
+      type: object
+      required: [rank, user, score]
+      properties:
+        rank: { type: integer }
+        user:
+          $ref: '#/components/schemas/UserBrief'
+        score: { type: number }
+    ChallengeLeaderboardData:
+      type: object
+      required: [challenge_id, items]
+      properties:
+        challenge_id: { type: integer }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+    LeaderboardData:
+      type: object
+      required: [period_type, period_key, items]
+      properties:
+        period_type: { type: integer, description: 1日榜 2周榜 3月榜 }
+        period_key: { type: string }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+    WeeklyCommentIn:
+      type: object
+      properties:
+        week: { type: string, nullable: true, maxLength: 16, description: 期号 YYYY-Www；缺省=本周 }
+    WeeklyCommentData:
+      type: object
+      required: [week, content]
+      properties:
+        week: { type: string }
+        content: { type: string, description: 含免责声明 }
+        highlights:
+          type: array
+          items: { type: string }
+        references:
+          type: array
+          items: { type: string }
+    AdminAuditItem:
+      type: object
+      required: [id, target_type, target_id, status, created_at]
+      properties:
+        id: { type: integer }
+        target_type: { type: integer, description: 1动态 2评论 3图片 4商家入驻 }
+        target_id: { type: integer }
+        user_id: { type: integer, nullable: true }
+        nickname: { type: string, nullable: true }
+        content_snapshot: { type: string, nullable: true }
+        sec_check_result: { type: integer, nullable: true, description: 1通过 2可疑 3不通过 }
+        status: { type: integer, description: 0待审 1通过 2驳回 }
+        reject_reason: { type: string, nullable: true }
+        reviewer_id: { type: integer, nullable: true }
+        reviewed_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+    AdminAuditPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuditItem'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    AdminReviewIn:
+      type: object
+      required: [status]
+      properties:
+        status: { type: integer, enum: [1, 2], description: 1通过 2驳回 }
+        reason: { type: string, nullable: true, maxLength: 200 }
+    AdminReviewData:
+      type: object
+      required: [id, target_type, target_id, status]
+      properties:
+        id: { type: integer }
+        target_type: { type: integer }
+        target_id: { type: integer }
+        status: { type: integer }
+        reject_reason: { type: string, nullable: true }
+        reviewed_at: { type: string, format: date-time, nullable: true }
     DashboardData:
       type: object
       required: [date, user_count, active_users_today, meal_records_today, orders_today, gmv_today, ai_calls_today]

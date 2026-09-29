@@ -20,6 +20,7 @@ from app.models import AdminUser
 from app.schemas import DashboardData, Envelope
 from app.schemas.admin import (
     AdminAuditIn,
+    AdminAuditPageData,
     AdminCouponPoolIn,
     AdminCouponPoolOut,
     AdminCouponPoolPageData,
@@ -31,6 +32,8 @@ from app.schemas.admin import (
     AdminMerchantPageData,
     AdminMerchantSkuData,
     AdminMerchantSkuIn,
+    AdminReviewData,
+    AdminReviewIn,
     AdminSkuStatusIn,
 )
 from app.schemas.common import ErrorCode, ok
@@ -255,4 +258,40 @@ async def get_admin_dashboard(
 ) -> Envelope[DashboardData]:
     """IS-008: 真实聚合查询替代硬编码数据。"""
     data = await admin_service.get_dashboard(session, date)
+    return ok(data, request_id=request_id)
+
+
+# ---- 内容审核队列（Phase 4 ADM）----
+
+
+@router.get(
+    "/admin/audit/list",
+    response_model=Envelope[AdminAuditPageData],
+    summary="内容审核队列（review；status 过滤 0待审 1通过 2驳回）",
+)
+async def admin_list_audit(
+    status: int | None = Query(default=None, ge=0, le=2),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    admin: AdminPrincipal = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[AdminAuditPageData]:
+    data = await admin_service.list_audit(session, admin, status, page, page_size)
+    return ok(data, request_id=request_id)
+
+
+@router.post(
+    "/admin/audit/{id}/review",
+    response_model=Envelope[AdminReviewData],
+    summary="处理审核（1通过 / 2驳回）",
+)
+async def admin_review_audit(
+    id: int,
+    payload: AdminReviewIn,
+    admin: AdminPrincipal = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[AdminReviewData]:
+    data = await admin_service.review_audit(session, admin, id, payload)
     return ok(data, request_id=request_id)
