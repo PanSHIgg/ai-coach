@@ -1,47 +1,57 @@
 # backend/app/ai · AI Provider SDK 抽象层
 
-P0-h spike 交付：统一 LLM 对话与视觉识别接口，默认 DeepSeek（OpenAI 兼容）+ 腾讯云图像识别，无 Key 时一律落 mock。
+**生产唯一入口**：`app.ai.factory`（传 Settings，读取 `MS_API_KEY`）
+
+**当前 provider**：ModelScope Qwen3.8-Flash-Next（对齐 `ai_api.md`，VLM 统一对话+视觉）
+
+**备用 provider 实现**（未接入生产）：
+- `llm.py`：DeepSeek/Qwen（OpenAI 兼容）
+- `vision.py`：腾讯云图像识别
+
+**无 Key 时**：自动落 Mock（`mock.py`），零网络依赖。
 
 ## 模块
 
 | 文件            | 说明                                                                 |
 | --------------- | -------------------------------------------------------------------- |
+| `factory.py`    | **生产入口**：`get_llm_client(settings)` / `get_vision_client(settings)` |
 | `base.py`       | `LLMClient.chat(messages)->str`、`VisionClient.recognize_food(bytes)->list[dict]` 抽象 |
-| `llm.py`        | `DeepSeekClient` / `QwenClient`（httpx 同步，OpenAI 兼容 `/chat/completions`，超时 连接 3s/读 30s） |
-| `vision.py`     | `TencentVisionClient`（httpx + TC3-HMAC-SHA256 签名，tiia `DetectFood` 骨架） |
+| `llm.py`        | `DeepSeekClient` / `QwenClient`（备用 provider，未接入生产） |
+| `vision.py`     | `TencentVisionClient`（备用 provider，未接入生产） |
 | `mock.py`       | `MockLLMClient`（关键词 FAQ）/ `MockVisionClient`（3 固定条目，含 <0.7 置信度） |
-| `prompts.py`    | 系统提示词、免责声明、降级 FAQ（6001）常量                           |
-| `__init__.py`   | 工厂 `get_llm_client()` / `get_vision_client()`                      |
+| `prompts.py`    | 系统提示词、免责声明、降级 FAQ（6001）常量 |
+| `__init__.py`   | 向后兼容导入（工厂函数已删除） |
 
 ## 用法
 
 ```python
-from app.ai import get_llm_client, get_vision_client
+from app.ai.factory import get_llm_client, get_vision_client
+from app.core.config import get_settings
 
-reply = get_llm_client().chat([
+settings = get_settings()
+llm = get_llm_client(settings)
+vision = get_vision_client(settings)
+
+reply = llm.chat([
     {"role": "system", "content": AI_COACH_SYSTEM_PROMPT},
     {"role": "user", "content": "下午饿了能吃什么？"},
 ])
-items = get_vision_client().recognize_food(image_bytes)
+items = vision.recognize_food(image_bytes)
 # items: [{"name", "confidence", "calorie_estimate"}]，confidence < 0.7 需用户确认
 ```
 
-## 配置（对齐 code/.env.example 的 AI_* 命名）
+## 配置（对齐 .env.example）
 
-| 变量                                    | 说明                                                       |
-| --------------------------------------- | ---------------------------------------------------------- |
-| `AI_LLM_PROVIDER`                       | `deepseek`（默认）/ `qwen`；未知值落 mock 并打日志         |
-| `AI_LLM_API_KEY`（回落 `AI_API_KEY`）   | 缺失即落 mock                                              |
-| `AI_LLM_BASE_URL`（回落 `AI_BASE_URL`） | OpenAI 兼容网关地址（如 DashScope compatible-mode）        |
-| `AI_LLM_MODEL`                          | 默认 `deepseek-chat` / `qwen-plus`                         |
-| `AI_VISION_PROVIDER`                    | `tencent`（默认）；其余值暂落 mock（切换点见 spike 文档）  |
-| `AI_VISION_API_KEY`                     | 腾讯云格式 `{SecretId}:{SecretKey}`【假设】                |
-| `AI_VISION_BASE_URL`                    | 代理/兼容网关地址                                          |
+| 变量 | 说明 |
+| --- | --- |
+| `MS_API_KEY` | ModelScope API Key（必填，否则落 Mock） |
+| `MS_BASE_URL` | ModelScope 推理地址（默认 `https://api-inference.modelscope.cn/v1`） |
+| `MS_MODEL` | 模型名（默认 `Qwen/Qwen3.8-Flash-Next`） |
+| `MS_ENABLE_THINKING` | 是否启用思考模式（默认 false，省 token） |
+| `MS_MAX_TOKENS` | 最大输出 token（默认 1024） |
+| `MS_TIMEOUT` | 超时秒数（默认 5.0，对齐 P95<3s） |
 
-## 切换 provider
-
-- LLM 切通义千问：`AI_LLM_PROVIDER=qwen` + 百炼 Key（`AI_LLM_BASE_URL` 可省，走默认 DashScope 兼容地址），代码零改动。
-- 视觉切阿里云：实现新的 `VisionClient` 子类（RPC 签名或视觉理解大模型），工厂加一个分支即可。
+**注意**：`AI_LLM_*` / `AI_VISION_*` 配置字段已废弃，factory 不读取。
 
 ## 自检
 

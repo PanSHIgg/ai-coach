@@ -607,10 +607,12 @@ paths:
       parameters:
         - name: lat
           in: query
-          schema: { type: number, format: double }
+          description: 纬度（-90 到 90）
+          schema: { type: number, format: double, minimum: -90, maximum: 90 }
         - name: lng
           in: query
-          schema: { type: number, format: double }
+          description: 经度（-180 到 180）
+          schema: { type: number, format: double, minimum: -180, maximum: 180 }
         - name: radius
           in: query
           description: 搜索半径（米）
@@ -646,6 +648,14 @@ paths:
       operationId: getMerchant
       parameters:
         - $ref: '#/components/parameters/ResourceId'
+        - name: lat
+          in: query
+          description: 纬度（-90 到 90），用于计算距离
+          schema: { type: number, format: double, minimum: -90, maximum: 90 }
+        - name: lng
+          in: query
+          description: 经度（-180 到 180），用于计算距离
+          schema: { type: number, format: double, minimum: -180, maximum: 180 }
       responses:
         '200':
           description: 商家详情（含在售 SKU）
@@ -1965,7 +1975,7 @@ components:
       properties:
         gender: { enum: [1, 2], description: 1男 2女, type: integer }
         height_cm: { type: number, exclusiveMinimum: 0, maximum: 200, example: 175.0 }
-        birth_year: { type: integer, nullable: true, minimum: 1900, maximum: 9999, example: 1995 }
+        birth_year: { type: integer, nullable: true, minimum: 1900, maximum: 9999, example: 1995, description: 服务端额外校验出生年份对应年龄在10至120岁之间（即当前年份-120至当前年份-10），不符合时返回业务码2001 }
         current_weight: { type: number, exclusiveMinimum: 0, maximum: 500, description: kg, example: 75.5 }
         target_weight: { type: number, nullable: true, exclusiveMinimum: 0, maximum: 500, description: kg }
         target_type: { $ref: '#/components/schemas/TargetType' }

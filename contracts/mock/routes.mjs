@@ -212,6 +212,90 @@ export const routes = [
 
   // ---- 管理 ----
   {
+    m: 'POST', p: '/api/admin/login',
+    d: { token: 'mock-admin-token', role: 1, merchant_id: null, username: 'admin' },
+  },
+  {
+    m: 'GET', p: '/api/admin/merchants',
+    d: {
+      items: [
+        {
+          id: 88, name: '轻食一号店', category: '轻食', address: 'XX路1号', phone: '021-0000000',
+          lat: 31.2304, lng: 121.4737, rating: 4.8, cover_url: 'https://cos.example.com/m/88.png',
+          status: 1, audit_status: 1, audit_reason: null, owner_user_id: 1001, created_at: now(),
+        },
+      ],
+      page,
+    },
+  },
+  {
+    m: 'POST', p: '/api/admin/merchants/{id}/audit',
+    d: {
+      id: 88, name: '轻食一号店', category: '轻食', address: 'XX路1号', phone: '021-0000000',
+      lat: 31.2304, lng: 121.4737, rating: 4.8, cover_url: 'https://cos.example.com/m/88.png',
+      status: 1, audit_status: 1, audit_reason: null, owner_user_id: 1001, created_at: now(),
+    },
+  },
+  {
+    m: 'POST', p: '/api/admin/merchant-skus',
+    d: {
+      id: 12, merchant_id: 88, merchant_name: '轻食一号店', catalog_id: 1, catalog_code: 'FD-001',
+      catalog_name: '鸡胸肉沙拉', price: 28.0, min_price: 20.0, max_price: 40.0, stock: 99, status: 1, updated_at: null,
+    },
+  },
+  {
+    m: 'POST', p: '/api/admin/merchant-skus/{id}/status',
+    d: {
+      id: 12, merchant_id: 88, merchant_name: '轻食一号店', catalog_id: 1, catalog_code: 'FD-001',
+      catalog_name: '鸡胸肉沙拉', price: 28.0, min_price: 20.0, max_price: 40.0, stock: 99, status: 1, updated_at: null,
+    },
+  },
+  {
+    m: 'GET', p: '/api/admin/coupon-pools',
+    d: {
+      items: [
+        {
+          id: 1, name: '新用户满减券', type: 1, scope: 1, amount: 5.0, discount_rate: null, min_spend: 20.0,
+          merchant_id: null, total_count: 100, granted_count: 10, valid_from: now(), valid_to: '2026-12-31T23:59:59+08:00', created_at: now(),
+        },
+      ],
+      page,
+    },
+  },
+  {
+    m: 'POST', p: '/api/admin/coupon-pools',
+    d: {
+      id: 2, name: '平台补贴券', type: 1, scope: 4, amount: 10.0, discount_rate: null, min_spend: 50.0,
+      merchant_id: null, total_count: 50, granted_count: 0, valid_from: now(), valid_to: '2026-12-31T23:59:59+08:00', created_at: now(),
+    },
+  },
+  {
+    m: 'POST', p: '/api/admin/coupon-pools/{id}/grant',
+    d: {
+      granted_count: 15, pool_id: 1, user_id: 1001,
+      coupons: [
+        { id: 101, code: 'CP-ABC12345', type: 1, scope: 1, amount: 5.0, discount_rate: null, min_spend: 20.0, merchant_id: null, status: 1, valid_from: now(), valid_to: '2026-12-31T23:59:59+08:00' },
+      ],
+    },
+  },
+  {
+    m: 'GET', p: '/api/admin/orders',
+    d: {
+      items: [
+        {
+          id: 66001, order_no: 'DD202609280001', merchant_id: 88, merchant_name: '轻食一号店',
+          total_amount: 28.0, discount_amount: 3.0, pay_amount: 25.0, status: 2,
+          redeem_code: 'RDW2MKC4NTCG', expire_at: '2026-09-28T15:30:00+08:00', created_at: now(),
+        },
+      ],
+      page,
+    },
+  },
+  {
+    m: 'GET', p: '/api/admin/sku-catalog',
+    d: { items: [{ id: 1, code: 'FD-001', name: '鸡胸肉沙拉', category: '轻食', calories_low: 300, calories_high: 500, base_price: 28.0, min_price: 20.0, max_price: 40.0, unit: '份' }] },
+  },
+  {
     m: 'GET', p: '/api/admin/dashboard',
     d: { date: today(), user_count: 1200, active_users_today: 356, meal_records_today: 980, orders_today: 120, gmv_today: 3360.0, ai_calls_today: 2100 },
   },

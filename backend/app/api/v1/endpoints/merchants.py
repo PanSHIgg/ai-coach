@@ -23,8 +23,8 @@ router = APIRouter(tags=["商家"])
 
 @router.get("/merchant/list", response_model=Envelope[MerchantPageData], summary="商家列表（LBS）")
 async def list_merchants(
-    lat: float | None = Query(default=None),
-    lng: float | None = Query(default=None),
+    lat: float | None = Query(default=None, ge=-90, le=90),
+    lng: float | None = Query(default=None, ge=-180, le=180),
     radius: int = Query(default=3000),
     category: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
@@ -42,8 +42,8 @@ async def list_merchants(
 @router.get("/merchant/{id}", response_model=Envelope[MerchantDetail], summary="商家详情")
 async def get_merchant(
     id: int,
-    lat: float | None = Query(default=None),
-    lng: float | None = Query(default=None),
+    lat: float | None = Query(default=None, ge=-90, le=90),
+    lng: float | None = Query(default=None, ge=-180, le=180),
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     request_id: str | None = Depends(get_request_id),
@@ -52,7 +52,11 @@ async def get_merchant(
     return ok(data, request_id=request_id)
 
 
-@router.get("/sku/catalog", response_model=Envelope[CatalogData], summary="标准目录（平台运营维护）")
+@router.get(
+    "/sku/catalog",
+    response_model=Envelope[CatalogData],
+    summary="标准目录（平台运营维护）",
+)
 async def list_sku_catalog(
     category: str | None = Query(default=None),
     user: CurrentUser = Depends(get_current_user),

@@ -153,7 +153,6 @@ const errors = reactive({
 // 前端先行拦截 + 后端兜底
 const HEIGHT_MAX = 200 // cm
 const WEIGHT_MAX = 500 // kg
-const YEAR_MIN = 1900
 
 onMounted(async () => {
   try {
@@ -203,8 +202,10 @@ function validate(): boolean {
   if (form.birth_year) {
     const year = Number(form.birth_year)
     const nowYear = new Date().getFullYear()
-    if (!Number.isInteger(year) || year < YEAR_MIN || year > nowYear)
-      errors.birth_year = `请输入 ${YEAR_MIN}-${nowYear} 之间的出生年份`
+    const yearMin = nowYear - 120
+    const yearMax = nowYear - 10
+    if (!Number.isInteger(year) || year < yearMin || year > yearMax)
+      errors.birth_year = `请输入 ${yearMin}-${yearMax} 之间的出生年份`
   }
 
   return !errors.height_cm && !errors.current_weight && !errors.target_weight && !errors.birth_year

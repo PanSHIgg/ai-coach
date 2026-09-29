@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import secrets
 import string
+from datetime import date, datetime, time, timedelta, timezone
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -27,8 +28,23 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppException
+from app.core.logging import get_logger
+from app.core.rate_limit import incr_window
 from app.core.security import create_access_token, verify_password
-from app.models import AdminUser, Coupon, CouponPool, Merchant, MerchantSku, Order, SkuCatalog, User
+from app.db.redis import get_redis
+from app.models import (
+    AdminUser,
+    AiDialog,
+    Coupon,
+    CouponPool,
+    MealRecord,
+    Merchant,
+    MerchantSku,
+    Order,
+    SkuCatalog,
+    SportRecord,
+    User,
+)
 from app.schemas.admin import (
     AdminAuditIn,
     AdminCouponPoolIn,
@@ -48,8 +64,17 @@ from app.schemas.common import ErrorCode, PageMeta
 from app.schemas.coupon import CouponOut
 from app.schemas.order import OrderBrief, OrderPageData
 
+logger = get_logger(__name__)
+
 _ALNUM = string.ascii_uppercase + string.digits  # 券码字符集（CP + 8 位大写）
 _CODE_ATTEMPTS = 8  # code 冲突重试上限
+
+# IS-007: admin 登录失败锁定配置
+_ADMIN_LOGIN_MAX_FAILURES = 5  # 连续失败次数
+_ADMIN_LOGIN_LOCK_SECONDS = 15 * 60  # 锁定 15 分钟
+
+# 时区：与 record_service/account 保持一致（UTC+8）
+_TZ = timezone(timedelta(hours=8))
 
 
 class AdminPrincipal(BaseModel):
@@ -79,12 +104,77 @@ def ensure_scope(principal: AdminPrincipal, merchant_id: int | None) -> None:
 # ---- 登录 ----
 
 
+async def _check_admin_login_lock(username: str) -> None:
+    """IS-007: 检查账号是否被锁定（连续失败 5 次锁 15 分钟）。"""
+    try:
+        redis = await get_redis()
+        if redis is None:
+            return  # Redis 不可用时降级（不锁定）
+        lock_key = f"admin_login_lock:{username}"
+        if await redis.exists(lock_key):
+            raise AppException(
+                ErrorCode.RATE_LIMITED,
+                f"账号已被锁定，请 {_ADMIN_LOGIN_LOCK_SECONDS // 60} 分钟后重试",
+            )
+    except AppException:
+        raise  # 锁定异常必须向上传播，不能被吞掉
+    except Exception as exc:
+        logger.warning(f"检查 admin 登录锁定失败: {exc}")
+
+
+async def _record_admin_login_failure(username: str) -> None:
+    """IS-007: 记录登录失败，达到阈值后锁定账号。"""
+    try:
+        fail_key = f"admin_login_fail:{username}"
+        lock_key = f"admin_login_lock:{username}"
+
+        # 使用原子递增窗口
+        count = await incr_window(fail_key, _ADMIN_LOGIN_LOCK_SECONDS)
+
+        if count is None:
+            # Redis 不可用，降级（不锁定）
+            return
+
+        # 达到阈值则锁定
+        if count >= _ADMIN_LOGIN_MAX_FAILURES:
+            redis = await get_redis()
+            if redis is not None:
+                await redis.set(lock_key, 1, ex=_ADMIN_LOGIN_LOCK_SECONDS)
+                await redis.delete(fail_key)
+                logger.warning(
+                    f"admin 账号 {username} 因连续 {_ADMIN_LOGIN_MAX_FAILURES} 次登录失败被锁定"
+                )
+    except Exception as exc:
+        logger.warning(f"记录 admin 登录失败失败: {exc}")
+
+
+async def _clear_admin_login_failures(username: str) -> None:
+    """IS-007: 登录成功后清除失败计数。"""
+    try:
+        redis = await get_redis()
+        if redis is None:
+            return
+        await redis.delete(f"admin_login_fail:{username}")
+    except Exception as exc:
+        logger.warning(f"清除 admin 登录失败计数失败: {exc}")
+
+
 async def login(session: AsyncSession, payload: AdminLoginIn) -> AdminLoginData:
+    """admin 登录（IS-007: 含失败锁定机制）。"""
+    # 检查是否被锁定
+    await _check_admin_login_lock(payload.username)
+
     admin = (
         await session.execute(select(AdminUser).where(AdminUser.username == payload.username))
     ).scalar_one_or_none()
     if admin is None or not verify_password(payload.password, admin.password_hash):
+        # 记录失败
+        await _record_admin_login_failure(payload.username)
         raise AppException(ErrorCode.UNAUTHORIZED)
+
+    # 登录成功，清除失败计数
+    await _clear_admin_login_failures(payload.username)
+
     token = create_access_token(
         str(admin.id), dom="admin", role=admin.role, merchant_id=admin.merchant_id
     )
@@ -338,9 +428,12 @@ async def _gen_coupon_codes(session: AsyncSession, count: int) -> list[str]:
     """生成 count 个不冲突的券码：CP + 8 位大写字母数字，冲突重试。"""
     codes: set[str] = set()
     for _ in range(_CODE_ATTEMPTS):
-        candidates = {f"CP{''.join(secrets.choice(_ALNUM) for _ in range(8))}" for _ in range(count)}
+        candidates = {
+            f"CP{''.join(secrets.choice(_ALNUM) for _ in range(8))}" for _ in range(count)
+        }
         existed = set(
-            (await session.execute(select(Coupon.code).where(Coupon.code.in_(candidates)))).scalars()
+            (await session.execute(select(Coupon.code).where(Coupon.code.in_(candidates))))
+            .scalars()
         )
         codes |= candidates - existed
         if len(codes) >= count:
@@ -365,7 +458,9 @@ async def grant_coupons(
     ).scalar_one_or_none()
     if pool is None:
         raise AppException(ErrorCode.NOT_FOUND, "券池不存在")
-    user = (await session.execute(select(User).where(User.id == payload.user_id))).scalar_one_or_none()
+    user = (
+        await session.execute(select(User).where(User.id == payload.user_id))
+    ).scalar_one_or_none()
     if user is None:
         raise AppException(ErrorCode.NOT_FOUND, "用户不存在")
     # 余量校验（total_count=-1 不限量【假设】）
@@ -460,4 +555,87 @@ async def list_orders(
         )
         for o in rows
     ]
-    return OrderPageData(items=items, page=PageMeta(page=page, page_size=page_size, total=int(total or 0)))
+    return OrderPageData(
+        items=items, page=PageMeta(page=page, page_size=page_size, total=int(total or 0))
+    )
+
+
+# ---- 运营看板（IS-008: 真实聚合查询）----
+
+
+async def get_dashboard(session: AsyncSession, target_date: date | None = None) -> dict:
+    """IS-008: 运营看板聚合查询。
+
+    - GMV: 仅统计已支付待核销(2)和已完成(3)的订单，排除已取消(4)和已退款(5)
+    - active_users: 当日有饮食记录或运动记录的去重用户数
+    - 时间边界: 使用 UTC+8 时区感知的 datetime，与 DB 的 TIMESTAMPTZ 对齐
+    """
+    if target_date is None:
+        target_date = datetime.now(_TZ).date()
+
+    # 构造当日时间边界（UTC+8）
+    start_of_day = datetime.combine(target_date, time.min, tzinfo=_TZ)
+    end_of_day = datetime.combine(target_date, time.max, tzinfo=_TZ)
+
+    # 累计用户数
+    user_count = await session.scalar(select(func.count()).select_from(User)) or 0
+
+    # 今日活跃用户（有饮食记录或运动记录）
+    # MealRecord 使用 record_date (Date 类型)，SportRecord 使用 record_at (TIMESTAMPTZ)
+    meal_user_ids = await session.scalars(
+        select(MealRecord.user_id).where(
+            MealRecord.record_date == target_date,
+            MealRecord.user_id.isnot(None),
+        )
+    )
+    sport_user_ids = await session.scalars(
+        select(SportRecord.user_id).where(
+            SportRecord.record_at >= start_of_day,
+            SportRecord.record_at <= end_of_day,
+            SportRecord.user_id.isnot(None),
+        )
+    )
+    active_users_today = len(set(meal_user_ids.all()) | set(sport_user_ids.all()))
+
+    # 今日饮食记录数
+    meal_records_today = await session.scalar(
+        select(func.count()).select_from(MealRecord).where(
+            MealRecord.record_date == target_date
+        )
+    ) or 0
+
+    # 今日订单数
+    orders_today = await session.scalar(
+        select(func.count()).select_from(Order).where(
+            Order.created_at >= start_of_day,
+            Order.created_at <= end_of_day,
+        )
+    ) or 0
+
+    # 今日 GMV（已支付待核销 + 已完成，排除已取消和已退款）
+    gmv_today = await session.scalar(
+        select(func.coalesce(func.sum(Order.pay_amount), 0.0)).where(
+            Order.status.in_([2, 3]),  # 已支付待核销 + 已完成
+            Order.created_at >= start_of_day,
+            Order.created_at <= end_of_day,
+        )
+    ) or 0.0
+
+    # 今日 AI 调用次数（仅统计用户发起的对话）
+    ai_calls_today = await session.scalar(
+        select(func.count()).select_from(AiDialog).where(
+            AiDialog.created_at >= start_of_day,
+            AiDialog.created_at <= end_of_day,
+            AiDialog.role == "user",
+        )
+    ) or 0
+
+    return {
+        "date": target_date,
+        "user_count": user_count,
+        "active_users_today": active_users_today,
+        "meal_records_today": meal_records_today,
+        "orders_today": orders_today,
+        "gmv_today": float(gmv_today),
+        "ai_calls_today": ai_calls_today,
+    }

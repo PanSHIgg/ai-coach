@@ -3,13 +3,17 @@
 默认阈值（04 文档 §6.3.6，均可经环境变量配置）：
 - 全局 100 次/分钟/IP
 - 登录 10 次/分钟/IP（/api/auth/*）
+- admin 登录 5 次/分钟/IP（/api/admin/login）
 - AI 对话 20 次/分钟/用户（/api/ai/*，按 JWT sub，无 token 回退 IP）
+
+IS-004 修复：兼容 Redis 6.x（不支持 EXPIRE NX），改用 SET NX EX + INCR 原子方案。
 """
 
 import time
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
+from redis.exceptions import ConnectionError, RedisError, ResponseError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
 
@@ -25,22 +29,69 @@ logger = get_logger(__name__)
 # 进程内兜底：key -> (count, window_start_monotonic)
 _memory_windows: dict[str, tuple[int, float]] = {}
 
+_redis_version_checked = False
 
-async def check_rate_limit(key: str, limit: int, window: int = 60) -> bool:
-    """窗口内计数 <= limit 放行。Redis INCR+EXPIRE(NX)，异常降级进程内字典。"""
+
+async def _check_redis_version(redis) -> None:
+    """IS-004: 启动时检查 Redis 版本，低于 7.0 打明确告警。"""
+    global _redis_version_checked
+    if _redis_version_checked:
+        return
+    try:
+        info = await redis.info("server")
+        version = info.get("redis_version", "unknown")
+        major = int(version.split(".")[0]) if version != "unknown" else 0
+        if major < 7:
+            logger.warning(
+                f"Redis 版本 {version} < 7.0，限流已降级兼容模式（SET NX EX + INCR）。"
+                "建议升级至 Redis 7+ 以获得最佳性能。"
+            )
+        _redis_version_checked = True
+    except Exception as exc:
+        logger.debug(f"检查 Redis 版本失败: {exc}")
+
+
+async def incr_window(key: str, window: int) -> int | None:
+    """原子递增计数器，首次调用时设置 TTL。
+
+    使用 SET NX EX + INCR 原子执行，兼容 Redis 6.x。
+    返回当前计数，Redis 不可用时返回 None。
+    """
     try:
         redis = await get_redis()
-        if redis is not None:
-            redis_key = f"ratelimit:{key}"
-            # INCR+EXPIRE 原子执行：避免 EXPIRE 失败留下无 TTL 的永久计数
-            async with redis.pipeline(transaction=True) as pipe:
-                pipe.incr(redis_key)
-                pipe.expire(redis_key, window, nx=True)
-                count, _ = await pipe.execute()
-            return int(count) <= limit
-    except Exception:  # noqa: BLE001 - Redis 故障必须降级而非阻塞请求
-        logger.warning("限流 Redis 不可用，降级进程内字典", extra={"key": key})
+        if redis is None:
+            return None
+        await _check_redis_version(redis)
+        async with redis.pipeline(transaction=False) as pipe:
+            pipe.set(key, 0, nx=True, ex=window)
+            pipe.incr(key)
+            _, count = await pipe.execute()
+        return int(count)
+    except (ConnectionError, TimeoutError) as exc:
+        logger.warning(
+            "Redis 连接不可用", extra={"key": key, "reason": str(exc)}
+        )
+    except ResponseError as exc:
+        logger.error(
+            "Redis 命令不兼容（需 Redis 6+）",
+            extra={"key": key, "reason": str(exc)},
+        )
+    except RedisError as exc:
+        logger.warning("Redis 错误", extra={"key": key, "reason": str(exc)})
+    return None
 
+
+async def check_rate_limit(key: str, limit: int, window: int = 60) -> bool:
+    """窗口内计数 <= limit 放行。Redis SET NX EX + INCR 原子执行，异常降级进程内字典。
+
+    IS-004: 兼容 Redis 6.x（不支持 EXPIRE NX）。
+    """
+    redis_key = f"ratelimit:{key}"
+    count = await incr_window(redis_key, window)
+    if count is not None:
+        return count <= limit
+
+    # Redis 不可用，降级进程内字典
     now = time.monotonic()
     count, window_start = _memory_windows.get(key, (0, now))
     if now - window_start >= window:
@@ -64,8 +115,13 @@ def _jwt_sub(request: Request) -> str | None:
 def resolve_limit(
     path: str, client_ip: str, jwt_sub: str | None, settings: Settings
 ) -> tuple[str, int]:
-    """按路径解析 (限流 key, 每分钟阈值)。"""
+    """按路径解析 (限流 key, 每分钟阈值)。
+
+    IS-007: /api/admin/login 纳入严格档（5/min/IP）。
+    """
     prefix = f"{settings.API_PREFIX}/"
+    if path == f"{prefix}admin/login":
+        return f"admin_login:ip:{client_ip}", getattr(settings, "RATE_LIMIT_ADMIN_LOGIN_PER_MIN", 5)
     if path.startswith(f"{prefix}auth/"):
         return f"auth:ip:{client_ip}", settings.RATE_LIMIT_AUTH_PER_MIN
     if path.startswith(f"{prefix}ai/"):

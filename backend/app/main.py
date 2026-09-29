@@ -33,6 +33,14 @@ _HTTP_CODE_MAP = {
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     s = settings or get_settings()
+
+    # IS-001: 生产环境禁止启用 PAY_MOCK_MODE
+    if s.ENV == "prod" and s.PAY_MOCK_MODE:
+        raise RuntimeError(
+            "生产环境禁止启用 PAY_MOCK_MODE=True。"
+            "请在 .env 中设置 PAY_MOCK_MODE=false 或设置 ENV=dev/sandbox"
+        )
+
     setup_logging(s.LOG_LEVEL)
     app = FastAPI(title=s.APP_NAME, version="0.1.0", debug=s.DEBUG)
 

@@ -262,9 +262,14 @@ async def test_create_order_coupon_rejected(db_client, db_session, authed, varia
 # ---------------------------------------------------------------------------
 
 
-async def test_pay_mock_mode_advances_order(db_client, db_session, authed):
-    """P1-6 PAY_MOCK_MODE（默认开）：pay 即支付成功——status=2、核销码、券 used_at、
+async def test_pay_mock_mode_advances_order(db_app, db_client, db_session, authed):
+    """P1-6 PAY_MOCK_MODE（显式开启）：pay 即支付成功——status=2、核销码、券 used_at、
     扣库存；pay_params 带 mock 标记且 paySign 可验算；他人订单 3001。"""
+    from app.core.config import get_settings
+    from tests.conftest import make_settings
+
+    db_app.dependency_overrides[get_settings] = lambda: make_settings(PAY_MOCK_MODE=True)
+
     m = await _seed_merchant(db_session)
     sku = await _seed_sku(db_session, m.id, price=25.0, stock=5)
     cp = await _seed_coupon(db_session, authed["user_id"], amount=5.0)
@@ -295,7 +300,6 @@ async def test_pay_mock_mode_advances_order(db_client, db_session, authed):
 async def test_pay_real_mode_keeps_pending(db_app, db_client, db_session, authed):
     """P1-6 PAY_MOCK_MODE=False：pay 只返回拉起参数不推进（等 notify），无 mock 标记。"""
     from app.core.config import get_settings
-
     from tests.conftest import make_settings
 
     db_app.dependency_overrides[get_settings] = lambda: make_settings(PAY_MOCK_MODE=False)

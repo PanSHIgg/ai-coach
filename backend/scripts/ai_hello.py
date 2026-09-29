@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AI 能力 hello-world：验证 provider 选型层可跑通。
 
-无 Key / 无 httpx 时走 mock（仅标准库即可运行）；配置 AI_* Key 后走真实调用。
+无 Key / 无 httpx 时走 mock（仅标准库即可运行）；配置 MS_API_KEY 后走真实调用。
 用法：
     python3 backend/scripts/ai_hello.py --task chat
     python3 backend/scripts/ai_hello.py --task vision [--image path/to.jpg]
@@ -14,12 +14,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/
 
-from app.ai import get_llm_client, get_vision_client  # noqa: E402
+from app.ai.factory import get_llm_client, get_vision_client  # noqa: E402
 from app.ai.prompts import (  # noqa: E402
     AI_COACH_SYSTEM_PROMPT,
     AI_DISCLAIMER,
     AI_UNAVAILABLE_FAQ,
 )
+from app.core.config import get_settings  # noqa: E402
 
 # 1x1 透明 PNG，供 vision 冒烟（真实识别请 --image 传照片）
 _TINY_PNG = base64.b64decode(
@@ -28,7 +29,8 @@ _TINY_PNG = base64.b64decode(
 
 
 def run_chat() -> None:
-    client = get_llm_client()
+    settings = get_settings()
+    client = get_llm_client(settings)
     print(f"[chat] client = {type(client).__name__}")
     messages = [
         {"role": "system", "content": AI_COACH_SYSTEM_PROMPT},
@@ -44,7 +46,8 @@ def run_chat() -> None:
 
 
 def run_vision(image_path: str | None) -> None:
-    client = get_vision_client()
+    settings = get_settings()
+    client = get_vision_client(settings)
     print(f"[vision] client = {type(client).__name__}")
     image = Path(image_path).read_bytes() if image_path else _TINY_PNG
     try:

@@ -56,6 +56,7 @@ services:
       REDIS_HOST: redis
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
       REDIS_URL: redis://redis:6379/0
+      PAY_MOCK_MODE: ${PAY_MOCK_MODE:-false}
     volumes:
       - uploads:/app/uploads
     depends_on:

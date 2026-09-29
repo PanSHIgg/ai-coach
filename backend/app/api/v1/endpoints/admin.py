@@ -243,22 +243,16 @@ async def admin_list_orders(
     return ok(data, request_id=request_id)
 
 
-# ---- 运营看板（Phase 1 stub 保留，追加 admin 认证）----
+# ---- 运营看板（IS-008: 真实聚合查询）----
 
 
 @router.get("/admin/dashboard", response_model=Envelope[DashboardData], summary="运营看板")
 async def get_admin_dashboard(
     date: _date | None = Query(default=None),
     admin: AdminPrincipal = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
     request_id: str | None = Depends(get_request_id),
 ) -> Envelope[DashboardData]:
-    data = DashboardData(
-        date=date or _date.today(),
-        user_count=1200,
-        active_users_today=356,
-        meal_records_today=980,
-        orders_today=120,
-        gmv_today=3360.0,
-        ai_calls_today=2100,
-    )
+    """IS-008: 真实聚合查询替代硬编码数据。"""
+    data = await admin_service.get_dashboard(session, date)
     return ok(data, request_id=request_id)

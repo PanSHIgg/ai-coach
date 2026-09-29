@@ -11,7 +11,6 @@
 import pytest
 
 from app.models import Food
-from app.services import calorie
 
 _BASE = {
     "gender": 1,
@@ -76,26 +75,16 @@ async def test_weight_upper_boundary_500_accepted(db_client, authed):
 
 
 # ---------------------------------------------------------------------------
-# 出生年份异常 → age 回退默认 30
+# 出生年份异常 → 422/2001（IS-005 修复后不再接受越界值）
 # ---------------------------------------------------------------------------
 
 
-async def test_future_birth_year_falls_back_age_30(db_client, authed):
-    # 引擎口径：未来年份 → age 回退 30
-    assert calorie.age_from_birth_year(3000) == calorie.DEFAULT_AGE == 30
-
-    resp = await _post_profile(db_client, authed, {"birth_year": 3000})
-    assert resp.status_code == 200
-    data = resp.json()["data"]
-
-    bmr_age30 = calorie.bmr_mifflin_st_jeor(gender=1, weight_kg=70, height_cm=175, age=30)
-    assert data["bmr"] == bmr_age30
-    assert data["target_calories"] == round(bmr_age30 * calorie.pal_for_level(3))
-
-    # GET 回读一致（出生年份原样落库、bmr 按 age=30 计算）
-    got = (await db_client.get("/api/body-profile", headers=authed["headers"])).json()["data"]
-    assert got["birth_year"] == 3000
-    assert got["bmr"] == bmr_age30
+@pytest.mark.parametrize("year", [1900, 1905, 3000, 9999])
+async def test_birth_year_out_of_range_rejected(db_client, authed, year: int):
+    """IS-005: birth_year 超出 [当前年份-120, 当前年份-10] 范围 → 422/2001"""
+    resp = await _post_profile(db_client, authed, {"birth_year": year})
+    assert resp.status_code == 422
+    assert resp.json()["code"] == 2001
 
 
 # ---------------------------------------------------------------------------

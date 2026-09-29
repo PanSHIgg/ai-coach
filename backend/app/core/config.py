@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     WECHAT_SECRET: str = ""  # 为空时 code2session 走 mock（P0）
     WECHAT_MCH_ID: str = ""
     WECHAT_PAY_KEY: str = ""
-    PAY_MOCK_MODE: bool = True  # 沙箱支付：pay 即推进支付成功（演示默认开；生产 .env 可关）
+    PAY_MOCK_MODE: bool = False  # 沙箱支付：pay 即推进支付成功（生产必须 false）
 
     # ---- 腾讯云 COS ----
     COS_SECRET_ID: str = ""
@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     MS_MODEL: str = "Qwen/Qwen3.8-Flash-Next"
     MS_ENABLE_THINKING: bool = False  # 对话场景关闭思考，省 token、降延迟
     MS_MAX_TOKENS: int = 1024
-    MS_TIMEOUT: float = 20.0  # 对齐 plan.md：AI P95 < 3s，超时降级预置 FAQ
+    MS_TIMEOUT: float = 5.0  # AI P95<3s，超时上限 5s 留余量，超时降级预置 FAQ
 
     # ---- AI 通用 ----
     # 识别置信度低于该值 → need_confirm=true，须用户确认（06 文档 §六）
@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_GLOBAL_PER_MIN: int = 100
     RATE_LIMIT_AI_PER_MIN: int = 20
     RATE_LIMIT_AUTH_PER_MIN: int = 10
+    RATE_LIMIT_ADMIN_LOGIN_PER_MIN: int = 5  # IS-007: admin 登录严格档
 
 
 @lru_cache
