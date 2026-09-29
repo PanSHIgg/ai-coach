@@ -63,8 +63,13 @@ def create_refresh_token(sub: str, settings: Settings | None = None, **claims: o
     return _encode_token(sub, "refresh", timedelta(days=s.JWT_REFRESH_EXPIRE_DAYS), s, **claims)
 
 
-def decode_token(token: str, expected_type: str = "access") -> dict:
-    """校验并解码 JWT；失败统一抛 1001（未登录/Token 失效）。"""
+def decode_token(
+    token: str, expected_type: str = "access", expected_dom: str | None = None
+) -> dict:
+    """校验并解码 JWT；失败统一抛 1001（未登录/Token 失效）。
+
+    expected_dom 非空时强校验 dom claim（token 域隔离：admin 域与 C 端域互不通用）。
+    """
     settings = get_settings()
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
@@ -73,5 +78,7 @@ def decode_token(token: str, expected_type: str = "access") -> dict:
     except jwt.InvalidTokenError as exc:
         raise AppException(ErrorCode.UNAUTHORIZED) from exc
     if payload.get("typ") != expected_type:
+        raise AppException(ErrorCode.UNAUTHORIZED)
+    if expected_dom is not None and payload.get("dom") != expected_dom:
         raise AppException(ErrorCode.UNAUTHORIZED)
     return payload

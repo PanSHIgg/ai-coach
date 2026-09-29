@@ -336,19 +336,221 @@ class AiKnowledge(Base):
     created_at: Mapped[datetime] = _ts()
 
 
+# ---------------------------------------------------------------------------
+# 商家与交易域（Phase 3：BE5 商家 / BE6 订单支付核销 / BE9 管理）
+# ---------------------------------------------------------------------------
+
+
+class Merchant(Base):
+    """商家（merchant）：LBS 用 lat/lng（不装 PostGIS），入驻走审核。"""
+
+    __tablename__ = "merchant"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    address: Mapped[str | None] = mapped_column(Text)
+    lat: Mapped[float | None] = mapped_column(Numeric(10, 7, asdecimal=False))
+    lng: Mapped[float | None] = mapped_column(Numeric(10, 7, asdecimal=False))
+    phone: Mapped[str | None] = mapped_column(String(32))
+    rating: Mapped[float] = mapped_column(
+        Numeric(3, 1, asdecimal=False), server_default="5.0", default=5.0
+    )
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)  # 1营业 0停业
+    audit_status: Mapped[int] = mapped_column(
+        SmallInteger, server_default="0", default=0
+    )  # 0待审 1通过 2驳回
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    created_at: Mapped[datetime] = _ts()
+
+
+class SkuCatalog(Base):
+    """标准 SKU 目录（sku_catalog）：平台运营维护，商家只选不建。"""
+
+    __tablename__ = "sku_catalog"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(64))
+    calories_low: Mapped[int | None] = mapped_column(Integer)
+    calories_high: Mapped[int | None] = mapped_column(Integer)
+    base_price: Mapped[float] = mapped_column(Numeric(8, 2, asdecimal=False), nullable=False)
+    min_price: Mapped[float] = mapped_column(Numeric(8, 2, asdecimal=False), nullable=False)
+    max_price: Mapped[float] = mapped_column(Numeric(8, 2, asdecimal=False), nullable=False)
+    unit: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    created_at: Mapped[datetime] = _ts()
+
+
+class MerchantSku(Base):
+    """商家 SKU（merchant_sku）：从目录选品定价，(merchant_id, catalog_id) 唯一。"""
+
+    __tablename__ = "merchant_sku"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    merchant_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("merchant.id", ondelete="CASCADE"), index=True
+    )
+    catalog_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("sku_catalog.id"))
+    price: Mapped[float] = mapped_column(Numeric(8, 2, asdecimal=False), nullable=False)
+    stock: Mapped[int] = mapped_column(Integer, server_default="-1", default=-1)  # -1 无限
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    created_at: Mapped[datetime] = _ts()
+
+    __table_args__ = (UniqueConstraint("merchant_id", "catalog_id", name="uk_ms"),)
+
+
+class CouponPool(Base):
+    """券池（coupon_pool）：券发放源头，用户只能经邀请任务/平台补贴获得。"""
+
+    __tablename__ = "coupon_pool"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    type: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # 1满减 2折扣 3免费 4体验
+    scope: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # 1吃 2动 3异业 4通用
+    amount: Mapped[float] = mapped_column(
+        Numeric(8, 2, asdecimal=False), server_default="0", default=0
+    )
+    discount_rate: Mapped[float | None] = mapped_column(Numeric(4, 2, asdecimal=False))
+    min_spend: Mapped[float] = mapped_column(
+        Numeric(8, 2, asdecimal=False), server_default="0", default=0
+    )
+    merchant_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("merchant.id"))
+    sponsor: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    total_count: Mapped[int] = mapped_column(Integer, server_default="0", default=0)  # -1 不限
+    granted_count: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    created_at: Mapped[datetime] = _ts()
+
+
+class Coupon(Base):
+    """用户券（coupon）：code 为核销码 UUID，唯一索引防重复核销。"""
+
+    __tablename__ = "coupon"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    pool_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("coupon_pool.id"))
+    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    type: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    scope: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    amount: Mapped[float] = mapped_column(
+        Numeric(8, 2, asdecimal=False), server_default="0", default=0
+    )
+    discount_rate: Mapped[float | None] = mapped_column(Numeric(4, 2, asdecimal=False))
+    min_spend: Mapped[float] = mapped_column(
+        Numeric(8, 2, asdecimal=False), server_default="0", default=0
+    )
+    merchant_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("merchant.id"))
+    sponsor: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    obtain_way: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    obtain_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("user.id"), index=True
+    )
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)  # 1未用..
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    order_id: Mapped[int | None] = mapped_column(BigInteger)  # 无 FK，避免循环引用
+    created_at: Mapped[datetime] = _ts()
+
+
+class Order(Base):
+    """订单（order）：金额服务端重算（CHECK 强制 pay=total-discount），核销码唯一。"""
+
+    __tablename__ = "order"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    order_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"), index=True)
+    merchant_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("merchant.id"), index=True
+    )
+    total_amount: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False), nullable=False)
+    discount_amount: Mapped[float] = mapped_column(
+        Numeric(10, 2, asdecimal=False), server_default="0", default=0
+    )
+    pay_amount: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False), nullable=False)
+    coupon_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("coupon.id"))
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    pay_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeem_code: Mapped[str | None] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = _ts()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class OrderItem(Base):
+    """订单项（order_item）：SKU 名称/单价快照，防目录变更。"""
+
+    __tablename__ = "order_item"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("order.id", ondelete="CASCADE"), index=True
+    )
+    sku_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("merchant_sku.id"))
+    sku_name_snapshot: Mapped[str] = mapped_column(String(128), nullable=False)
+    unit_price: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    subtotal: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False), nullable=False)
+    created_at: Mapped[datetime] = _ts()
+
+
+class RedeemLog(Base):
+    """核销日志（redeem_log）：成功/失败全留痕。"""
+
+    __tablename__ = "redeem_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    order_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("order.id"))
+    merchant_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("merchant.id"))
+    operator_user_id: Mapped[int | None] = mapped_column(BigInteger)
+    result: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)  # 1成功 2失败
+    fail_reason: Mapped[str | None] = mapped_column(String(256))
+    created_at: Mapped[datetime] = _ts()
+
+
+class AdminUser(Base):
+    """管理后台账号（admin_user）：账号密码登录，role 决定可见范围。"""
+
+    __tablename__ = "admin_user"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    role: Mapped[int] = mapped_column(SmallInteger, server_default="2", default=2)  # 1超管 2运营 3商家
+    merchant_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("merchant.id"))
+    created_at: Mapped[datetime] = _ts()
+
+
 __all__ = [
+    "AdminUser",
     "AiDialog",
     "AiKnowledge",
     "Base",
     "BodyProfile",
+    "Coupon",
+    "CouponPool",
     "DailySnapshot",
     "Food",
     "FoodAlias",
     "Invite",
     "MealRecord",
+    "Merchant",
+    "MerchantSku",
+    "Order",
+    "OrderItem",
+    "RedeemLog",
     "SportRecord",
     "StepRecord",
     "Subscription",
+    "SkuCatalog",
     "User",
     "UserAuth",
     "UserBenefit",

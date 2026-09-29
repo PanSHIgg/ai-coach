@@ -1,21 +1,30 @@
-"""订单域接口（openapi: /api/order、/api/order/{id}/pay、/api/order/notify、/api/order/{id}/redeem、/api/order/list）。"""
+"""订单域接口（openapi: /api/order、/{id}/pay、/notify、/{id}/redeem、/order/list）。
 
-from datetime import datetime, timedelta
+Phase 3 BE6：全部走 order_service 真实现（服务端重算金额 / 验签 / 幂等 / 核销留痕）。
+"""
+
+import secrets
+import time
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Body, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_request_id
+from app.core.config import Settings, get_settings
+from app.db.session import get_db
 from app.schemas import Envelope
 from app.schemas.common import PageMeta, ok
 from app.schemas.order import (
     OrderBrief,
-    OrderCreateIn,
     OrderCreatedData,
+    OrderCreateIn,
     OrderPageData,
     PayData,
     RedeemData,
     RedeemIn,
 )
+from app.services import order_service
 
 router = APIRouter(tags=["订单"])
 
@@ -25,15 +34,16 @@ async def create_order(
     payload: OrderCreateIn,
     user: CurrentUser = Depends(get_current_user),
     request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
 ) -> Envelope[OrderCreatedData]:
-    # TODO(Phase1): 服务端重算金额（不信任前端）+ 券校验（5002）+ 商家状态（5001）
+    order = await order_service.create_order(session, user.id, payload)
     data = OrderCreatedData(
-        order_id=66001,
-        order_no="DD202609280001",
-        total_amount=28.0,
-        discount_amount=3.0,
-        pay_amount=25.0,
-        expire_at=datetime.now() + timedelta(minutes=15),
+        order_id=order.id,
+        order_no=order.order_no,
+        total_amount=order.total_amount,
+        discount_amount=order.discount_amount,
+        pay_amount=order.pay_amount,  # 服务端重算，不信任前端
+        expire_at=order.expire_at,
     )
     return ok(data, request_id=request_id)
 
@@ -42,19 +52,27 @@ async def create_order(
 async def pay_order(
     id: int,
     user: CurrentUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
     request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
 ) -> Envelope[PayData]:
-    # TODO(Phase1): 微信支付统一下单（W11 联调）；订单超时返回 5003
-    data = PayData(
-        order_id=id,
-        status=1,
-        pay_params={
-            "timeStamp": "1790000000",
-            "nonceStr": "mock",
-            "package": "prepay_id=mock",
-            "paySign": "mock",
-        },
-    )
+    """【假设】mock 微信统一下单：paySign 用 HMAC 伪造。
+
+    PAY_MOCK_MODE（沙箱支付）开启时 pay 即推进支付成功（演示闭环）；
+    关闭时订单保持待支付，等 notify 推进。
+    """
+    order = await order_service.pay_order(session, user.id, id, settings)
+    ts = str(int(time.time()))
+    nonce = secrets.token_hex(8)
+    pay_params: dict = {
+        "timeStamp": ts,
+        "nonceStr": nonce,
+        "package": f"prepay_id=mock_{order.order_no}",
+        "paySign": order_service.pay_sign(order.order_no, ts, nonce),
+    }
+    if settings.PAY_MOCK_MODE:
+        pay_params["mock"] = True  # 沙箱标记：前端/测试可识别（additionalProperties 允许）
+    data = PayData(order_id=order.id, status=order.status, pay_params=pay_params)
     return ok(data, request_id=request_id)
 
 
@@ -62,10 +80,11 @@ async def pay_order(
 async def order_pay_notify(
     payload: dict = Body(default={}),
     request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
 ) -> Envelope[dict]:
     """无认证（openapi security: []）；【假设】按内部 envelope 应答，协议转换在网关层。"""
-    # TODO(Phase1): 验签 + 订单状态机推进（1待支付 → 2已支付待核销）
-    return ok({"result": "ok"}, request_id=request_id)
+    result = await order_service.handle_notify(session, payload)
+    return ok(result, request_id=request_id)
 
 
 @router.post("/order/{id}/redeem", response_model=Envelope[RedeemData], summary="核销")
@@ -74,9 +93,11 @@ async def redeem_order(
     payload: RedeemIn,
     user: CurrentUser = Depends(get_current_user),
     request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
 ) -> Envelope[RedeemData]:
-    # TODO(Phase1): 核销码唯一校验（5004 已使用）+ 归属商家校验 + 释放库存
-    data = RedeemData(status="redeemed", redeemed_at=datetime.now())
+    """商家侧核销（登录态仅作网关入口，归属以 body.merchant_id 校验）。"""
+    await order_service.redeem_order(session, id, payload.redeem_code, payload.merchant_id, user.id)
+    data = RedeemData(status="redeemed", redeemed_at=datetime.now(UTC))
     return ok(data, request_id=request_id)
 
 
@@ -87,24 +108,15 @@ async def list_orders(
     page_size: int = Query(default=20, ge=1, le=100),
     user: CurrentUser = Depends(get_current_user),
     request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
 ) -> Envelope[OrderPageData]:
-    # TODO(Phase1): order 表分页（user_id 行级隔离，created_at DESC）
-    data = OrderPageData(
-        items=[
-            OrderBrief(
-                id=66001,
-                order_no="DD202609280001",
-                merchant_id=88,
-                merchant_name="轻食一号店",
-                total_amount=28.0,
-                discount_amount=3.0,
-                pay_amount=25.0,
-                status=2,
-                redeem_code="RD-ABC123",
-                expire_at=datetime.now() + timedelta(minutes=15),
-                created_at=datetime.now(),
-            )
-        ],
-        page=PageMeta(page=page, page_size=page_size, total=1),
+    orders, total, merchant_names = await order_service.list_orders(
+        session, user.id, status, page, page_size
     )
+    items = []
+    for o in orders:
+        brief = OrderBrief.model_validate(o)
+        brief.merchant_name = merchant_names.get(o.merchant_id or 0)
+        items.append(brief)
+    data = OrderPageData(items=items, page=PageMeta(page=page, page_size=page_size, total=total))
     return ok(data, request_id=request_id)

@@ -1,8 +1,12 @@
 """运营看板 schema（openapi: /api/admin/dashboard）。"""
 
-from datetime import date
+from datetime import date, datetime
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .common import PageMeta
+from .coupon import CouponOut
 
 
 class DashboardData(BaseModel):
@@ -15,3 +19,156 @@ class DashboardData(BaseModel):
     orders_today: int
     gmv_today: float  # 元
     ai_calls_today: int
+
+
+# ---- Phase 3（BE9 管理后台，openapi components.schemas Admin*）----
+
+
+class AdminLoginIn(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class AdminLoginData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    token: str  # JWT，含 role/merchant_id 声明
+    role: int  # 1超管 2运营 3商家
+    merchant_id: Optional[int] = None  # 商家角色绑定的商家 ID
+    username: str
+
+
+class AdminMerchantOut(BaseModel):
+    """管理侧商家完整视图（含审核状态）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    category: str
+    address: str
+    phone: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    rating: float
+    cover_url: Optional[str] = None  # 【假设】模型无此列，恒为 None
+    status: int  # 1营业 0停业
+    audit_status: int  # 0待审 1通过 2驳回
+    audit_reason: Optional[str] = None  # 【假设】模型无此列，仅审核响应内存回显
+    owner_user_id: Optional[int] = None
+    created_at: datetime
+
+
+class AdminMerchantPageData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[AdminMerchantOut]
+    page: PageMeta
+
+
+class AdminAuditIn(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    audit_status: Literal[1, 2]  # 1通过 2驳回
+    reason: Optional[str] = Field(default=None, max_length=200)
+
+
+class AdminMerchantSkuIn(BaseModel):
+    """商家选品定价；已存在 (merchant_id, catalog_id) 则更新。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    merchant_id: int
+    catalog_id: int
+    price: float = Field(ge=0)  # 元；越出目录区间 -> 2001
+    stock: int = Field(default=-1, ge=-1)  # -1 表示不限量
+    status: Literal[0, 1] = 1  # 1上架 0下架
+
+
+class AdminMerchantSkuData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    merchant_id: int
+    merchant_name: Optional[str] = None
+    catalog_id: int
+    catalog_code: str
+    catalog_name: str
+    price: float
+    min_price: float  # 目录区间下限（回显）
+    max_price: float  # 目录区间上限（回显）
+    stock: int
+    status: int  # 1上架 0下架
+    updated_at: Optional[datetime] = None  # 【假设】merchant_sku 无 updated_at 列，恒为 None
+
+
+class AdminSkuStatusIn(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    status: Literal[0, 1]  # 1上架 0下架
+
+
+class AdminCouponPoolIn(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str = Field(max_length=64)
+    type: Literal[1, 2, 3, 4]  # 1满减 2折扣 3免费 4体验
+    scope: Literal[1, 2, 3, 4]  # 1吃 2动 3异业 4通用
+    amount: float = Field(default=0, ge=0)  # 满减/体验券减免金额（元）；折扣券为 0
+    discount_rate: Optional[float] = Field(default=None, gt=0, le=1)  # 折扣率，如 0.8
+    min_spend: float = Field(default=0, ge=0)  # 门槛金额（元）
+    merchant_id: Optional[int] = None  # 异业券指定商家
+    total_count: int = Field(ge=-1)  # -1 不限量（与 service 发放余量校验语义对齐）
+    valid_from: Optional[datetime] = None
+    valid_to: Optional[datetime] = None
+
+    @field_validator("total_count")
+    @classmethod
+    def _total_count_nonzero(cls, v: int) -> int:
+        if v == 0:  # 0 张无意义：要么正数限量，要么 -1 不限量
+            raise ValueError("total_count 不能为 0（-1 表示不限量）")
+        return v
+
+
+class AdminCouponPoolOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    type: int
+    scope: int
+    amount: float
+    discount_rate: Optional[float] = None
+    min_spend: float
+    merchant_id: Optional[int] = None
+    total_count: int
+    granted_count: int  # 已发放数，剩余 = total - granted
+    valid_from: Optional[datetime] = None
+    valid_to: Optional[datetime] = None
+    created_at: datetime
+
+
+class AdminCouponPoolPageData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[AdminCouponPoolOut]
+    page: PageMeta
+
+
+class AdminGrantIn(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    pool_id: int
+    user_id: int
+    count: int = Field(default=1, ge=1, le=10)
+
+
+class AdminGrantData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    granted_count: int  # 【假设】发放后券池累计已发放量
+    pool_id: int
+    user_id: int
+    coupons: list[CouponOut]

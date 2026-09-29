@@ -36,7 +36,8 @@ from app.models import User, UserBenefit  # noqa: E402
 
 DB_URL = os.environ["DATABASE_URL"]
 
-# 函数级清空的业务表（Phase 1 域）；RESTART IDENTITY 保证 id 从 1 起
+# 函数级清空的业务表（Phase 1 + Phase 3 域）；RESTART IDENTITY 保证 id 从 1 起。
+# CASCADE 使外键顺序无关；"order" 为保留字需引号；sku_catalog 为参照数据不清。
 _TRUNCATE_TABLES = (
     "daily_snapshot",
     "meal_record",
@@ -51,6 +52,15 @@ _TRUNCATE_TABLES = (
     "user_benefit",
     "user_auth",
     '"user"',
+    # Phase 3 交易/商家域
+    "redeem_log",
+    "order_item",
+    '"order"',
+    "coupon",
+    "coupon_pool",
+    "merchant_sku",
+    "merchant",
+    "admin_user",
 )
 
 
@@ -134,3 +144,25 @@ async def authed(db_session: AsyncSession) -> dict:
     await db_session.commit()
     token = create_access_token(str(user.id), openid=user.openid)
     return {"user_id": user.id, "headers": {"Authorization": f"Bearer {token}"}}
+
+
+@pytest_asyncio.fixture
+async def admin_authed(db_session: AsyncSession) -> dict:
+    """预置超管账号（role=1，Phase 3）。
+
+    只负责建账号并返回明文凭据；token 请在测试内通过 /api/admin/login 获取
+    （与 C 端 JWT 体系解耦，不预设 admin token 的签名方式）。
+    """
+    from app.core.security import hash_password
+    from app.models import AdminUser
+
+    cred = {"username": f"root-{id(db_session)}", "password": "Admin@123456"}
+    db_session.add(
+        AdminUser(
+            username=cred["username"],
+            password_hash=hash_password(cred["password"]),
+            role=1,
+        )
+    )
+    await db_session.commit()
+    return cred

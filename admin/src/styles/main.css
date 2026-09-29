@@ -1,0 +1,72 @@
+/* 对齐 docs/split/02-UI设计规范.md 主色调（--brand #22C55E） */
+:root {
+  --el-color-primary: #22c55e;
+  --el-color-primary-light-3: #5ed68f;
+  --el-color-primary-light-5: #90e4b3;
+  --el-color-primary-light-7: #c2f1d6;
+  --el-color-primary-light-8: #daf7e6;
+  --el-color-primary-light-9: #ecfbf2;
+  --el-color-primary-dark-2: #16a34a;
+  --brand: #22c55e;
+  --brand-dark: #16a34a;
+  --bg: #f5f6f8;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  font-family:
+    'PingFang SC',
+    'Helvetica Neue',
+    Helvetica,
+    'Microsoft YaHei',
+    sans-serif;
+}
+
+.page-card {
+  margin-bottom: 16px;
+}
+
+.fallback-alert {
+  margin-bottom: 12px;
+}
+
+.money {
+  font-weight: 700;
+  color: var(--brand-dark);
+}
+
+/* 登录页 */
+.login-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #16a34a 0%, #22c55e 55%, #86efac 100%);
+}
+
+.login-card {
+  width: 420px;
+  padding: 32px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+.login-title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #1f2937;
+  text-align: center;
+}
+
+.login-subtitle {
+  margin: 0 0 24px;
+  font-size: 13px;
+  color: #9ca3af;
+  text-align: center;
+}

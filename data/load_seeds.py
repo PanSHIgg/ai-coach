@@ -171,6 +171,8 @@ LOADERS = {
 TRUNCATE_SQL = {
     "food": "TRUNCATE TABLE food RESTART IDENTITY CASCADE",
     "food_alias": "TRUNCATE TABLE food_alias RESTART IDENTITY",
+    # CASCADE：merchant_sku 等表外键引用 sku_catalog（Phase 3 起），truncate 需级联
+    "sku_catalog": "TRUNCATE TABLE sku_catalog CASCADE",
 }
 # 清空顺序：子表先于父表（food_alias 先于 food），避免外键约束报错。
 TRUNCATE_ORDER = ["food_alias", "food", "sku_catalog", "ai_knowledge"]

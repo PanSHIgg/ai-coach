@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     WECHAT_SECRET: str = ""  # 为空时 code2session 走 mock（P0）
     WECHAT_MCH_ID: str = ""
     WECHAT_PAY_KEY: str = ""
+    PAY_MOCK_MODE: bool = True  # 沙箱支付：pay 即推进支付成功（演示默认开；生产 .env 可关）
 
     # ---- 腾讯云 COS ----
     COS_SECRET_ID: str = ""

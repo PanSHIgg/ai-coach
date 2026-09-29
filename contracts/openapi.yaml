@@ -622,7 +622,7 @@ paths:
         - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
-          description: 按距离升序的商家列表；【假设】不传经纬度时按默认城市返回
+          description: 商家列表；传坐标时按权重分排序（拉新 40% + 券 40% + 过程 20%，同分距离近优先），无坐标按 id 升序；distance_m 为 haversine 距离，坐标缺失商家该字段为 null；【假设】不传经纬度时按默认城市返回
           content:
             application/json:
               schema:
@@ -786,7 +786,7 @@ paths:
               additionalProperties: true
       responses:
         '200':
-          description: 【假设】按内部 envelope 应答，微信协议转换在网关层处理
+          description: 【假设】按内部 envelope 应答，微信协议转换在网关层处理；重复回调幂等应答 ok
           content:
             application/json:
               schema:
@@ -801,6 +801,24 @@ paths:
                           result:
                             type: string
                             const: ok
+        '404':
+          description: 订单不存在（3001）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '409':
+          description: 订单已超时取消后收到迟到回调（5003）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '422':
+          description: 验签失败 / 回调金额与订单应付金额不符（防篡改）/ 库存不足无法推进（2001）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
         '500':
           $ref: '#/components/responses/ServerError'
   /api/order/{id}/redeem:
@@ -834,7 +852,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound404'
         '409':
-          description: 业务错（5003 订单已超时 / 5004 核销码已使用）
+          description: 业务错（5003 订单已超时 / 5004 核销码已使用 / 5002 商家不匹配或订单状态不可核销）
           content:
             application/json:
               schema:
@@ -849,6 +867,11 @@ paths:
                       - type: object
                         properties:
                           code: { const: 5004 }
+                  - allOf:
+                      - $ref: '#/components/schemas/Envelope'
+                      - type: object
+                        properties:
+                          code: { const: 5002 }
         '422':
           $ref: '#/components/responses/Validation422'
         '500':
@@ -1115,6 +1138,343 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/DashboardData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  # ---- Phase 3 新增（plan.md §9：BE9 管理 API，供 ADM 管理后台；由主 Agent 单点增补）----
+  /api/admin/login:
+    post:
+      tags: [管理]
+      summary: 管理员登录（账号密码）
+      operationId: adminLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLoginIn'
+      responses:
+        '200':
+          description: JWT（含 role/merchant_id 声明）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminLoginData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/merchants:
+    get:
+      tags: [管理]
+      summary: 商家列表（含审核状态；audit_status 过滤）
+      operationId: adminListMerchants
+      parameters:
+        - name: audit_status
+          in: query
+          schema: { type: integer, enum: [0, 1, 2] }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1, minimum: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: 商家分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminMerchantPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/merchants/{id}/audit:
+    post:
+      tags: [管理]
+      summary: 商家入驻审核（1通过 / 2驳回）
+      operationId: adminAuditMerchant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAuditIn'
+      responses:
+        '200':
+          description: 审核后的商家
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminMerchantOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/merchant-skus:
+    post:
+      tags: [管理]
+      summary: 商家选品定价（已存在则更新价格/库存；价格越出目录区间 → 2001/422）
+      operationId: adminUpsertMerchantSku
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminMerchantSkuIn'
+      responses:
+        '200':
+          description: 商家 SKU（含目录价格区间回显）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminMerchantSkuData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/merchant-skus/{id}/status:
+    post:
+      tags: [管理]
+      summary: 商家 SKU 上下架
+      operationId: adminSetMerchantSkuStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminSkuStatusIn'
+      responses:
+        '200':
+          description: 更新后的商家 SKU
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminMerchantSkuData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/coupon-pools:
+    get:
+      tags: [管理]
+      summary: 券池列表
+      operationId: adminListCouponPools
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1, minimum: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: 券池分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminCouponPoolPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [管理]
+      summary: 创建券池（券发放唯一源头，§6.3.5）
+      operationId: adminCreateCouponPool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCouponPoolIn'
+      responses:
+        '200':
+          description: 券池
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminCouponPoolOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/coupon-pools/{id}/grant:
+    post:
+      tags: [管理]
+      summary: 从券池向用户发放券（测试/补贴通道）
+      operationId: adminGrantCoupon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminGrantIn'
+      responses:
+        '200':
+          description: 发放的券
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminGrantData'
+        '4001':
+          description: 券池余量不足（业务错，HTTP 409）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/orders:
+    get:
+      tags: [管理]
+      summary: 订单监控（全量分页，商家角色仅见本商家）
+      operationId: adminListOrders
+      parameters:
+        - name: status
+          in: query
+          schema: { type: integer, enum: [1, 2, 3, 4, 5] }
+        - name: merchant_id
+          in: query
+          schema: { type: integer }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1, minimum: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: 订单分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OrderPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/sku-catalog:
+    get:
+      tags: [管理]
+      summary: 标准目录查询（管理侧；与 C 端 /api/sku/catalog 同数据，供选品定价下拉）
+      operationId: adminListSkuCatalog
+      parameters:
+        - name: category
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 目录列表（含价格区间）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CatalogData'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -2180,6 +2540,146 @@ components:
         orders_today: { type: integer }
         gmv_today: { type: number, description: 元 }
         ai_calls_today: { type: integer }
+    # ---- Phase 3 新增（plan.md §9：BE9 管理后台组件；由主 Agent 单点增补）----
+    AdminLoginIn:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 64 }
+        password: { type: string, minLength: 6, maxLength: 128 }
+    AdminLoginData:
+      type: object
+      required: [token, role]
+      properties:
+        token: { type: string, description: JWT，含 role/merchant_id 声明 }
+        role: { type: integer, description: 1超管 2运营 3商家 }
+        merchant_id: { type: integer, nullable: true, description: 商家角色绑定的商家 ID }
+        username: { type: string }
+    AdminMerchantOut:
+      type: object
+      description: 管理侧商家完整视图（含审核状态）
+      required: [id, name, category, address, rating, status, audit_status, created_at]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        category: { type: string, example: 轻食 }
+        address: { type: string }
+        phone: { type: string, nullable: true }
+        lat: { type: number, nullable: true }
+        lng: { type: number, nullable: true }
+        rating: { type: number }
+        cover_url: { type: string, nullable: true }
+        status: { type: integer, description: 1营业 0停业 }
+        audit_status: { type: integer, description: 0待审 1通过 2驳回 }
+        audit_reason: { type: string, nullable: true }
+        owner_user_id: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+    AdminMerchantPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminMerchantOut'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    AdminAuditIn:
+      type: object
+      required: [audit_status]
+      properties:
+        audit_status: { type: integer, enum: [1, 2], description: 1通过 2驳回 }
+        reason: { type: string, nullable: true, maxLength: 200, description: 驳回原因 }
+    AdminMerchantSkuIn:
+      type: object
+      description: 商家选品定价；已存在 (merchant_id, catalog_id) 则更新
+      required: [merchant_id, catalog_id, price]
+      properties:
+        merchant_id: { type: integer }
+        catalog_id: { type: integer }
+        price: { type: number, minimum: 0, description: 元；越出目录区间 → 2001 }
+        stock: { type: integer, minimum: -1, default: -1, description: -1 表示不限量 }
+        status: { type: integer, enum: [0, 1], default: 1, description: 1上架 0下架 }
+    AdminMerchantSkuData:
+      type: object
+      required: [id, merchant_id, catalog_id, catalog_name, price, min_price, max_price, stock, status]
+      properties:
+        id: { type: integer }
+        merchant_id: { type: integer }
+        merchant_name: { type: string, nullable: true }
+        catalog_id: { type: integer }
+        catalog_code: { type: string }
+        catalog_name: { type: string }
+        price: { type: number }
+        min_price: { type: number, description: 目录区间下限（回显） }
+        max_price: { type: number, description: 目录区间上限（回显） }
+        stock: { type: integer }
+        status: { type: integer, description: 1上架 0下架 }
+        updated_at: { type: string, format: date-time, nullable: true }
+    AdminSkuStatusIn:
+      type: object
+      required: [status]
+      properties:
+        status: { type: integer, enum: [0, 1], description: 1上架 0下架 }
+    AdminCouponPoolIn:
+      type: object
+      required: [name, type, scope, total_count]
+      properties:
+        name: { type: string, maxLength: 64 }
+        type: { $ref: '#/components/schemas/CouponType' }
+        scope: { $ref: '#/components/schemas/CouponScope' }
+        amount: { type: number, minimum: 0, default: 0, description: 满减/体验券减免金额（元）；折扣券为 0 }
+        discount_rate: { type: number, nullable: true, exclusiveMinimum: 0, maximum: 1, description: 折扣券折扣率，如 0.8 }
+        min_spend: { type: number, minimum: 0, default: 0, description: 门槛金额（元） }
+        merchant_id: { type: integer, nullable: true, description: 异业券指定商家 }
+        total_count: { type: integer, minimum: 1 }
+        valid_from: { type: string, format: date-time, nullable: true }
+        valid_to: { type: string, format: date-time, nullable: true }
+    AdminCouponPoolOut:
+      type: object
+      required: [id, name, type, scope, total_count, granted_count, created_at]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        type: { $ref: '#/components/schemas/CouponType' }
+        scope: { $ref: '#/components/schemas/CouponScope' }
+        amount: { type: number }
+        discount_rate: { type: number, nullable: true }
+        min_spend: { type: number }
+        merchant_id: { type: integer, nullable: true }
+        total_count: { type: integer }
+        granted_count: { type: integer, description: 已发放数，剩余 = total - granted }
+        valid_from: { type: string, format: date-time, nullable: true }
+        valid_to: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+    AdminCouponPoolPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCouponPoolOut'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    AdminGrantIn:
+      type: object
+      required: [pool_id, user_id]
+      properties:
+        pool_id: { type: integer }
+        user_id: { type: integer }
+        count: { type: integer, minimum: 1, maximum: 10, default: 1 }
+    AdminGrantData:
+      type: object
+      required: [granted_count, coupons]
+      properties:
+        granted_count: { type: integer }
+        pool_id: { type: integer }
+        user_id: { type: integer }
+        coupons:
+          type: array
+          items:
+            $ref: '#/components/schemas/CouponOut'
     WeightRecordIn:
       type: object
       description: 体重记录入参（Phase 1 / BE-w 已实现）

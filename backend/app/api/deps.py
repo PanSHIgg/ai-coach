@@ -33,6 +33,8 @@ async def get_current_user(
     if credentials is None or not credentials.credentials:
         raise AppException(ErrorCode.UNAUTHORIZED)
     payload = decode_token(credentials.credentials, expected_type="access")
+    if payload.get("dom") == "admin":  # admin 域 token 不得冒充 C 端用户（域隔离）
+        raise AppException(ErrorCode.UNAUTHORIZED)
     try:
         user_id = int(payload.get("sub", ""))
     except (TypeError, ValueError) as exc:
