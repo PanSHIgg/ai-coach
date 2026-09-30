@@ -11,6 +11,7 @@
  */
 import type { Envelope } from '@/types/api'
 import { useToast } from '@/composables/useToast'
+import { redirectToLogin } from '@/utils/nav'
 
 // 基址：开发默认指向 Mock（9000）；生产由 .env.production 的 VITE_API_BASE 注入。
 // 用 ?? 而非 ||：允许显式留空（H5 同源部署，由 nginx 反代 /api），空串不再被 fallback 覆盖。
@@ -54,7 +55,8 @@ export function clearAuth(): void {
 
 function toLogin(): void {
   clearAuth()
-  uni.reLaunch({ url: '/pages/login/login' })
+  // 携带 redirect 回跳原页（§3.3/§13.2）
+  redirectToLogin()
 }
 
 /* ---------- 静默刷新（并发 401 只发一次） ---------- */

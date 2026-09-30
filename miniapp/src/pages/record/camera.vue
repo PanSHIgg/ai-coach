@@ -75,6 +75,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useUserStore } from '@/stores/user'
+import { redirectToLogin } from '@/utils/nav'
 import { createMeal } from '@/api/records'
 import { BASE_URL, getToken } from '@/api/request'
 import { useToast } from '@/composables/useToast'
@@ -234,7 +235,7 @@ async function onSave() {
       })
     }
     toast.success({ title: '已记下来' })
-    // 广播识别结果：吃什么页 uni.$on('eat:recognized') 接收（见 pages/eat/eat.vue）
+    // 广播识别结果：吃什么页 uni.$on('eat:recognized') 接收（见 pages/eat.vue）
     uni.$emit('eat:recognized', { foods: items.value.map((i) => i.name) })
     setTimeout(() => uni.navigateBack(), 600)
   } catch (e) {
@@ -248,7 +249,7 @@ function goManual() {
   uni.redirectTo({ url: '/pages/record/food-list' })
 }
 function goLogin() {
-  uni.navigateTo({ url: '/pages/login/login' })
+  redirectToLogin()
 }
 </script>
 

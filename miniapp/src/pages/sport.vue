@@ -111,6 +111,7 @@
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
+import { redirectToLogin } from '@/utils/nav'
 import { useAccountStore } from '@/stores/account'
 import { createSport, listSports, syncSteps } from '@/api/records'
 import { useToast } from '@/composables/useToast'
@@ -232,7 +233,7 @@ function goMerchants() {
   uni.navigateTo({ url: '/pages/merchant/merchant' })
 }
 function goLogin() {
-  uni.navigateTo({ url: '/pages/login/login' })
+  redirectToLogin()
 }
 /** 通知占位（二期接入消息中心，与吃什么页口径一致） */
 function onNotice() {

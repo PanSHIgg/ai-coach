@@ -24,7 +24,59 @@
       </view>
     </CCard>
 
-    <!-- 热量账户环形图（§5.1：中心「今天还能吃」= today_left） -->
+    <!-- 健康评分卡（§5.1-2）：环形图描边 12rpx + 中心评分 + 状态 + 关注项数 -->
+    <CCard
+      title="健康评分"
+      class="home__card"
+      :class="{ 'home__card--dim': userStore.needProfile }"
+    >
+      <view class="score">
+        <CRingProgress
+          :percent="healthScore"
+          :color="healthColor"
+          :size="200"
+          :stroke-width="12"
+        >
+          <view class="score__center">
+            <text class="score__num">{{ userStore.needProfile ? '--' : healthScore }}</text>
+            <text class="score__label">{{ bmiStatusLabel }}</text>
+          </view>
+        </CRingProgress>
+        <view class="score__side">
+          <text class="score__side-title">{{ attentionItems.length }} 项需要关注</text>
+          <text class="link" @tap="goEditProfile">查看完整档案 ›</text>
+        </view>
+      </view>
+    </CCard>
+
+    <!-- 需要你关注列表（§5.1-3）：状态点 + 标题 + 数值 + 两个小操作 -->
+    <CCard
+      v-if="attentionItems.length"
+      title="需要你关注"
+      class="home__card"
+      :class="{ 'home__card--dim': userStore.needProfile }"
+    >
+      <view v-for="it in attentionItems" :key="it.key" class="att">
+        <view class="att__head">
+          <text class="att__dot">{{ it.dot }}</text>
+          <text class="att__title">{{ it.title }}</text>
+          <text class="att__value">{{ it.value }}</text>
+        </view>
+        <view class="att__actions">
+          <CButton
+            v-for="a in it.actions"
+            :key="a.label"
+            size="sm"
+            :type="a.ghost ? 'ghost' : 'secondary'"
+            @click="a.run"
+          >
+            {{ a.label }}
+          </CButton>
+        </view>
+      </view>
+    </CCard>
+
+    <!-- 热量账户环形图（§5.1-4：中心「今天还能吃」= today_left） -->
     <CCard
       title="今日热量"
       class="home__card"
@@ -82,7 +134,7 @@
       </template>
     </CCard>
 
-    <!-- 摄入明细（§5.1：按餐次汇总） -->
+    <!-- 摄入明细（§5.1-5：按餐次汇总） -->
     <CCard
       title="摄入明细"
       class="home__card"
@@ -100,7 +152,7 @@
       <CEmpty v-else icon="🍽️" :text="emptyMealText" @action="goCamera" />
     </CCard>
 
-    <!-- 运动明细（§5.1：步数 + 运动消耗） -->
+    <!-- 运动明细（§5.1-6：步数 + 运动消耗） -->
     <CCard
       title="运动明细"
       class="home__card"
@@ -121,7 +173,7 @@
       </view>
     </CCard>
 
-    <!-- 核心指标（§5.1：体重/BMI/BMR 等，缺失灰显占位） -->
+    <!-- 核心指标（§5.1-7：体重/BMI/BMR 等，缺失灰显占位） -->
     <CCard
       title="核心指标"
       class="home__card"
@@ -140,7 +192,7 @@
       <text class="link link--block" @tap="goEditProfile">维护档案 ›</text>
     </CCard>
 
-    <!-- 趋势入口 -->
+    <!-- 趋势入口（§5.1-8） -->
     <CCard
       title="趋势"
       class="home__card"
@@ -152,7 +204,7 @@
       </view>
     </CCard>
 
-    <!-- AI 教练卡（Phase 2：次数接 api.getTimes()，入口进 AI 对话页） -->
+    <!-- AI 教练卡（§5.1-9：次数接 api.getTimes()，入口进 AI 对话页） -->
     <CCard title="AI 教练" class="home__card">
       <text class="ai__line">{{ aiTip1 }}</text>
       <text class="ai__line">{{ aiTip2 }}</text>
@@ -166,7 +218,7 @@
       </view>
     </CCard>
 
-    <!-- 快捷服务四宫格（§5.1） -->
+    <!-- 快捷服务四宫格（§5.1-10） -->
     <CCard title="快捷服务" class="home__card">
       <view class="grid">
         <view v-for="item in services" :key="item.label" class="grid__item" @tap="item.action">
@@ -176,15 +228,61 @@
       </view>
     </CCard>
 
-    <!-- 券提醒占位（Phase 3 接入券池） -->
+    <!-- 券提醒（§5.1-11）：接 /api/coupon/list 真实券；无券时引导邀请得券 -->
     <CCard title="券提醒" class="home__card">
-      <view class="coupon">
-        <text class="coupon__icon">🎟️</text>
-        <text class="coupon__text">券提醒与邀请得券（Phase 3 接入）</text>
+      <view v-if="reminderCoupons.length" class="coupon">
+        <view v-for="c in reminderCoupons" :key="c.id" class="coupon__row" @tap="goCoupon">
+          <text class="coupon__icon">🎟️</text>
+          <text class="coupon__name">{{ couponLabel(c) }}</text>
+          <text class="coupon__days">{{ daysLeft(c) }} 天后过期</text>
+          <text class="coupon__use">去使用 ›</text>
+        </view>
+      </view>
+      <view v-else class="coupon">
+        <view class="coupon__row coupon__row--empty">
+          <text class="coupon__icon">🎟️</text>
+          <text class="coupon__name">暂无可用券</text>
+        </view>
+      </view>
+      <view class="coupon__invite" @tap="goInvite">
+        <text class="coupon__invite-text">邀请好友双方各得券</text>
+        <text class="link">立即邀请 ›</text>
       </view>
     </CCard>
 
-    <!-- FAB 拍照按钮（§5.1，直径 120rpx） -->
+    <!-- 同款减友经验（§5.1-12） -->
+    <CCard title="同款减友经验" class="home__card">
+      <text class="peer__text">{{ peerTip }}</text>
+      <view class="peer__actions">
+        <CButton type="ghost" size="sm" @click="goCommunity">查看同款经验 ›</CButton>
+      </view>
+    </CCard>
+
+    <!-- 自查工具（§5.1-13）：BMI自测 / 体脂自测 / 基础代谢 -->
+    <CCard title="自查工具" class="home__card">
+      <view class="tools">
+        <CButton type="secondary" size="sm" @click="onBmiTest">BMI自测</CButton>
+        <CButton type="secondary" size="sm" @click="onFatTest">体脂自测</CButton>
+        <CButton type="secondary" size="sm" @click="onBmrTest">基础代谢</CButton>
+      </view>
+    </CCard>
+
+    <!-- 最近记录（§5.1-14）：标题 + [全部→] + 最近一条 -->
+    <CCard title="最近记录" class="home__card">
+      <template #extra>
+        <text class="link" @tap="goFoodList">全部 ›</text>
+      </template>
+      <view v-if="recentMeal" class="recent" @tap="goFoodList">
+        <view class="recent__head">
+          <text class="recent__date">{{ recentDate }}</text>
+          <text class="recent__meal">{{ mealTypeLabel(recentMeal.meal_type) }}</text>
+        </view>
+        <text class="recent__food">{{ recentMeal.food_name }}</text>
+      </view>
+      <CEmpty v-else icon="📝" text="还没有记录" button-text="去记录" @action="goCamera" />
+    </CCard>
+
+    <!-- FAB 拍照按钮（§5.1-15，直径 120rpx） -->
     <view class="fab" @tap="goCamera">📷</view>
   </view>
 </template>
@@ -196,8 +294,11 @@ import { useUserStore } from '@/stores/user'
 import { useAccountStore } from '@/stores/account'
 import { useToast } from '@/composables/useToast'
 import { getTimes } from '@/api/ai'
+import { getCoupons } from '@/api/order'
+import { listMeals } from '@/api/records'
 import { track } from '@/utils/track'
-import type { MealSummary } from '@/types/api'
+import { redirectToLogin } from '@/utils/nav'
+import type { MealSummary, CouponOut, MealRecordOut } from '@/types/api'
 
 const userStore = useUserStore()
 const accountStore = useAccountStore()
@@ -246,8 +347,166 @@ const activityText = computed(() => {
   return level ? ACTIVITY_LABEL[level] || '久坐' : '久坐'
 })
 
-/* ---------- 摄入明细（按 meal_type 排序 + 中文名） ---------- */
+/* ---------- 健康评分卡（§5.1-2）：由 BMI 派生评分与状态 ---------- */
+const bmi = computed(() => {
+  const p = userStore.profile
+  if (!p || p.height_cm <= 0) return 0
+  const h = p.height_cm / 100
+  return p.current_weight / (h * h)
+})
+const bmiStatusLabel = computed(() => {
+  const v = bmi.value
+  if (!v) return '待建档'
+  if (v < 18.5) return '偏瘦'
+  if (v < 24) return '正常'
+  if (v < 28) return '轻度超重'
+  return '肥胖'
+})
+/** 【假设】文档未给评分算法：以 BMI 22 为满分基准，偏离 1 分扣 5 分，钳制 0~100 */
+const healthScore = computed(() => {
+  if (!bmi.value) return 0
+  return Math.min(100, Math.max(0, Math.round(100 - Math.abs(bmi.value - 22) * 5)))
+})
+/** 评分环颜色（§4.12 健康三色区间：<60 红 / 60-80 琥珀 / >80 绿） */
+const healthColor = computed(() => {
+  const s = healthScore.value
+  if (s < 60) return '#ef4444'
+  if (s <= 80) return '#f59e0b'
+  return '#22c55e'
+})
+
+/* ---------- 券 / 最近记录（§5.1-11 / §5.1-14，真实接口） ---------- */
+const coupons = ref<CouponOut[]>([])
+const recentMeal = ref<MealRecordOut | null>(null)
+
+const DAY_MS = 24 * 3600 * 1000
+/** 剩余可用天数（向上取整，非负） */
+function daysLeft(c: CouponOut): number {
+  if (!c.valid_to) return 0
+  return Math.max(0, Math.ceil((new Date(c.valid_to).getTime() - Date.now()) / DAY_MS))
+}
+/** 券提醒：未用且带有效期，按到期日升序取前 2 张 */
+const reminderCoupons = computed(() =>
+  coupons.value
+    .filter((c) => c.status === 1 && c.valid_to)
+    .sort((a, b) => new Date(a.valid_to || '').getTime() - new Date(b.valid_to || '').getTime())
+    .slice(0, 2),
+)
+/** 即将过期（7 天内）的未用券，升序 */
+const expiringCoupons = computed(() =>
+  reminderCoupons.value.filter((c) => daysLeft(c) <= 7),
+)
+const SCOPE_TEXT: Record<number, string> = { 1: '吃', 2: '动', 3: '异业', 4: '通用' }
+const TYPE_TEXT: Record<number, string> = { 1: '满减券', 2: '折扣券', 3: '免费券', 4: '体验券' }
+/** 【假设】券无名称字段，按「scope·type」拼展示名 */
+function couponLabel(c: CouponOut): string {
+  return `${SCOPE_TEXT[c.scope] || ''}·${TYPE_TEXT[c.type] || '优惠券'}`
+}
+const recentDate = computed(() => {
+  const d = recentMeal.value?.record_date
+  return d && d.length >= 7 ? `${d.slice(0, 4)}.${d.slice(5, 7)}` : ''
+})
+
 const MEAL_LABEL: Record<number, string> = { 1: '早餐', 2: '午餐', 3: '晚餐', 4: '加餐' }
+function mealTypeLabel(t: number): string {
+  return MEAL_LABEL[t] || '其他'
+}
+
+async function loadCoupons() {
+  try {
+    const data = await getCoupons({ status: 1, page_size: 50 })
+    coupons.value = data?.items ?? []
+  } catch (e) {
+    coupons.value = [] // 失败降级为「暂无可用券」，不阻断首页
+    void e
+  }
+}
+async function loadRecentMeal() {
+  try {
+    const data = await listMeals({ page_size: 1 })
+    recentMeal.value = data?.items?.[0] ?? null
+  } catch (e) {
+    recentMeal.value = null
+    void e
+  }
+}
+
+/* ---------- 需要你关注列表（§5.1-3） ---------- */
+interface AttentionAction {
+  label: string
+  ghost?: boolean
+  run: () => void
+}
+interface AttentionItem {
+  key: string
+  dot: string
+  title: string
+  value: string
+  actions: AttentionAction[]
+}
+const attentionItems = computed<AttentionItem[]>(() => {
+  const items: AttentionItem[] = []
+  // 🔴 蛋白质摄入不足 —— 【假设】今日账户无蛋白质字段，按文档示例口径静态展示
+  items.push({
+    key: 'protein',
+    dot: '🔴',
+    title: '蛋白质摄入不足',
+    value: '今日缺口 -15g',
+    actions: [
+      { label: 'AI诊断', run: goChat },
+      { label: '找餐', ghost: true, run: goEat },
+    ],
+  })
+  // 🟡 运动不足 —— 真实：当日步数 < 5000（「连续3天」为文档口径，接口仅给当日 → 【假设】）
+  if (steps.value < 5000) {
+    items.push({
+      key: 'sport',
+      dot: '🟡',
+      title: '运动不足',
+      value: `今日 ${fmt(steps.value)} 步`,
+      actions: [
+        { label: '去运动', run: goSportTab },
+        { label: '查看建议', ghost: true, run: goChat },
+      ],
+    })
+  }
+  // 🟢 会员到期 —— 【假设】无会员到期接口，基础版（tier=0）按文档口径提示
+  if (userStore.tier === 0) {
+    items.push({
+      key: 'member',
+      dot: '🟢',
+      title: '会员到期',
+      value: '15 天后',
+      actions: [{ label: '续费', run: () => onPlaceholder('会员续费即将上线') }],
+    })
+  }
+  // 🔵 复查提醒 —— 【假设】无复查接口，静态提醒
+  items.push({
+    key: 'review',
+    dot: '🔵',
+    title: '复查提醒',
+    value: '30 天后',
+    actions: [{ label: '预约复查', run: () => onPlaceholder('预约复查即将上线') }],
+  })
+  // 🟠 券即将过期 —— 真实：/api/coupon/list 中 7 天内到期的未用券
+  const soon = expiringCoupons.value[0]
+  if (soon) {
+    items.push({
+      key: 'coupon',
+      dot: '🟠',
+      title: '券即将过期',
+      value: `${daysLeft(soon)} 天后`,
+      actions: [{ label: '去使用', run: goCoupon }],
+    })
+  }
+  return items
+})
+
+/* ---------- 同款减友经验（§5.1-12） ---------- */
+/** 【假设】无对应接口，按文档示例口径静态展示 */
+const peerTip = '12 位和你情况相似的减友，8 位坚持记录 + 运动后体重下降'
+
+/* ---------- 摄入明细（按 meal_type 排序 + 中文名） ---------- */
 function mealLabel(m: MealSummary): string {
   return m.name || MEAL_LABEL[m.meal_type] || '其他'
 }
@@ -272,13 +531,12 @@ const coreMetrics = computed(() => {
       { icon: '🎯', label: '目标体重', value: '', bar: 0, color: '#9ca3af' },
     ]
   }
-  const h = p.height_cm / 100
-  const bmi = h > 0 ? p.current_weight / (h * h) : 0
+  const bmiVal = bmi.value
   let bmiColor = '#22c55e'
-  if (bmi <= 0) bmiColor = '#9ca3af'
-  else if (bmi < 18.5) bmiColor = '#f59e0b'
-  else if (bmi >= 28) bmiColor = '#ef4444'
-  else if (bmi >= 24) bmiColor = '#f59e0b'
+  if (bmiVal <= 0) bmiColor = '#9ca3af'
+  else if (bmiVal < 18.5) bmiColor = '#f59e0b'
+  else if (bmiVal >= 28) bmiColor = '#ef4444'
+  else if (bmiVal >= 24) bmiColor = '#f59e0b'
   const bmr = p.bmr || accountStore.today?.bmr || 0
   return [
     {
@@ -291,8 +549,8 @@ const coreMetrics = computed(() => {
     {
       icon: '📊',
       label: 'BMI',
-      value: bmi > 0 ? bmi.toFixed(1) : '',
-      bar: clamp((bmi / 35) * 100),
+      value: bmiVal > 0 ? bmiVal.toFixed(1) : '',
+      bar: clamp((bmiVal / 35) * 100),
       color: bmiColor,
     },
     {
@@ -353,9 +611,9 @@ const services = [
   { icon: '🔍', label: 'AI 检测', action: goCamera },
   { icon: '🍽️', label: '吃什么', action: goEat },
   { icon: '📝', label: '记录', action: goRecord },
-  { icon: '📅', label: '一键预约', action: () => onPlaceholder('一键预约（Phase 3 接入）') },
+  { icon: '📅', label: '一键预约', action: () => onPlaceholder('一键预约即将上线') },
   { icon: '🏪', label: '商家比价', action: goMerchant },
-  { icon: '👨‍⚕️', label: '教练问诊', action: () => onPlaceholder('教练问诊（Phase 2 接入）') },
+  { icon: '👨‍⚕️', label: '教练问诊', action: () => onPlaceholder('教练问诊即将上线') },
 ]
 
 /* ---------- 生命周期 ---------- */
@@ -364,7 +622,7 @@ let firstShow = true
 
 onShow(() => {
   if (!userStore.isLogined) {
-    uni.reLaunch({ url: '/pages/login/login' })
+    redirectToLogin()
     return
   }
   // 活跃埋点：进入首页（日活 / 留存判定）
@@ -374,6 +632,8 @@ onShow(() => {
   accountStore.refresh() // 拍照 / 记录返回后刷新账户
   if (!userStore.profileLoaded) userStore.fetchProfile()
   loadAiTimes()
+  loadCoupons()
+  loadRecentMeal()
 })
 
 /* ---------- 跳转 / 交互 ---------- */
@@ -381,20 +641,34 @@ function goEditProfile() {
   uni.navigateTo({ url: '/pages/profile/edit' })
 }
 function goAccountDetail() {
-  uni.navigateTo({ url: '/pages/account/detail' })
+  uni.navigateTo({ url: '/pages/account' })
 }
 function goCamera() {
   uni.navigateTo({ url: '/pages/record/camera' })
 }
 /** 吃什么已是 Tab 页（§3.2），Tab 间跳转须 switchTab（navigateTo 对 tab 页无效） */
 function goEat() {
-  uni.switchTab({ url: '/pages/eat/eat' })
+  uni.switchTab({ url: '/pages/eat' })
 }
 function goFoodList() {
   uni.navigateTo({ url: '/pages/record/food-list' })
 }
 function goSportAdd() {
   uni.navigateTo({ url: '/pages/record/sport-add' })
+}
+/** 运动 Tab（§3.2），Tab 间跳转须 switchTab */
+function goSportTab() {
+  uni.switchTab({ url: '/pages/sport' })
+}
+/** 社区 Tab（§3.2），Tab 间跳转须 switchTab */
+function goCommunity() {
+  uni.switchTab({ url: '/pages/community' })
+}
+function goCoupon() {
+  uni.navigateTo({ url: '/pages/coupon' })
+}
+function goInvite() {
+  uni.navigateTo({ url: '/pages/invite' })
 }
 /** 商家已从 Tab 降为普通页（§3.2），改 navigateTo */
 function goMerchant() {
@@ -408,11 +682,55 @@ function onPlaceholder(text: string) {
   toast.info({ title: text })
 }
 /** 【假设】饥饿急救话术在 chat 页实现，首页直接带参跳转复用，避免两处维护 */
-function onCoach() {
+function goChat() {
   uni.navigateTo({ url: '/pages/ai/chat' })
+}
+function onCoach() {
+  goChat()
 }
 function onHunger() {
   uni.navigateTo({ url: '/pages/ai/chat?hunger=1' })
+}
+
+/* ---------- 自查工具（§5.1-13） ---------- */
+function onBmiTest() {
+  if (!userStore.profile) {
+    toast.info({ title: '先完善身体档案再自测' })
+    return
+  }
+  uni.showModal({
+    title: 'BMI 自测',
+    content: `你的 BMI 为 ${bmi.value.toFixed(1)}（${bmiStatusLabel.value}）`,
+    showCancel: false,
+  })
+}
+function onFatTest() {
+  const p = userStore.profile
+  if (!p) {
+    toast.info({ title: '先完善身体档案再自测' })
+    return
+  }
+  // 【假设】文档未给体脂算法：用 Deurenberg 公式估算；缺出生年按 30 岁
+  const age = p.birth_year ? new Date().getFullYear() - p.birth_year : 30
+  const sex = p.gender === 2 ? 0 : 1
+  const fat = 1.2 * bmi.value + 0.23 * age - 5.4 - 10.8 * sex
+  uni.showModal({
+    title: '体脂自测',
+    content: `预估体脂率 ${Math.max(0, fat).toFixed(1)}%（Deurenberg 公式估算）`,
+    showCancel: false,
+  })
+}
+function onBmrTest() {
+  if (!userStore.profile) {
+    toast.info({ title: '先完善身体档案再自测' })
+    return
+  }
+  const bmr = userStore.profile.bmr || accountStore.today?.bmr || 0
+  uni.showModal({
+    title: '基础代谢',
+    content: `你的基础代谢约 ${Math.round(bmr)} kcal`,
+    showCancel: false,
+  })
 }
 </script>
 
@@ -514,6 +832,77 @@ function onHunger() {
     display: block;
     margin-top: $space-sm;
     text-align: right;
+  }
+}
+
+/* 健康评分卡 */
+.score {
+  display: flex;
+  align-items: center;
+
+  &__center {
+    @include flex-center(column);
+  }
+
+  &__num {
+    font-size: $t-num-lg;
+    font-weight: 700;
+    color: $text-1;
+  }
+
+  &__label {
+    font-size: $t-22;
+    color: $text-2;
+  }
+
+  &__side {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    margin-left: $space-lg;
+  }
+
+  &__side-title {
+    margin-bottom: $space-xs;
+    font-size: $t-26;
+    color: $text-1;
+  }
+}
+
+/* 需要你关注 */
+.att {
+  padding: $space-sm 0;
+
+  &:not(:last-child) {
+    @include hairline(bottom);
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+  }
+
+  &__dot {
+    margin-right: $space-xs;
+    font-size: $t-24;
+  }
+
+  &__title {
+    flex: 1;
+    font-size: $t-26;
+    color: $text-1;
+  }
+
+  &__value {
+    font-size: $t-24;
+    color: $text-2;
+  }
+
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: $space-sm;
+    margin-top: $space-xs;
   }
 }
 
@@ -727,16 +1116,100 @@ function onHunger() {
 
 .coupon {
   display: flex;
-  align-items: center;
+  flex-direction: column;
 
-  &__icon {
-    margin-right: $space-sm;
-    font-size: 40rpx;
+  &__row {
+    display: flex;
+    align-items: center;
+    padding: $space-xs 0;
+
+    &--empty {
+      color: $text-3;
+    }
   }
 
-  &__text {
+  &__icon {
+    margin-right: $space-xs;
+    font-size: 34rpx;
+  }
+
+  &__name {
+    flex: 1;
     font-size: $t-24;
+    color: $text-1;
+  }
+
+  &__days {
+    margin-right: $space-sm;
+    font-size: $t-22;
+    color: $warn;
+  }
+
+  &__use {
+    font-size: $t-22;
+    color: $brand;
+  }
+
+  &__invite {
+    @include flex-between;
+
+    margin-top: $space-sm;
+    padding-top: $space-sm;
+
+    @include hairline(top);
+  }
+
+  &__invite-text {
+    font-size: $t-24;
+    color: $text-2;
+  }
+}
+
+.peer {
+  &__text {
+    display: block;
+    font-size: $t-26;
+    color: $text-1;
+    line-height: 1.6;
+  }
+
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: $space-xs;
+  }
+}
+
+.tools {
+  display: flex;
+  gap: $space-sm;
+
+  .c-btn {
+    flex: 1;
+  }
+}
+
+.recent {
+  &__head {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4rpx;
+  }
+
+  &__date {
+    margin-right: $space-xs;
+    font-size: $t-22;
     color: $text-3;
+  }
+
+  &__meal {
+    font-size: $t-22;
+    color: $text-2;
+  }
+
+  &__food {
+    font-size: $t-26;
+    color: $text-1;
   }
 }
 

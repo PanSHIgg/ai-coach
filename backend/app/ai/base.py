@@ -1,6 +1,6 @@
 """AI 客户端抽象基类：只定义协议，不绑定具体厂商。
 
-选型结论与切换方法见 docs_process/ai-provider-spike.md、本包 README.md。
+选型结论与切换方法见本包 README.md。
 """
 
 from abc import ABC, abstractmethod

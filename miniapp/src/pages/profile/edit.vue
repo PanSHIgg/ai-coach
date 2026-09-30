@@ -237,7 +237,7 @@ async function onSave() {
     const pages = getCurrentPages()
     setTimeout(() => {
       if (pages.length > 1) uni.navigateBack()
-      else uni.reLaunch({ url: '/pages/index/index' })
+      else uni.reLaunch({ url: '/pages/index' })
     }, 600)
   } catch (e) {
     // 错误信息已由 request 封装 toast

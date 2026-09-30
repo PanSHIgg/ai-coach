@@ -96,7 +96,8 @@ export const useUserStore = defineStore('user', () => {
     profile.value = null
     needProfile.value = false
     profileLoaded.value = false
-    uni.reLaunch({ url: '/pages/login/login' })
+    // 主动退出：直接回登录页，不带 redirect（避免退出后又被弹回原页）
+    uni.reLaunch({ url: '/pages/login' })
   }
 
   return {

@@ -15,6 +15,7 @@ Phase 1 增补（DB 基建，供全后端复用）：
 
 import os
 
+import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -32,13 +33,15 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@12
 # 「attached to a different loop」。此处用环境变量兜住所有 Settings 构造路径（含默认 Settings）。
 os.environ.setdefault("DB_POOL_DISABLED", "true")
 
-# REDIS_URL 同理兜底为不可达端口：Settings 默认值是 redis://redis:6379/0（compose 主机名）。
-# 在容器网络中（如 act_runner 的 service 别名恰为 redis）该默认值会**意外可达**，令限流/AI
-# 配额用例走真实 Redis 并跨事件循环复用连接 → 「RuntimeError: Event loop is closed」
-# （2026-09-30 本地 + Gitea CI 双环境复现，6 条失败）。setdefault 兜住所有 Settings 构造
-# 路径（含默认 Settings()）；限流用例依赖的「不可达 → 进程内兜底」见 make_settings；
-# 测试者显式设置的 REDIS_URL 仍被尊重（setdefault 不覆盖）。
-os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:6390/0")
+# REDIS_URL 硬赋值（非 setdefault）：隔离测试与外部环境——Settings 默认值是
+# redis://redis:6379/0（compose 主机名），在容器网络中（如 act_runner 的 service
+# 别名恰为 redis、CI 传 redis://127.0.0.1:6379/0）该值会**意外可达**，令限流/AI
+# 配额用例走真实 Redis，跨事件循环复用连接 + 计数跨用例累积 → 「RuntimeError:
+# Event loop is closed」/ 429（2026-09-30 本地 + Gitea CI 双环境复现）。
+# 故此处对含默认 Settings() 在内的所有构造路径统一钉死为**不可达端口**，用例
+# 一律走「Redis 不可达 → 进程内兜底」的确定性路径，不受外部 REDIS_URL 影响；
+# 限流用例依赖的内存兜底见 make_settings。
+os.environ["REDIS_URL"] = "redis://127.0.0.1:6390/0"
 
 from app.core.config import Settings  # noqa: E402
 from app.core.security import create_access_token  # noqa: E402
@@ -101,6 +104,21 @@ def make_settings(**overrides) -> Settings:
     )
     defaults.update(overrides)
     return Settings(_env_file=None, **defaults)
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limit_memory():
+    """用例级清理进程内限流兜底存储（Redis 不可达时启用）。
+
+    否则同一 key（如 `ai:chat:user:1`，用户 id 经 RESTART IDENTITY 每用例都为 1）
+    的计数会在 60s 窗口内跨用例累积，令「子集运行」与「全量运行」结论不一致
+    （F1-3：test_ai_chat 限流用例残留计数导致后续冒烟用例得 429 而非 409）。
+    """
+    from app.core.rate_limit import _memory_windows
+
+    _memory_windows.clear()
+    yield
+    _memory_windows.clear()
 
 
 @pytest_asyncio.fixture

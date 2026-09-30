@@ -47,6 +47,7 @@
 import { ref, computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
+import { redirectToLogin } from '@/utils/nav'
 import { useAccountStore } from '@/stores/account'
 import { syncSteps } from '@/api/records'
 import { useToast } from '@/composables/useToast'
@@ -128,7 +129,7 @@ function goWeight() {
   uni.navigateTo({ url: '/pages/weight/weight' })
 }
 function goLogin() {
-  uni.navigateTo({ url: '/pages/login/login' })
+  redirectToLogin()
 }
 </script>
 

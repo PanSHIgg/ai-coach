@@ -60,5 +60,3 @@ python3 -m py_compile backend/app/ai/*.py backend/scripts/ai_hello.py
 python3 backend/scripts/ai_hello.py --task chat
 python3 backend/scripts/ai_hello.py --task vision
 ```
-
-选型对比、成本估算、降级策略与 Key 申请清单见 `docs_process/ai-provider-spike.md`。

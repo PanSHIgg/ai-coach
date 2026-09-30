@@ -29,6 +29,11 @@ from app.services.invite_service import start_reward_scheduler
 
 logger = get_logger(__name__)
 
+# 生产环境密钥守卫的比对基准：直接取 Settings 字段默认值（避免在此重复硬编码，
+# 与 config.py 始终一致）。
+_DEFAULT_JWT_SECRET = Settings.model_fields["JWT_SECRET"].default
+_DEFAULT_ADMIN_INIT_PASSWORD = Settings.model_fields["ADMIN_INIT_PASSWORD"].default
+
 _HTTP_CODE_MAP = {
     401: ErrorCode.UNAUTHORIZED,
     403: ErrorCode.FORBIDDEN,
@@ -55,6 +60,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "生产环境禁止启用 PAY_MOCK_MODE=True。"
             "请在 .env 中设置 PAY_MOCK_MODE=false 或设置 ENV=dev/sandbox"
         )
+
+    # FA-1 / 文档 §13.4「生产密钥走服务器环境变量」：生产环境禁止沿用默认密钥。
+    if s.ENV == "prod":
+        default_secrets = []
+        if s.JWT_SECRET == _DEFAULT_JWT_SECRET:
+            default_secrets.append("JWT_SECRET")
+        if s.ADMIN_INIT_PASSWORD == _DEFAULT_ADMIN_INIT_PASSWORD:
+            default_secrets.append("ADMIN_INIT_PASSWORD")
+        if default_secrets:
+            raise RuntimeError(
+                f"生产环境禁止使用默认密钥（{'、'.join(default_secrets)} 仍为默认值）。"
+                "请通过服务器环境变量设置真实密钥，或设置 ENV=dev/sandbox"
+            )
 
     setup_logging(s.LOG_LEVEL)
     app = FastAPI(title=s.APP_NAME, version="0.1.0", debug=s.DEBUG, lifespan=lifespan)

@@ -26,9 +26,11 @@ export const routes = [
   {
     m: 'GET', p: '/api/account/today',
     d: {
-      date: today(), bmr: 1406, pal: 1.4, neat: 1644, eat: 274, tef: 150, tee: 2392,
-      intake: 1418, deficit: -974, steps: 12000, calories_burnt: 274, calibration_used: true,
-      today_left: 674, // = BMR×PAL − intake + eat − tef = 1968.4 − 1418 + 274 − 150（eat 与 calories_burnt 同值）
+      // TEF = 摄入 × 10% = 141.8；TEE = BMR×PAL + EAT + TEF = 2384.2 → 2384
+      date: today(), bmr: 1406, pal: 1.4, neat: 1644, eat: 274, tef: 141.8, tee: 2384,
+      intake: 1418, deficit: -966, steps: 12000, calories_burnt: 274, calibration_used: true,
+      // today_left = BMR×PAL − intake + eat − tef = 1968.4 − 1418 + 274 − 141.8 = 682.6 → 682（对齐 05 §8.4.3 示例）
+      today_left: 682,
       meals: [
         { meal_type: 1, name: '早餐', calories: 380 },
         { meal_type: 2, name: '午餐', calories: 620 },

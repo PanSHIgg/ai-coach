@@ -1,12 +1,14 @@
-# AI 饮食管控教练 · 后端镜像（§10.3：python:3.12-slim、非 root、暴露 8000）
+# AI 饮食管控教练 · 后端镜像（§10.3 / 主文档 :1637：python:3.12-slim、多阶段构建、非 root、暴露 8000）
 # 构建上下文为 monorepo 根目录（compose 中 context: ..，dockerfile: deploy/Dockerfile.backend）
+#
+# 多阶段：builder 负责安装依赖产出 site-packages/bin → runtime 仅拷产物与源码，
+# 不含构建缓存/编译工具，镜像更小；runtime 以非 root 用户运行。
 
-FROM python:3.12-slim
+# ---------- 阶段 1：builder（安装依赖）----------
+FROM python:3.12-slim AS builder
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    TZ=Asia/Shanghai
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
@@ -14,7 +16,20 @@ WORKDIR /app
 COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 拷贝后端源码（app/ 由 P0-e 脚手架交付；尚未就绪前镜像可构建但不提供服务）
+# ---------- 阶段 2：runtime（仅拷贝产物，非 root 运行）----------
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    TZ=Asia/Shanghai
+
+WORKDIR /app
+
+# 仅从 builder 拷贝已安装的依赖与可执行入口，不带入构建工具/缓存
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# 拷贝后端源码（app/ 由 P0-e 脚手架交付）
 COPY backend/ /app/
 
 # 非 root 运行

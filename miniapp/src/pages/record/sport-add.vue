@@ -41,6 +41,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useUserStore } from '@/stores/user'
+import { redirectToLogin } from '@/utils/nav'
 import { createSport } from '@/api/records'
 import { useToast } from '@/composables/useToast'
 import type { SportIn } from '@/types/api'
@@ -125,7 +126,7 @@ async function onSubmit() {
 }
 
 function goLogin() {
-  uni.navigateTo({ url: '/pages/login/login' })
+  redirectToLogin()
 }
 </script>
 

@@ -61,6 +61,7 @@
 import { computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
+import { redirectToLogin } from '@/utils/nav'
 
 const userStore = useUserStore()
 
@@ -78,13 +79,13 @@ onShow(() => {
 })
 
 function goLogin() {
-  uni.reLaunch({ url: '/pages/login/login' })
+  redirectToLogin()
 }
 function goEdit() {
   uni.navigateTo({ url: '/pages/profile/edit' })
 }
 function goAccountDetail() {
-  uni.navigateTo({ url: '/pages/account/detail' })
+  uni.navigateTo({ url: '/pages/account' })
 }
 function goWeight() {
   uni.navigateTo({ url: '/pages/weight/weight' })
@@ -93,7 +94,7 @@ function goRecord() {
   uni.navigateTo({ url: '/pages/record/record' })
 }
 function goInvite() {
-  uni.navigateTo({ url: '/pages/invite/invite' })
+  uni.navigateTo({ url: '/pages/invite' })
 }
 function onLogout() {
   uni.showModal({

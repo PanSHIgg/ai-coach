@@ -246,8 +246,53 @@ async def test_tier_grant_by_threshold(db_session, count, tier, days):
         assert delta == pytest.approx(days * 86400)
 
 
+async def test_tier_grant_boosts_ai_quota(db_session):
+    """达档发放同步把 ai_times_left 提升到该档配额（tier1 → 20，见 TIER_AI_QUOTA【假设】）。
+
+    文档承诺「邀请好友可解锁更多」（主文档 §111/§133/§184）：仅发 tier 不扩 AI 配额
+    时该权益不可达，故在既有「次日批量发放」链路上补齐次数扩容。
+    """
+    inviter = User(openid="tier-quota", gender=1)
+    db_session.add(inviter)
+    await db_session.flush()
+    db_session.add(UserBenefit(user_id=inviter.id, tier=0, ai_times_left=10))
+    for i in range(2):  # 达 tier1 门槛
+        invitee = User(openid=f"tier-quota-b{i}", gender=1)
+        db_session.add(invitee)
+        await db_session.flush()
+        db_session.add(Invite(inviter_id=inviter.id, invitee_id=invitee.id, status=1))
+    await db_session.commit()
+
+    assert await isvc.grant_pending_invite_rewards(db_session) == 1
+    benefit = (
+        await db_session.execute(select(UserBenefit).where(UserBenefit.user_id == inviter.id))
+    ).scalar_one()
+    assert benefit.tier == 1
+    assert benefit.ai_times_left == 20  # tier1 配额（tier0=10 → 20）
+
+
+async def test_below_threshold_keeps_tier0_quota(db_session):
+    """未达档（有效邀请 <2）不发放：tier 保持 0，ai_times_left 保持 10（文档默认值）。"""
+    inviter = User(openid="tier-below", gender=1)
+    db_session.add(inviter)
+    await db_session.flush()
+    db_session.add(UserBenefit(user_id=inviter.id, tier=0, ai_times_left=10))
+    invitee = User(openid="tier-below-b", gender=1)
+    db_session.add(invitee)
+    await db_session.flush()
+    db_session.add(Invite(inviter_id=inviter.id, invitee_id=invitee.id, status=1))
+    await db_session.commit()
+
+    assert await isvc.grant_pending_invite_rewards(db_session) == 0
+    benefit = (
+        await db_session.execute(select(UserBenefit).where(UserBenefit.user_id == inviter.id))
+    ).scalar_one()
+    assert benefit.tier == 0
+    assert benefit.ai_times_left == 10
+
+
 async def test_reward_grant_idempotent_no_stack(db_session):
-    """重复发放不叠加：tier 已达标不重写时间，第二轮 upgraded=0。"""
+    """重复发放不叠加：tier/次数已达标不重写，第二轮 upgraded=0。"""
     inviter = User(openid="tier-idem", gender=1)
     db_session.add(inviter)
     await db_session.flush()
@@ -265,15 +310,15 @@ async def test_reward_grant_idempotent_no_stack(db_session):
             select(UserBenefit).where(UserBenefit.user_id == inviter.id)
         )
     ).scalar_one()
-    before = (first.tier, first.valid_from, first.valid_to)
+    before = (first.tier, first.valid_from, first.valid_to, first.ai_times_left)
 
-    assert await isvc.grant_pending_invite_rewards(db_session) == 0  # 不降级、不叠加
+    assert await isvc.grant_pending_invite_rewards(db_session) == 0  # 不降级、不叠加、不重复加次数
     again = (
         await db_session.execute(
             select(UserBenefit).where(UserBenefit.user_id == inviter.id)
         )
     ).scalar_one()
-    assert (again.tier, again.valid_from, again.valid_to) == before
+    assert (again.tier, again.valid_from, again.valid_to, again.ai_times_left) == before
 
 
 async def test_tier_upgrade_2_to_5_refreshes_validity(db_session):

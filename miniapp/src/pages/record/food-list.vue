@@ -111,6 +111,7 @@
 import { ref, computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
+import { redirectToLogin } from '@/utils/nav'
 import { searchFood, createMeal, updateMeal, deleteMeal, listMeals } from '@/api/records'
 import { useToast } from '@/composables/useToast'
 import type { FoodItem, MealRecordOut } from '@/types/api'
@@ -299,7 +300,7 @@ function onDelete(m: MealRecordOut) {
 }
 
 function goLogin() {
-  uni.navigateTo({ url: '/pages/login/login' })
+  redirectToLogin()
 }
 </script>
 

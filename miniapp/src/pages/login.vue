@@ -10,10 +10,11 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { useToast } from '@/composables/useToast'
 import { track } from '@/utils/track'
+import { LOGIN_PATH } from '@/utils/nav'
 
 const userStore = useUserStore()
 const toast = useToast()
@@ -22,10 +23,32 @@ const loading = ref(false)
 /** 冷启动标记：登录页为未登录冷启动首屏，app_open 的 from 口径 */
 let firstShow = true
 
-// 已登录直接进首页
+/** 登录后回跳目标（来自 ?redirect=；非法/指向登录页自身时置空，防循环） */
+const redirect = ref('')
+
+/** 规范化 redirect：兼容「已解码」与「未解码」两种来源，只接受站内页面路径 */
+function normalizeRedirect(raw?: string): string {
+  if (!raw) return ''
+  let path = raw
+  if (!path.startsWith('/pages/')) {
+    try {
+      path = decodeURIComponent(raw)
+    } catch {
+      path = raw
+    }
+  }
+  if (!path.startsWith('/pages/') || path === LOGIN_PATH || path.startsWith(`${LOGIN_PATH}?`)) return ''
+  return path
+}
+
+onLoad((options) => {
+  redirect.value = normalizeRedirect(options?.redirect)
+})
+
+// 已登录直接进：优先回跳原页，否则进首页
 onShow(() => {
   if (userStore.isLogined) {
-    uni.reLaunch({ url: '/pages/index/index' })
+    uni.reLaunch({ url: redirect.value || '/pages/index' })
     return
   }
   // 匿名可达：冷启动进入登录页也上报活跃，保证未登录活跃可观测
@@ -56,11 +79,14 @@ async function onLogin() {
     track('login', { from: 'wechat' })
     if (data.is_new) track('register', {})
     toast.success({ title: data.is_new ? '欢迎加入' : '欢迎回来' })
-    // 未建档 → 先去建档；已建档 → 进首页
-    if (data.need_profile) {
+    // 登录后回跳：优先回原页（§3.3 / §13.2「登录后回跳原页」）；
+    // 无 redirect 时维持默认落地页——未建档先去建档，已建档进首页
+    if (redirect.value) {
+      uni.reLaunch({ url: redirect.value })
+    } else if (data.need_profile) {
       uni.reLaunch({ url: '/pages/profile/edit' })
     } else {
-      uni.reLaunch({ url: '/pages/index/index' })
+      uni.reLaunch({ url: '/pages/index' })
     }
   } catch (e) {
     // 错误信息已由 request 封装 toast，此处静默

@@ -10,7 +10,7 @@
 - 本模块只做「可真实接入」的骨架：真实统一下单的 HTTP 调用已写好，但沙箱内不执行。
 
 【假设】字段命名沿用统一约定，未在 core/config.py 落地的配置项（如 serial_no / 证书路径）
-以环境变量形式读取，详见 docs_process/微信支付联调手册.md。
+以环境变量形式读取。
 """
 
 from __future__ import annotations

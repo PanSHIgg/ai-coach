@@ -7,7 +7,7 @@
   },
   "pages": [
     {
-      "path": "pages/index/index",
+      "path": "pages/index",
       "style": {
         "navigationBarTitleText": "AI 饮食管控教练"
       }
@@ -19,7 +19,7 @@
       }
     },
     {
-      "path": "pages/community/community",
+      "path": "pages/community",
       "style": {
         "navigationBarTitleText": "社区"
       }
@@ -61,13 +61,13 @@
       }
     },
     {
-      "path": "pages/profile/profile",
+      "path": "pages/mine",
       "style": {
         "navigationBarTitleText": "我的"
       }
     },
     {
-      "path": "pages/login/login",
+      "path": "pages/login",
       "style": {
         "navigationBarTitleText": "登录"
       }
@@ -79,7 +79,7 @@
       }
     },
     {
-      "path": "pages/account/detail",
+      "path": "pages/account",
       "style": {
         "navigationBarTitleText": "热量账户详情"
       }
@@ -115,13 +115,13 @@
       }
     },
     {
-      "path": "pages/eat/eat",
+      "path": "pages/eat",
       "style": {
         "navigationBarTitleText": "吃什么"
       }
     },
     {
-      "path": "pages/sport/sport",
+      "path": "pages/sport",
       "style": {
         "navigationBarTitleText": "运动"
       }
@@ -151,13 +151,13 @@
       }
     },
     {
-      "path": "pages/coupon/list",
+      "path": "pages/coupon",
       "style": {
         "navigationBarTitleText": "我的券包"
       }
     },
     {
-      "path": "pages/invite/invite",
+      "path": "pages/invite",
       "style": {
         "navigationBarTitleText": "邀请好友"
       }
@@ -170,23 +170,23 @@
     "borderStyle": "black",
     "list": [
       {
-        "pagePath": "pages/index/index",
+        "pagePath": "pages/index",
         "text": "首页"
       },
       {
-        "pagePath": "pages/eat/eat",
+        "pagePath": "pages/eat",
         "text": "吃什么"
       },
       {
-        "pagePath": "pages/sport/sport",
+        "pagePath": "pages/sport",
         "text": "运动"
       },
       {
-        "pagePath": "pages/community/community",
+        "pagePath": "pages/community",
         "text": "社区"
       },
       {
-        "pagePath": "pages/profile/profile",
+        "pagePath": "pages/mine",
         "text": "我的"
       }
     ]

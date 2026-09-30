@@ -28,6 +28,22 @@
 
             <!-- 免责声明（06-AI服务.md §六） -->
             <text v-if="m.role === 'ai'" class="msg__disclaimer">AI 输出仅供参考，具体请遵医嘱</text>
+
+            <!-- AI 满意度评分（§1.6 目标 > 4.5/5；埋点 ai_rating，口径见埋点文档 §2） -->
+            <view v-if="m.role === 'ai' && !m.error" class="rate">
+              <text class="rate__label">{{ m.score ? '感谢你的评价' : '这个回答有帮助吗？' }}</text>
+              <view class="rate__stars">
+                <text
+                  v-for="s in 5"
+                  :key="s"
+                  class="rate__star"
+                  :class="{ 'rate__star--on': (m.score || 0) >= s }"
+                  @tap="onRate(i, s)"
+                >
+                  ★
+                </text>
+              </view>
+            </view>
           </view>
         </view>
       </view>
@@ -99,6 +115,7 @@ import { chat, getTimes } from '@/api/ai'
 import { useUserStore } from '@/stores/user'
 import { useToast } from '@/composables/useToast'
 import { track } from '@/utils/track'
+import { redirectToLogin } from '@/utils/nav'
 
 /** 单条消息：role=user 用户 / ai 教练；error=true 时以警示色展示 */
 interface ChatMessage {
@@ -106,6 +123,8 @@ interface ChatMessage {
   text: string
   references?: string[]
   error?: boolean
+  /** AI 回答满意度评分：undefined=未评；1~5=已评（每条仅评一次） */
+  score?: number
 }
 
 /** 空会话引导问题 */
@@ -134,8 +153,6 @@ const QUOTA_KEYWORDS = ['次数', '4001', 'quota']
 const NETWORK_KEYWORDS = ['网络', '请求失败', 'request:fail', '超时']
 /** AI 不可用降级提示（06 §1.4：AI 服务超时） */
 const AI_BUSY_TEXT = 'AI 正在思考，稍后再问'
-/** 未登录跳登录页 */
-const LOGIN_URL = '/pages/login/login'
 
 const userStore = useUserStore()
 const toast = useToast()
@@ -235,6 +252,18 @@ async function onSend() {
 }
 
 /**
+ * AI 回答满意度评分（§1.6「AI 问答满意度 > 4.5/5」）。
+ * 每条回答仅评一次，重复点击不重复计分；上报 ai_rating（score 1~5 + session_id）。
+ */
+function onRate(index: number, score: number) {
+  const m = messages.value[index]
+  if (!m || m.role !== 'ai' || m.error || m.score) return
+  messages.value = messages.value.map((item, idx) => (idx === index ? { ...item, score } : item))
+  track('ai_rating', { score, session_id: sessionId.value })
+  toast.success({ title: '感谢你的评价' })
+}
+
+/**
  * 对话失败处理：
  * - 4001 次数用尽 → 次数置 0 并展示「邀请好友解锁」（文案由后端 message 给出）
  * - 网络层失败 → 保留 request.ts 原始提示
@@ -287,7 +316,7 @@ onLoad((options) => {
 
 onShow(() => {
   if (!userStore.isLogined) {
-    uni.reLaunch({ url: LOGIN_URL })
+    redirectToLogin()
     return
   }
   loadTimes()
@@ -405,6 +434,36 @@ onShow(() => {
 
     .msg__text {
       color: #ffffff;
+    }
+  }
+}
+
+/* AI 满意度评分行（§1.6） */
+.rate {
+  display: flex;
+  align-items: center;
+  gap: $space-xs;
+  margin-top: $space-xs;
+  padding-top: $space-xs;
+  border-top: 1rpx solid $border;
+
+  &__label {
+    font-size: $t-22;
+    color: $text-3;
+  }
+
+  &__stars {
+    display: flex;
+    gap: 4rpx;
+  }
+
+  &__star {
+    font-size: $t-28;
+    line-height: 1;
+    color: $disabled;
+
+    &--on {
+      color: $warn;
     }
   }
 }

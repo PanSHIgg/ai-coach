@@ -21,9 +21,11 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.db.session import get_sessionmaker
 from app.models import Coupon, CouponPool, Invite, UserBenefit
+from app.services.ai_service import ai_quota_for_tier
 
 logger = get_logger(__name__)
 
@@ -173,7 +175,10 @@ async def grant_pending_invite_rewards(session: AsyncSession) -> int:
     """按有效邀请数（status=1）达档发放 tier，返回升级人数。
 
     - tier 单调升级 + 不降级防重：tier 已达标（>= 目标）不再写时间；
-    - 升级时写 valid_from=now、valid_to=now+时长（tier3 永久 NULL）；
+    - 升级时写 valid_from=now、valid_to=now+时长（tier3 永久 NULL），**同步把
+      `ai_times_left` 提升到该档配额**（见 ai_service.TIER_AI_QUOTA【假设】），
+      使「邀请 → AI 次数扩容」链路生效（主文档 §111/§133/§184）；
+    - 重复发放不叠加（幂等）：仅在 tier 升档时改为更高配额，不回退、不重复加；
     - 单用户失败重试 3 次（10 文档 §13.3），重试仍失败跳过该用户。
     """
     rows = (
@@ -184,11 +189,13 @@ async def grant_pending_invite_rewards(session: AsyncSession) -> int:
         )
     ).all()
     now = _now()
+    daily = get_settings().AI_DAILY_TIMES
     upgraded = 0
     for user_id, count in rows:
         target = next_tier_for(int(count))
         if target <= 0:
             continue
+        quota = ai_quota_for_tier(target, daily)
         for attempt in range(_REWARD_RETRY):
             try:
                 benefit = (
@@ -201,6 +208,7 @@ async def grant_pending_invite_rewards(session: AsyncSession) -> int:
                         UserBenefit(
                             user_id=int(user_id),
                             tier=target,
+                            ai_times_left=quota,
                             valid_from=now,
                             valid_to=_valid_to_for(target, now),
                         )
@@ -210,6 +218,8 @@ async def grant_pending_invite_rewards(session: AsyncSession) -> int:
                     benefit.tier = target
                     benefit.valid_from = now
                     benefit.valid_to = _valid_to_for(target, now)
+                    # 提升到该档配额（保留更高的既有余额，不降额）
+                    benefit.ai_times_left = max(int(benefit.ai_times_left or 0), quota)
                     upgraded += 1
                 await session.commit()
                 break

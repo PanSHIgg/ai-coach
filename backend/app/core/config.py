@@ -50,16 +50,18 @@ class Settings(BaseSettings):
     COS_REGION: str = "ap-guangzhou"
     COS_BASE_URL: str = ""
 
-    # ---- AI Provider ----
-    AI_LLM_PROVIDER: str = "deepseek"
-    AI_VISION_PROVIDER: str = "tencent"
-    AI_API_KEY: str = ""
+    # ---- AI Provider（选型真源：主文档 §6.1：对话 DeepSeek/通义千问 + 视觉腾讯云/阿里云）----
+    # 由 app/ai/factory.py 读取：provider 未知 / 缺对应 Key → 回落 mock（既有机制）。
+    AI_LLM_PROVIDER: str = "deepseek"  # deepseek / qwen / modelscope / mock
+    AI_VISION_PROVIDER: str = "tencent"  # tencent / aliyun / modelscope / mock
+    AI_API_KEY: str = ""  # 共享 Key 兜底（provider 专属 Key 优先）
     AI_LLM_API_KEY: str = ""
-    AI_VISION_API_KEY: str = ""
+    AI_VISION_API_KEY: str = ""  # 腾讯云/阿里云格式 "{Id}:{Secret}"（冒号拼接）
     AI_BASE_URL: str = ""
     AI_LLM_BASE_URL: str = ""
     AI_VISION_BASE_URL: str = ""
-    AI_LLM_MODEL: str = "deepseek-chat"
+    # 空 → 用各 provider 自带默认模型（deepseek-chat / qwen-plus）
+    AI_LLM_MODEL: str = ""
 
     # ---- ModelScope / Qwen（ai_api.md：Qwen3.8-Flash-Next，自带视觉，对话+VLM 统一）----
     MS_API_KEY: str = ""

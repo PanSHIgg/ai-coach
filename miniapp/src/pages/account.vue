@@ -93,6 +93,7 @@ import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useAccountStore } from '@/stores/account'
 import { useUserStore } from '@/stores/user'
+import { redirectToLogin } from '@/utils/nav'
 import { getTrend } from '@/api/account'
 import type { DailyAccount, DailyTrendItem } from '@/types/api'
 
@@ -147,7 +148,7 @@ function barHeight(v: number): string {
 
 onShow(() => {
   if (!userStore.isLogined) {
-    uni.reLaunch({ url: '/pages/login/login' })
+    redirectToLogin()
     return
   }
   accountStore.refresh()

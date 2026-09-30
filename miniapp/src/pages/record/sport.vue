@@ -59,6 +59,7 @@
 import { ref, computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
+import { redirectToLogin } from '@/utils/nav'
 import { useAccountStore } from '@/stores/account'
 import { listSports, syncSteps } from '@/api/records'
 import { useToast } from '@/composables/useToast'
@@ -148,7 +149,7 @@ function goAdd() {
   uni.navigateTo({ url: '/pages/record/sport-add' })
 }
 function goLogin() {
-  uni.navigateTo({ url: '/pages/login/login' })
+  redirectToLogin()
 }
 </script>
 

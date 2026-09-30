@@ -38,6 +38,20 @@ TZ = timezone(timedelta(hours=8))
 TOP_K = 3  # RAG 取前 3 条
 NO_TIMES_MESSAGE = "今日对话次数已用完，邀请好友可解锁更多"
 
+# 各档每日 AI 对话配额【假设】：主文档（§111/§133/§1207/§1778）只规定邀请档位
+# 与「邀请好友可解锁更多」，未给出各档具体次数；按「档位越高权益越强」递增取值：
+# tier0 基础=10（与主文档 ai_times_left DEFAULT 10、AI_DAILY_TIMES 默认值一致）、
+# tier1 进阶版 90 天=20、tier2 高级版 180 天=30、tier3 终身教练=50。集中定义便于调整。
+TIER_AI_QUOTA: dict[int, int] = {0: 10, 1: 20, 2: 30, 3: 50}
+
+
+def ai_quota_for_tier(tier: int, daily: int) -> int:
+    """按 tier 取每日 AI 对话配额；tier0 用配置 `AI_DAILY_TIMES`（默认 10）。"""
+    if int(tier) <= 0:
+        return int(daily)
+    return max(int(daily), TIER_AI_QUOTA.get(int(tier), int(daily)))
+
+
 # 轻量规则分类（不再二次调用 LLM）；疾病类置顶，避免被"饿/油"抢先命中
 _INTENT_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("病", "疼", "药", "诊断", "就医"), "medical_redirect"),
@@ -164,7 +178,10 @@ async def generate_reply(client: LLMClient, messages: list[dict], *, timeout: fl
 async def ensure_benefit(
     session: AsyncSession, user_id: int, settings: Settings | None = None
 ) -> UserBenefit:
-    """取次数行：不存在按 `AI_DAILY_TIMES` 初始化；`ai_times_reset_at` 早于今日 00:00 时重置。
+    """取次数行：不存在按 tier 配额初始化；`ai_times_reset_at` 早于今日 00:00 时按 tier 配额重置。
+
+    每日重置基线**按 tier 取配额**（`ai_quota_for_tier`）：tier0=10、邀请解锁的高档位更多
+    （见 TIER_AI_QUOTA【假设】），与邀请达档发放（invite_service）保持一致。
 
     行锁：并发对话同时读到同一余额会扣减丢失（名额可被超用），故按 user_id 加 FOR UPDATE。
 
@@ -183,7 +200,7 @@ async def ensure_benefit(
         benefit = UserBenefit(
             user_id=user_id,
             tier=0,
-            ai_times_left=s.AI_DAILY_TIMES,
+            ai_times_left=ai_quota_for_tier(0, s.AI_DAILY_TIMES),
             ai_times_reset_at=now,
         )
         session.add(benefit)
@@ -191,7 +208,7 @@ async def ensure_benefit(
         return benefit
     today_start = datetime.combine(datetime.now(TZ).date(), time.min, tzinfo=TZ)
     if benefit.ai_times_reset_at is None or benefit.ai_times_reset_at < today_start:
-        benefit.ai_times_left = s.AI_DAILY_TIMES
+        benefit.ai_times_left = ai_quota_for_tier(int(benefit.tier), s.AI_DAILY_TIMES)
         benefit.ai_times_reset_at = now
         await session.flush()  # 同上：重置与扣减必须原子
     return benefit

@@ -1,8 +1,7 @@
 /**
  * track.ts · F3 前端埋点统一封装
  *
- * 依据：docs_process/埋点与指标口径.md（事件名清单 / 属性名口径）、
- *      接口 POST /api/track（TrackIn/TrackEventIn，批量 1~50，允许匿名）。
+ * 依据：接口 POST /api/track（TrackIn/TrackEventIn，批量 1~50，允许匿名）。
  *
  * 设计要点：
  * - track(event, properties?) 默认写入内存缓冲，延迟合并批量上报（≤50 条/批），可 flush() 立即上报。
@@ -70,7 +69,7 @@ function reportToWx(event: string, properties: Record<string, unknown>): void {
 
 /**
  * 记录一个事件。
- * @param event 事件名（snake_case，见 docs_process/埋点与指标口径.md §2）
+ * @param event 事件名（snake_case）
  * @param properties 事件属性（固定名以支撑报表口径）
  */
 export function track(event: string, properties: Record<string, unknown> = {}): void {
