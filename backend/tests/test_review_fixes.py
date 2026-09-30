@@ -67,15 +67,15 @@ async def test_meal_update_amount_over_limit_422(db_client, authed):
     assert resp.json()["code"] == 2001
 
 
-async def test_sport_duration_bounds_422(db_client, authed):
-    for duration in (0, 1441):
-        resp = await db_client.post(
-            "/api/sport",
-            headers=authed["headers"],
-            json={"sport_name": "慢跑", "duration_min": duration},
-        )
-        assert resp.status_code == 422
-        assert resp.json()["code"] == 2001
+@pytest.mark.parametrize("duration", [0, 1441], ids=["zero", "over_max"])
+async def test_sport_duration_bounds_422(db_client, authed, duration):
+    resp = await db_client.post(
+        "/api/sport",
+        headers=authed["headers"],
+        json={"sport_name": "慢跑", "duration_min": duration},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["code"] == 2001
 
 
 async def test_sport_met_over_limit_422(db_client, authed):

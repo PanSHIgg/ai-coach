@@ -26,7 +26,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppException
 from app.models import Coupon, Merchant, MerchantSku, Order, OrderItem, RedeemLog, SkuCatalog
 from app.schemas.common import ErrorCode
-from app.services import wechat_pay
+from app.services import redeem_aftercare, wechat_pay
 
 ORDER_EXPIRE_MINUTES = 15  # 待支付有效期
 _GYM_CATEGORY = "健身房"  # 【假设】scope 1/2 以 merchant.category == '健身房' 划分
@@ -362,7 +362,12 @@ async def handle_notify(session: AsyncSession, payload: dict[str, Any]) -> dict[
 async def redeem_order(
     session: AsyncSession, order_id: int, code: str, merchant_id: int, user_id: int
 ) -> Order:
-    """商家核销：商家归属校验 → 状态机（2→3）；失败全留痕 redeem_log(result=2)。"""
+    """商家核销：商家归属校验 → 状态机（2→3）+ 核销后三件套（同事务）；
+    失败全留痕 redeem_log(result=2)。
+
+    三件套（01 文档 §2.3.2）见 redeem_aftercare.apply_redeem_aftercare：
+    摄入自动写入 + 商家贡献分 + 社区经验卡，任一失败整体回滚。
+    """
     merchant = (
         await session.execute(select(Merchant).where(Merchant.id == merchant_id))
     ).scalar_one_or_none()
@@ -391,6 +396,9 @@ async def redeem_order(
     if order.status == 2:
         order.status = 3
         await _log_redeem(session, order, merchant_id, 1, None)
+        # 核销后三件套（01 文档 §2.3.2：商家获贡献分 + 摄入记录自动写入 + 生成社区经验卡）：
+        # 与状态流转同一事务，任一步骤异常 → 整体回滚（订单停留 2，无残留）
+        await redeem_aftercare.apply_redeem_aftercare(session, order, merchant)
         await session.commit()
         return order
     # 【假设】状态映射：3已完成→5004 已核销；1待支付/4已取消/5已退款→5003

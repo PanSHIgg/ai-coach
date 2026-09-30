@@ -361,6 +361,9 @@ class Merchant(Base):
         SmallInteger, server_default="0", default=0
     )  # 0待审 1通过 2驳回
     owner_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    contribution_points: Mapped[int] = mapped_column(
+        Integer, server_default="0", default=0
+    )  # 贡献分：核销成功累计（每单 +1，0003 迁移加列）
     created_at: Mapped[datetime] = _ts()
 
 

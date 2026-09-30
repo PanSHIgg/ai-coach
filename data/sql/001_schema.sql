@@ -187,14 +187,14 @@ CREATE TABLE meal_record (
     fat                NUMERIC(7,2),
     carb               NUMERIC(7,2),
     confidence         NUMERIC(4,2),              -- 识别置信度
-    source             SMALLINT DEFAULT 1,        -- 1拍照 2语音 3手动 4AI推荐
+    source             SMALLINT DEFAULT 1,        -- 1拍照 2语音 3手动 4AI推荐 5订单核销（0003 迁移扩展）
     image_url          TEXT,
     created_at         TIMESTAMPTZ DEFAULT NOW(),
     CHECK (meal_type IN (1, 2, 3, 4)),
     CHECK (amount_g > 0),
     CHECK (calories >= 0),
     CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 1)),
-    CHECK (source IN (1, 2, 3, 4))
+    CHECK (source IN (1, 2, 3, 4, 5))
 );
 CREATE INDEX idx_meal_user_date ON meal_record(user_id, record_date DESC, meal_type);
 -- Phase 5 F5：列表按 created_at DESC, id DESC 排序；缺该索引时深分页需对全量行排序并落盘
@@ -331,6 +331,7 @@ CREATE TABLE merchant (
     status       SMALLINT DEFAULT 1,              -- 1营业 0停业
     audit_status SMALLINT DEFAULT 0,              -- 0待审 1通过 2驳回
     owner_user_id BIGINT REFERENCES "user"(id),
+    contribution_points INTEGER NOT NULL DEFAULT 0, -- 贡献分：核销成功累计（每单 +1，0003 迁移加列）
     created_at   TIMESTAMPTZ DEFAULT NOW(),
     CHECK (rating >= 0 AND rating <= 5),
     CHECK (audit_status IN (0, 1, 2))
@@ -338,6 +339,7 @@ CREATE TABLE merchant (
 CREATE INDEX idx_merchant_geo ON merchant(lat, lng);
 CREATE INDEX idx_merchant_category ON merchant(category);
 COMMENT ON TABLE merchant IS '商家：LBS 用 lat/lng（【假设】不装 PostGIS）；入驻走审核（ADM3/审核队列）';
+COMMENT ON COLUMN merchant.contribution_points IS '贡献分：核销成功累计（每单 +1）';
 
 -- 标准目录（§7.2）
 CREATE TABLE sku_catalog (
