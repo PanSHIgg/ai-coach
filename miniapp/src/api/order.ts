@@ -6,7 +6,7 @@
  *   POST /api/order/{id}/pay      微信支付预下单
  *   POST /api/order/{id}/redeem   核销（核销码唯一）
  *   GET  /api/order/list          我的订单（status 可选）
- *   GET  /api/coupon/list         我的券（status 可选）
+ *   GET  /api/coupon/list         我的券（status/scope 可选）
  */
 import type {
   OrderCreateIn,
@@ -38,9 +38,10 @@ export function getOrders(params?: {
   return request<OrderPageData>('/api/order/list', { data: params })
 }
 
-/** 我的券分页（status：1未用 2已用 3过期 4作废） */
+/** 我的券分页（status：1未用 2已用 3过期 4作废；scope：1吃 2动 3异业 4通用） */
 export function getCoupons(params?: {
   status?: 1 | 2 | 3 | 4
+  scope?: 1 | 2 | 3 | 4
   page?: number
   page_size?: number
 }) {

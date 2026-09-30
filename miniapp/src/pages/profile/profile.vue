@@ -34,6 +34,11 @@
           <text class="me__item-label">体重记录</text>
           <text class="me__item-arrow">›</text>
         </view>
+        <!-- 邀请解锁入口（docs/split/03:527 我的·立即邀请 → 邀请页） -->
+        <view class="me__item" @tap="goInvite">
+          <text class="me__item-label">立即邀请</text>
+          <text class="me__item-arrow">›</text>
+        </view>
       </CCard>
 
       <!-- 账号 -->
@@ -78,6 +83,9 @@ function goAccountDetail() {
 }
 function goWeight() {
   uni.navigateTo({ url: '/pages/weight/weight' })
+}
+function goInvite() {
+  uni.navigateTo({ url: '/pages/invite/invite' })
 }
 function onLogout() {
   uni.showModal({

@@ -158,7 +158,7 @@ async def test_refund_missing_order_3001(db_client, db_session, authed):
 
 
 async def test_refunded_order_cannot_be_redeemed(db_client, db_session, authed):
-    """已退款订单不得再核销 → 5002(409)，状态停留 5。"""
+    """已退款订单不得再核销 → 5003(409)（CD-10），状态停留 5。"""
     m, order = await _paid_order(db_client, db_session, authed)
     resp = await db_client.post(f"/api/order/{order.id}/refund", headers=authed["headers"])
     assert resp.status_code == 200
@@ -168,7 +168,7 @@ async def test_refunded_order_cannot_be_redeemed(db_client, db_session, authed):
         headers=authed["headers"],
         json={"redeem_code": order.redeem_code, "merchant_id": m.id},
     )
-    assert r.status_code == 409 and r.json()["code"] == 5002
+    assert r.status_code == 409 and r.json()["code"] == 5003
     assert (await _get_order(db_session, order.id)).status == 5
 
 

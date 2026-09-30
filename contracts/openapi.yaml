@@ -18,7 +18,7 @@ info:
       其余返回 **409 + 4002**（响应体另含 "idempotency_replayed": true）。未携带该头的请求行为不变。
     运维端点（不在 /api 契约内）：GET /healthz（存活探针）、GET /metrics（Prometheus 指标）。
     【假设】限流(429)与服务错(500)的业务 code 复用 HTTP 状态码（05 文档错误码表未定义）。
-    【假设】/api/ai/chat 首期统一返回 JSON；SSE 流式由 Accept: text/event-stream 预留，后续另行扩展。
+    【假设】/api/ai/chat 首期统一返回 JSON；SSE 流式后续另行扩展（原预留 Accept header 参数因实现未读取已从契约移除）。
     【假设】埋点 tag 为预留分组，34 接口清单中暂无埋点上报接口。
     【假设】列表默认按 created_at DESC，每页 20 条（page/page_size 上限 100）；金额单位元（2 位小数）、重量单位 g、热量单位 kcal。
 servers:
@@ -499,12 +499,6 @@ paths:
       tags: [AI]
       summary: AI 对话（校验剩余次数）
       operationId: aiChat
-      parameters:
-        - name: Accept
-          in: header
-          required: false
-          description: 传 text/event-stream 预留流式；首期固定 JSON
-          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -967,6 +961,11 @@ paths:
           in: query
           description: 1未用 2已用 3过期 4作废
           schema: { $ref: '#/components/schemas/CouponStatus' }
+        - name: scope
+          in: query
+          required: false
+          description: 券适用域过滤：1吃 2动 3异业 4通用（对齐 coupon_pool.scope）
+          schema: { type: integer, minimum: 1, maximum: 4 }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
       responses:
@@ -1936,6 +1935,8 @@ paths:
       tags: [管理]
       summary: 商家入驻审核（1通过 / 2驳回）
       operationId: adminAuditMerchant
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: true
         content:
@@ -2004,6 +2005,8 @@ paths:
       tags: [管理]
       summary: 商家 SKU 上下架
       operationId: adminSetMerchantSkuStatus
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: true
         content:
@@ -2100,6 +2103,8 @@ paths:
       tags: [管理]
       summary: 从券池向用户发放券（测试/补贴通道）
       operationId: adminGrantCoupon
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: true
         content:
@@ -3188,8 +3193,8 @@ components:
       type: object
       required: [need, reward]
       properties:
-        need: { type: integer, description: 距下一档还差人数 }
-        reward: { type: string, example: 进阶版90天 }
+        need: { type: integer, description: 距下一档还差人数（按有效邀请数计） }
+        reward: { type: string, description: 下一档奖励文案，取值 进阶版90天/进阶版180天/永久·终身教练, example: 进阶版90天 }
     BenefitInfo:
       type: object
       required: [tier]
@@ -3200,7 +3205,7 @@ components:
       type: object
       required: [invitee_count, next_tier, benefit, poster_url]
       properties:
-        invitee_count: { type: integer }
+        invitee_count: { type: integer, description: 有效邀请数（被邀请人完成 1 次拍照记录后才计数） }
         next_tier:
           $ref: '#/components/schemas/NextTier'
         benefit:

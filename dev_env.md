@@ -36,8 +36,8 @@ agent-browser --version                      # 缺失见 §6；能力/用法见 
 | 工具 | 版本要求 | 本机实测 | 校验命令 | 说明 |
 | --- | --- | --- | --- | --- |
 | Python | ≥ 3.12 | 3.12.3（`/workspace/.venv312/bin/python`） | `"$PY" --version` | **不限定虚拟环境或目录**：venv/conda/pyenv/系统均可，只要 ≥3.12；探测见 §1.1 |
-| Node.js | ≥ 20 | v24.1.0 | `node --version` | 前端 uni-app 构建 |
-| npm | ≥ 10 | 11.4.2 | `npm --version` | |
+| Node.js | ≥ 20 | v22.13.1 | `node --version` | 前端 uni-app 构建 |
+| npm | ≥ 10 | 11.9.0 | `npm --version` | |
 | PostgreSQL | 16.x | 16.15 | `psql --version` / `pg_isready` | `127.0.0.1:5432`，user/pass = `postgres/postgres`，db = `ai_coach` |
 | Redis | 7.x | 7.0.15 | `redis-cli ping` | `127.0.0.1:6379` |
 | agent-browser | 最新 | 0.38.1（系统 Chrome 可用） | `agent-browser --version` | H5 浏览器自动化验收；能力/用法见 `.agents/skills/agent-browser/SKILL.md`（§6） |
@@ -60,7 +60,7 @@ command -v python3.12 || command -v python3 || command -v python
 python3 -m venv .venv && . .venv/bin/activate && pip install -r backend/requirements.txt
 ```
 
-> **本沙箱参考值**：`/workspace/.venv312/bin/python`（3.12.13）。**仅为示例**；其它环境请用你自己的 ≥3.12 解释器，**勿照抄该路径**。下文所有 `$PY` 均指你选定的解释器。
+> **本沙箱参考值**：`/workspace/.venv312/bin/python`（3.12.3）。**仅为示例**；其它环境请用你自己的 ≥3.12 解释器，**勿照抄该路径**。下文所有 `$PY` 均指你选定的解释器。
 
 ---
 
@@ -100,7 +100,7 @@ psql -h 127.0.0.1 -U postgres -d ai_coach -v ON_ERROR_STOP=1 -f data/sql/001_sch
   --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach" \
   --file food:data/seeds/food_full.csv --file food_alias:data/seeds/food_alias_full.csv \
   --file sku_catalog:data/seeds/standard_sku.sample.csv \
-  --file ai_knowledge:data/seeds/rag_knowledge.sample.jsonl
+  --file ai_knowledge:data/seeds/ai_knowledge_full.jsonl
 ```
 
 ---
@@ -203,7 +203,7 @@ agent-browser screenshot --path /tmp/h5-index.png     # 截图留证
 | 压测工具 | k6/locust/hey/wrk/ab/jmeter/vegeta 全部**未安装**；`promtool` 未安装 | F5 用 `httpx`(0.28.1, 已装) + asyncio 写 harness；⚠️ 容量上限见下 |
 | `prometheus_client` | **未安装** | F9 的 `/metrics` 需先 `pip install prometheus-client` 并写入 `backend/requirements.txt` |
 | agent-browser | 0.38.1；系统 Chrome 可用（`chrome`/`chrome-headless-shell`） | F7/F3/F4 可做 H5 真实渲染；mp-weixin 仍不可（见 §6） |
-| Node / npm | v24.1.0 / 11.4.2；`miniapp/node_modules` 与 `admin/node_modules` **均已装** | 前端可直接 `type-check`/`build` |
+| Node / npm | v22.13.1 / 11.9.0；`miniapp/node_modules` **已装**；`admin/node_modules` **未装**，构建前需先 `cd admin && npm install` | miniapp 可直接 `type-check`/`build`；admin 需先装依赖 |
 | 内存 | cgroup `memory.max` = **4 GiB**，无 swap；CPU 3 核 | **压测必须串行**，勿与其他重活并行，否则 OOM/假失败 |
 | 微信支付商户号 / 微信开发者工具 / AI Key | 均无 | F1 真机联调、F7 小程序真机、F3 识别准确率不可真跑 → 产出产物 + 替代验证 |
 

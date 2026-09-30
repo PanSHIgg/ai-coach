@@ -18,7 +18,6 @@
 import hashlib
 import json
 import time
-from typing import Any
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -147,8 +146,3 @@ class IdempotencyMiddleware:
             except Exception as exc:  # noqa: BLE001 - 释放失败不影响响应，降级为进程内清理
                 logger.warning("幂等 Redis 释放失败", extra={"reason": str(exc)})
         _local_seen.pop(store_key, None)
-
-
-def install_idempotency(app: Any, settings: Settings) -> None:
-    """装配入口（供 `main.py` 调用）。"""
-    app.add_middleware(IdempotencyMiddleware, settings=settings)

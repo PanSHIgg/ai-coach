@@ -6,6 +6,7 @@
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_request_id
@@ -54,7 +55,11 @@ from app.services import community_service as svc
 router = APIRouter(tags=["社区"])
 
 # 邀请上限：单账号最多有效邀请人数（超出 7001/409）【假设】
-MAX_INVITEES = 5
+# 文档三档 2/5/10（01 §2.3.3），上限取最高档。
+MAX_INVITEES = 10
+
+# 档位 → 下一档奖励文案（CD-04：删写死字面量，按档位映射）
+_REWARD_BY_NEXT_NEED = {2: "进阶版90天", 5: "进阶版180天", 10: "永久·终身教练"}
 
 
 # ---- 邀请 ----
@@ -98,13 +103,36 @@ async def create_invite(
     existing = await session.scalar(select(Invite.id).where(Invite.invitee_id == user.id))
     if existing is not None:
         raise AppException(ErrorCode.VALIDATION_ERROR, "你已绑定过邀请关系")
-    invitee_count = await session.scalar(
-        select(func.count()).select_from(Invite).where(Invite.inviter_id == inviter_id)
+    # 进度/上限只数有效邀请（status=1：被邀请人完成 1 次拍照记录，10 文档 §13.3）
+    valid_count = await session.scalar(
+        select(func.count())
+        .select_from(Invite)
+        .where(Invite.inviter_id == inviter_id, Invite.status == 1)
     )
-    if int(invitee_count or 0) >= MAX_INVITEES:
+    if int(valid_count or 0) >= MAX_INVITEES:
         raise AppException(ErrorCode.INVITE_LIMIT, "邀请已达上限")
-    session.add(Invite(inviter_id=inviter_id, invitee_id=user.id, status=1))
-    await session.commit()
+    # 绑定仅记「注册态」（status=0）；被邀请人完成第 1 次拍照记录后由
+    # invite_service.activate_invitee 置 1（CD-02）。
+    # 同设备只算 1 次：同 unionid 已作为被邀请人出现过 → status=2 无效
+    # （自邀请已被 DB CHECK 挡住；User 无 device_id，unionid 为同人/同设备标识【假设】）
+    status = 0
+    invitee_unionid = await session.scalar(select(User.unionid).where(User.id == user.id))
+    if invitee_unionid:
+        dup = await session.scalar(
+            select(Invite.id)
+            .join(User, Invite.invitee_id == User.id)
+            .where(User.unionid == invitee_unionid, Invite.invitee_id != user.id)
+            .limit(1)
+        )
+        if dup is not None:
+            status = 2
+    session.add(Invite(inviter_id=inviter_id, invitee_id=user.id, status=status))
+    try:
+        await session.commit()
+    except IntegrityError as exc:  # 并发同 invitee 绑定命中唯一约束（invite_invitee_id_key）
+        await session.rollback()
+        # 与上方 existing 检查同语义：重复绑定 → 2001 参数校验（7001 是"上限"语义，不适用）
+        raise AppException(ErrorCode.VALIDATION_ERROR, "你已绑定过邀请关系") from exc
     return ok(InviteData(bound=True), request_id=request_id)
 
 
@@ -114,19 +142,22 @@ async def get_invite_progress(
     session: AsyncSession = Depends(get_db),
     request_id: str | None = Depends(get_request_id),
 ) -> Envelope[InviteProgressData]:
-    """邀请人数 + 下一档奖励 + 当前权益（落库统计）。"""
+    """邀请人数（仅有效，status=1）+ 下一档奖励 + 当前权益（落库统计）。"""
     invitee_count = await session.scalar(
-        select(func.count()).select_from(Invite).where(Invite.inviter_id == user.id)
+        select(func.count())
+        .select_from(Invite)
+        .where(Invite.inviter_id == user.id, Invite.status == 1)
     )
     count = int(invitee_count or 0)
     next_need = 2 if count < 2 else (5 if count < 5 else 10)
+    reward = _REWARD_BY_NEXT_NEED[next_need]
     benefit = (
         await session.execute(select(UserBenefit).where(UserBenefit.user_id == user.id))
     ).scalar_one_or_none()
     return ok(
         InviteProgressData(
             invitee_count=count,
-            next_tier=NextTier(need=max(next_need - count, 0), reward="进阶版90天"),
+            next_tier=NextTier(need=max(next_need - count, 0), reward=reward),
             benefit=BenefitInfo(
                 tier=benefit.tier if benefit else 0,
                 valid_to=benefit.valid_to if benefit else None,

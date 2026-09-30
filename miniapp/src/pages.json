@@ -149,6 +149,12 @@
       "style": {
         "navigationBarTitleText": "我的券包"
       }
+    },
+    {
+      "path": "pages/invite/invite",
+      "style": {
+        "navigationBarTitleText": "邀请好友"
+      }
     }
   ],
   "tabBar": {

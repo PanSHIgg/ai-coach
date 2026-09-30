@@ -171,8 +171,8 @@ async def create_order(
             raise AppException(ErrorCode.NOT_FOUND, "SKU 不存在")
         if sku.status != 1:  # 【假设】下架 → 2001
             raise AppException(ErrorCode.VALIDATION_ERROR, "SKU 已下架")
-        if sku.stock != -1 and sku.stock < qty:  # 【假设】库存不足 → 2001
-            raise AppException(ErrorCode.VALIDATION_ERROR, "库存不足")
+        if sku.stock != -1 and sku.stock < qty:  # 库存不足 → 4001（05 文档 §8.6）
+            raise AppException(ErrorCode.QUOTA_EXCEEDED, "库存不足")
         catalog = await session.get(SkuCatalog, sku.catalog_id) if sku.catalog_id else None
         name = catalog.name if catalog else f"SKU-{sku.id}"
         total += float(sku.price) * qty
@@ -274,7 +274,7 @@ async def _mark_paid(session: AsyncSession, order: Order) -> None:
         ).scalar_one_or_none()
         if sku is not None and sku.stock != -1:  # -1 不限量不扣
             if sku.stock < it.quantity:  # 余量不足 → 抛出使整个事务回滚，订单停留待支付
-                raise AppException(ErrorCode.VALIDATION_ERROR, "库存不足")
+                raise AppException(ErrorCode.QUOTA_EXCEEDED, "库存不足")  # 4001（05 文档 §8.6）
             sku.stock -= it.quantity
 
 
@@ -370,7 +370,8 @@ async def redeem_order(
         raise AppException(ErrorCode.NOT_FOUND, "商家不存在")
     if merchant.owner_user_id is not None and merchant.owner_user_id != user_id:
         # 商家已绑定 owner：仅 owner 本人可核销（owner 体系未建时 owner=NULL 放行）
-        raise AppException(ErrorCode.COUPON_UNAVAILABLE, "无该商家核销权限")
+        # 1002 无权限（05 文档 §8.2）
+        raise AppException(ErrorCode.FORBIDDEN, "无该商家核销权限")
 
     order = (
         await session.execute(select(Order).where(Order.id == order_id).with_for_update())
@@ -392,12 +393,13 @@ async def redeem_order(
         await _log_redeem(session, order, merchant_id, 1, None)
         await session.commit()
         return order
-    # 【假设】状态映射：3已完成→5004 已核销；1待支付→5003；4已取消/5已退款→5002
+    # 【假设】状态映射：3已完成→5004 已核销；1待支付/4已取消/5已退款→5003
+    # （取消单源于超时自动取消，5003 为文档内最接近码；message 写明具体原因）
     table = {
         1: ("订单未支付", ErrorCode.ORDER_TIMEOUT),
         3: ("核销码已使用", ErrorCode.REDEEM_CODE_USED),
-        4: ("订单已取消", ErrorCode.COUPON_UNAVAILABLE),
-        5: ("订单已退款", ErrorCode.COUPON_UNAVAILABLE),
+        4: ("订单已取消", ErrorCode.ORDER_TIMEOUT),
+        5: ("订单已退款", ErrorCode.ORDER_TIMEOUT),
     }
     reason, err = table.get(order.status, ("订单状态不可核销", ErrorCode.VALIDATION_ERROR))
     raise await _fail(reason, err)

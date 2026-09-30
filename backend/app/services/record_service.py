@@ -33,7 +33,7 @@ from app.schemas.record import (
     SportPageData,
     SportRecordOut,
 )
-from app.services import account
+from app.services import account, invite_service
 
 TZ = timezone(timedelta(hours=8))
 
@@ -269,6 +269,9 @@ async def create_meal(session: AsyncSession, user_id: int, payload) -> MealCreat
         raise AppException(ErrorCode.VALIDATION_ERROR, "当日摄入合计超出合理范围")
     # 写后重算当日（account.upsert_snapshot 内部即 recompute_day 的核心，直接取结果供返回）
     res = await account.upsert_snapshot(session, user_id, day)
+    # 邀请裂变：完成第 1 次拍照记录 → invite 0→1 + 双方发券（CD-02/06；独立 session
+    # 原子激活+发券，与主事务解耦，失败只记日志不外抛）
+    await invite_service.activate_invitee(user_id)
     return MealCreatedData(
         id=record.id,
         calories=float(record.calories),

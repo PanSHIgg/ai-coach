@@ -3,7 +3,8 @@
 本目录存放种子/示例数据。
 - **DATA1 食物库已交付**：`food_full.csv`（1700+ 条）+ `food_alias_full.csv`（口语别名）。
 - **DATA4 热量对拍用例已交付**：`../testcases/calorie_test_cases.xlsx`（50 行）。
-- 其余仍为 `*.sample.*` 示例数据，仅用于联调冒烟，不是正式数据。
+- **DATA3 RAG 知识库语料已交付**：`ai_knowledge_full.jsonl`（50 条，含预置 FAQ）。
+- 其余仍为 `*.sample.*` 示例数据（不含 `ai_knowledge_full.jsonl`），仅用于联调冒烟，不是正式数据。
 
 ## 文件
 
@@ -30,11 +31,11 @@ python3 data/gen_food_seed.py        # 重新生成 food_full.csv / food_alias_f
 | 编号 | 数据 | 交付节点 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | DATA1 | 食物库 1700+ 条 + food_alias | **W3 前** | ✅ 已交付 | BE3 food/search、BE4a 识别匹配依赖 |
-| DATA3 | RAG 知识库语料 + 预置 FAQ | **W5 前** | ⏳ 待交付 | BE4b AI 对话依赖 |
+| DATA3 | RAG 知识库语料 + 预置 FAQ | **W5 前** | ✅ 已交付（`ai_knowledge_full.jsonl`，50 条） | BE4b AI 对话依赖 |
 | DATA2 | 标准 SKU 目录（含价格区间） | **W7 前** | ⏳ 待交付 | BE5 商家/目录依赖 |
 | DATA4 | 热量测试用例 50 行 / 识别测试图 30 张 | W4 | ✅ 用例已交付（识别图待交付） | QA 对拍用 |
 
-正式文件就绪后由 DATA 轨道放入本目录（建议命名 `food_full.csv` / `standard_sku_full.csv` / `rag_knowledge_full.jsonl`），并用 `--file` 指定导入。
+食物与别名正式文件已就绪（`food_full.csv` / `food_alias_full.csv`）；SKU 目录测试与演示均用 `standard_sku.sample.csv`（5 行）；RAG 语料为 `ai_knowledge_full.jsonl`（50 条），均用 `--file` 指定导入。
 
 ## 数据来源与【假设】
 

@@ -22,6 +22,7 @@ from sqlalchemy import select
 
 from app.core.security import create_access_token
 from app.models import (
+    BodyProfile,
     Challenge,
     CommunityGroup,
     Coupon,
@@ -674,7 +675,7 @@ async def test_smoke_27_order_merchant_closed_5001(db_client, db_session, authed
         ("missing_merchant", 3001, 404),
         ("foreign_sku", 3001, 404),
         ("sku_off", 2001, 422),
-        ("out_of_stock", 2001, 422),
+        ("out_of_stock", 4001, 409),  # CD-09：库存不足 → 4001（05 文档 §8.6）
     ],
 )
 async def test_smoke_28_order_reject_variants(db_client, db_session, authed, variant, code, http):
@@ -913,7 +914,7 @@ async def test_smoke_39_leaderboard_from_snapshot(db_client, db_session, authed)
 
 
 async def test_smoke_40_invite_bind_progress(db_client, db_session, authed):
-    """邀请裂变：生成邀请码 → 他人绑定 → 进度 +1。"""
+    """邀请裂变：生成邀请码 → 他人绑定（注册态）→ 完成拍照后进度 +1（CD-02）。"""
     code = (await db_client.post("/api/invite", headers=authed["headers"], json={})).json()["data"][
         "invite_code"
     ]
@@ -925,7 +926,33 @@ async def test_smoke_40_invite_bind_progress(db_client, db_session, authed):
     progress = (await db_client.get("/api/invite/progress", headers=authed["headers"])).json()[
         "data"
     ]
-    assert progress["invitee_count"] == 1
+    assert progress["invitee_count"] == 0  # 拍照前无效
+
+    food = Food(name="smoke40 鸡胸", calories_100g=133.0, status=1)
+    db_session.add(food)
+    db_session.add(
+        BodyProfile(
+            user_id=other["user_id"],
+            gender=1,
+            height_cm=175,
+            age=30,
+            current_weight=70.0,
+            target_type=1,
+            activity_level=2,
+            goal_pace=1,
+        )
+    )
+    await db_session.commit()
+    meal = await db_client.post(
+        "/api/meal",
+        headers=other["headers"],
+        json={"meal_type": 2, "food_id": food.id, "amount_g": 100, "source": 1},
+    )
+    assert meal.json()["code"] == 0, meal.text
+    progress = (await db_client.get("/api/invite/progress", headers=authed["headers"])).json()[
+        "data"
+    ]
+    assert progress["invitee_count"] == 1  # 拍照后转有效
 
 
 async def test_smoke_41_experience_list(db_client, db_session, authed):

@@ -39,7 +39,7 @@ docker compose -f deploy/docker-compose.yml up -d postgres redis
 ## Phase 1（M1）staging 上线步骤（本地 / 服务器通用）
 
 > staging = 可联调、可回归的测试环境。以下命令均在 **仓库根目录** 执行。
-> 已在「本地 venv + 127.0.0.1:5432 PG」验证：schema 36 表、种子 1750 食物 + 342 别名、95 pytest 全绿。
+> 已在「本地 venv + 127.0.0.1:5432 PG」验证：schema 36 表、种子 1750 食物 + 342 别名；最近一次全量实测 **485 pytest passed**（2026-09-29 UTC，库 ai_coach_a1/a2 双验）。
 
 ### 1. 准备环境变量
 
@@ -113,7 +113,8 @@ docker compose -f deploy/docker-compose.yml exec -T api \
 cd backend
 DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
   python -m pytest -q
-# 预期：95 passed（含 tests/test_boundaries.py 建档边界、tests/test_smoke_phase1.py M1 端到端闭环）
+# 预期：Phase 1 时点为 95 passed（含 tests/test_boundaries.py 建档边界、tests/test_smoke_phase1.py M1 端到端闭环）；
+#       当前全量基线以 AGENTS.md §7.1 为准（最近实测 494 passed + 2 skipped，2026-09-30 UTC）
 ```
 
 ### 8. 服务器差异

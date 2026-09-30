@@ -167,7 +167,7 @@ async def test_create_order_server_recalc(db_client, db_session, authed):
         ("missing", 3001, 404),       # 商家不存在
         ("foreign_sku", 3001, 404),   # SKU 不属于该商家
         ("sku_off", 2001, 422),       # SKU 下架
-        ("out_of_stock", 2001, 422),  # 库存不足
+        ("out_of_stock", 4001, 409),  # 库存不足（05 文档 §8.6 → 4001）
     ],
 )
 async def test_create_order_rejected(db_client, db_session, authed, variant, code, http):
@@ -433,8 +433,8 @@ async def test_notify_idempotent_and_timeout(db_client, db_session, authed):
 
 
 async def test_notify_stock_shortage_blocks_oversell(db_client, db_session, authed):
-    """P0-2 库存 1：A 单支付成功扣到 0；B 单无法再支付成功（下单 2001；
-    即使下单校验被绕过——先下单后支付——notify 也 422/2001，订单停留待支付，stock 不会变 -1）。"""
+    """P0-2 库存 1：A 单支付成功扣到 0；B 单无法再支付成功（下单 4001；
+    即使下单校验被绕过——先下单后支付——notify 也 409/4001，订单停留待支付，stock 不会变 -1）。"""
     m = await _seed_merchant(db_session)
     sku = await _seed_sku(db_session, m.id, price=25.0, stock=1)
     other = await _other_user(db_session, "stock-other")
@@ -448,11 +448,11 @@ async def test_notify_stock_shortage_blocks_oversell(db_client, db_session, auth
     assert r1.status_code == 200
     assert (await _get_sku(db_session, sku.id)).stock == 0
 
-    # 第二单直接 notify：库存不足 → 422/2001，整个事务回滚
+    # 第二单直接 notify：库存不足 → 409/4001，整个事务回滚
     r2 = await db_client.post(
         "/api/order/notify", json=_notify_body(d2["order_no"], d2["pay_amount"])
     )
-    assert r2.status_code == 422 and r2.json()["code"] == 2001
+    assert r2.status_code == 409 and r2.json()["code"] == 4001
     order2 = await _get_order(db_session, d2["order_id"])
     assert order2.status == 1  # 未推进（status=2/pay_at/redeem_code 全部回滚）
     assert order2.redeem_code is None
@@ -464,7 +464,7 @@ async def test_notify_stock_shortage_blocks_oversell(db_client, db_session, auth
         headers=other["headers"],
         json={"merchant_id": m.id, "items": [{"sku_id": sku.id, "qty": 1}]},
     )
-    assert resp.status_code == 422 and resp.json()["code"] == 2001
+    assert resp.status_code == 409 and resp.json()["code"] == 4001
 
 
 # ---------------------------------------------------------------------------
@@ -534,7 +534,7 @@ async def test_redeem_wrong_merchant_rejected(db_client, db_session, authed):
 
 
 async def test_redeem_owner_mismatch_rejected(db_client, db_session, authed):
-    """P1-3 商家已绑定 owner 且非本人 → 核销 5002。"""
+    """P1-3 商家已绑定 owner 且非本人 → 核销 1002/403（CD-10：无权限）。"""
     other = await _other_user(db_session, "owner-other")
     m = Merchant(
         name="有主店", category="轻食", audit_status=1, owner_user_id=other["user_id"]
@@ -548,8 +548,8 @@ async def test_redeem_owner_mismatch_rejected(db_client, db_session, authed):
         headers=authed["headers"],
         json={"redeem_code": order.redeem_code, "merchant_id": m.id},
     )
-    assert resp.status_code == 409
-    assert resp.json()["code"] == 5002
+    assert resp.status_code == 403
+    assert resp.json()["code"] == 1002
     assert (await _get_order(db_session, order.id)).status == 2
 
 
@@ -570,6 +570,34 @@ async def test_redeem_owner_self_allowed(db_client, db_session, authed):
     assert resp.status_code == 200
     assert resp.json()["data"]["status"] == "redeemed"
     assert (await _get_order(db_session, order.id)).status == 3
+
+
+@pytest.mark.parametrize("status,reason", [(4, "订单已取消"), (5, "订单已退款")])
+async def test_redeem_cancelled_or_refunded_5003(
+    db_client, db_session, authed, status, reason
+):
+    """CD-10：已取消/已退款订单核销 → 5003/409（message 写明原因），失败留痕。"""
+    m = await _seed_merchant(db_session)
+    order = await _paid_order(db_client, db_session, authed, m)
+    order.status = status
+    await db_session.commit()
+
+    resp = await db_client.post(
+        f"/api/order/{order.id}/redeem",
+        headers=authed["headers"],
+        json={"redeem_code": order.redeem_code, "merchant_id": m.id},
+    )
+    assert resp.status_code == 409
+    body = resp.json()
+    assert body["code"] == 5003
+    assert reason in body["message"]
+    assert (await _get_order(db_session, order.id)).status == status  # 未被核销
+    log = (
+        (await db_session.execute(select(RedeemLog).where(RedeemLog.order_id == order.id)))
+        .scalars()
+        .one()
+    )
+    assert log.result == 2 and reason in log.fail_reason
 
 
 # ---------------------------------------------------------------------------

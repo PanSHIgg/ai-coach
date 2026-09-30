@@ -36,12 +36,19 @@ const server = http.createServer(async (req, res) => {
   await sleep(50 + Math.random() * 100); // 模拟网络延迟 50-150ms
 
   const rid = requestId();
+  // 收集请求体（供动态 canned 按入参回显，如 /api/track 的 accepted）
+  let raw = '';
+  for await (const chunk of req) raw += chunk;
+  let body = null;
+  try { body = raw ? JSON.parse(raw) : null; } catch { body = null; }
+
   const route = match(req.method, req.url || '/');
   if (!route) {
     send(res, 404, { code: 3001, message: '资源不存在', data: null, request_id: rid });
     return;
   }
-  send(res, 200, { code: 0, message: 'ok', data: typeof route.d === 'function' ? route.d() : route.d, request_id: rid });
+  const data = typeof route.d === 'function' ? route.d({ body }) : route.d;
+  send(res, 200, { code: 0, message: 'ok', data, request_id: rid });
 });
 
 server.listen(PORT, () => {

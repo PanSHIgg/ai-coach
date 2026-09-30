@@ -130,3 +130,34 @@
 | CD-19~CD-30 | RA-019,023,021,025,022 / RA-008,021 | RB-009,011,015,021,022,023,024,027,028,029 |
 
 两份审查独立得出的**核心结论完全一致**（均判 FAIL、均定位邀请裂变链路、均确认无 P0、均实测 485 passed），分歧仅在覆盖广度：A 侧多覆盖前端页面与示例自相矛盾，B 侧多覆盖契约参数、错误码语义与 Phase 5 专项。
+
+---
+
+## 附录 B：修复闭环记录（2026-09-30，本报告发布后的执行结果）
+
+> 用户拍板：**一切以《AI饮食管控教练_全栈开发交付文档》（`docs/split/*.md`）为准**，代码向文档对齐。按 `AGENTS.md §5` 流程执行：三路并行 fix（后端 / 契约+前端 / 文档刷新）→ 双复审 → 增量 fix → 双终验 PASS。
+
+### 修复结果
+| 类别 | 处置 |
+| --- | --- |
+| CD-01~06（邀请裂变链路，改代码） | **全部闭环**：`MAX_INVITEES=10`；绑定 `status=0`→被邀请人首拍后经 `invite_service.activate_invitee`（原子 `UPDATE ... WHERE status=0 RETURNING`，并发安全）置 1；同设备（`user.unionid`）去重；双方各得 1 张通用券（`coupon_pool` FOR UPDATE + 余量维护，无券静默）；tier 三档发放（2→90天/5→180天/10→永久 valid_to=NULL，单调升级+重试 3 次+每日调度）；reward 按档位映射；新增 `miniapp/src/pages/invite/invite.vue` + 入口 + `invite_share`/`invite_accept` 埋点 |
+| CD-07~10（契约/错误码，以文档为准改代码侧） | **全部闭环**：openapi 三处 admin `{id}` 补 parameters；`scope` 参数补进契约；库存不足 → 4001；核销无权限 → 1002、已取消/已退款 → 5003 |
+| CD-11~30（文档刷新） | **全部闭环**（基线数字、版本、种子命令、表清单、400→422、TEE 口径、冻结基线等）；TabBar 差异（CD-17）为产品决策，**维持待决**：文档=首页/吃什么/运动/社区/我的，实现=首页/记录/社区/商家/我的 |
+| 附加修复 | 删除死代码 `install_idempotency`；`JWT_SECRET` 默认值换 64 字符随机串；mock `/api/track` 按 events.length 回显、`invite_code` 格式对齐；`load_seeds.py` sku_catalog 加 `RESTART IDENTITY`（根治 ID 漂移导致的 39 用例假失败） |
+
+### 门禁终验（2026-09-30 UTC）
+| 项 | REVIEW3-A（库 a1） | REVIEW3-B（库 a2） |
+| --- | --- | --- |
+| 全量 pytest | **494 passed + 2 skipped**（537s） | **494 passed + 2 skipped**（407s） |
+| ruff | 275（与 AGENTS.md:155 一致，无新增） | 275 |
+| type-check / 双端 build | 0 错误 / 双通过 | 0 错误 / 双通过 |
+| TS 双副本 diff | 一致 | 一致 |
+| 契约一致性 + smoke | 138 passed | 138 passed |
+| 并发首拍竞态（独立脚本） | 3 轮仅 1 方发券，coupon=2 | 3 轮仅 1 方发券，coupon=2 |
+| 端到端 | — | A邀B→B绑→B首拍→status=1+双方各1券+progress 正确 |
+| 结论 | **PASS** | **PASS** |
+
+### 遗留（不阻断，已登记）
+- **CD-17 TabBar**：文档 5 Tab（含吃什么/运动）与实现（含记录/商家）不一致，属产品形态决策，待拍板后统一。
+- **同设备风控**：`user.unionid` 为 NULL 的账号不受同设备限制（代码内已注【假设】）；如需收敛引入 device_id 风控。
+- **发券无待补发队列**：激活+发券已并入同一独立事务原子提交，发券异常时整体回滚、下次首拍可重试；如需更强保证可落"待补发"标记由每日任务兜底。

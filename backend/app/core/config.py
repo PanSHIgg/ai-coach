@@ -28,7 +28,10 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://redis:6379/0"
 
     # ---- JWT ----
-    JWT_SECRET: str = "change-me-to-a-random-secret"
+    # 默认值：一次性生成的高熵随机串（secrets.token_urlsafe(48)，64 字符，
+    # token_urlsafe(48)=48 字节熵），≥32 字节以消除 PyJWT InsecureKeyLengthWarning；
+    # 生产必须用 .env 覆盖。
+    JWT_SECRET: str = "GJ_r6g6PMb6JAOQp5CM_qI2c_ODwoj8S_9r7XsWNhtOh-ai3_4Tvn23rABonp0ia"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_EXPIRE_HOURS: int = 2  # access 2h
     JWT_REFRESH_EXPIRE_DAYS: int = 7  # refresh 7d

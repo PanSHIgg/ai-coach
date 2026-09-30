@@ -118,7 +118,8 @@
 Python：要求 >=3.12（不限定 venv/目录；venv/conda/pyenv/系统均可）；本工作区实测解释器
        /workspace/.venv312/bin/python（示例，其它环境用自带 >=3.12，探测见 dev_env.md §1.1）
 后端测试：cd backend && DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
-          "${PY:-/workspace/.venv312/bin/python}" -m pytest -q   # PY=你的 >=3.12 解释器；基线：242 passed（Phase 4 后实测）
+          "${PY:-/workspace/.venv312/bin/python}" -m pytest -q   # PY=你的 >=3.12 解释器；基线：以当次实跑为准，
+          # 最近一次全量实测 494 passed + 2 skipped（2026-09-30 UTC，库 ai_coach_a1）
 PostgreSQL：127.0.0.1:5432  user=postgres password=postgres  db=ai_coach
             建表：psql -f data/sql/001_schema.sql（36 表；Alembic 0001 与之同源，二者择一）
 Redis：127.0.0.1:6379
@@ -126,8 +127,8 @@ Redis：127.0.0.1:6379
           --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach" \
           --file food:data/seeds/food_full.csv --file food_alias:data/seeds/food_alias_full.csv \
           --file sku_catalog:data/seeds/standard_sku.sample.csv \
-          --file ai_knowledge:data/seeds/rag_knowledge.sample.jsonl
-          （sku_catalog/ai_knowledge 必导，否则订单与 AI 用例失败）
+          --file ai_knowledge:data/seeds/ai_knowledge_full.jsonl
+          （sku_catalog/ai_knowledge 必导，否则订单与 AI 用例失败；ai_knowledge_full.jsonl 共 50 条）
           dry-run：... --dry-run（CSV 用 utf-8-sig 兼容 BOM）
 Mock：node contracts/mock/server.mjs（PORT 默认 9000）
 前端：cd miniapp && npm install → npm run type-check → npm run build:mp-weixin / npm run build:h5
@@ -140,7 +141,7 @@ Mock：node contracts/mock/server.mjs（PORT 默认 9000）
 
 ### 7.2 契约与真源
 
-- **契约真源**：`contracts/openapi.yaml`（路径含 `/api` 前缀；统一 envelope + 错误码 + Bearer JWT）。当前 **72 路径 / 78 ops**（Phase 1 `weight*`/`subscription*`/`auth/refresh`；Phase 3 `/api/admin/*` 9 个；Phase 4 社区/社交 22 个；Phase 5 新增 `/api/track`、`/api/order/{id}/refund`）。
+- **契约真源**：`contracts/openapi.yaml`（路径含 `/api` 前缀；统一 envelope + 错误码 + Bearer JWT）。当前 **72 路径 / 78 ops**（Phase 1 `weight*`/`subscription*`/`auth/refresh`；Phase 3 `/api/admin/*` 12 个；Phase 4 社区/社交 25 个；Phase 5 新增 `/api/track`、`/api/order/{id}/refund`）。
 - **TS 类型有两份手写副本**（`contracts/ts/api.d.ts` 与 `miniapp/src/types/api.d.ts`）：**由主 Agent 单点同步**，禁止子 Agent 双写；变更后两份必须一致。
 - **Mock**：`contracts/mock/routes.mjs`（新增接口须同步 canned data）。
 - **错误码**：`0` 成功 / `1001` 未登录 / `1002` 无权限 / `2001` 参数校验 / `3001` 资源不存在 / `4001` 次数不足 / `4002` 重复请求（幂等拦截，Phase 5 新增） / `5001` 商家停业 / `5002` 券不可用 / `5003` 订单超时 / `5004` 核销码已用 / `6001` AI 不可用 / `7001` 邀请上限；HTTP 映射 422/401/403/404/409/429/500。
@@ -150,8 +151,8 @@ Mock：node contracts/mock/server.mjs（PORT 默认 9000）
 
 - **只读共享层（地基）**：见 §2.3 清单；如需变更须走"申请 → 主 Agent 决策"。
 - **AI 无 Key 环境自动落 mock**（`backend/app/ai/`），hello-world：`python backend/scripts/ai_hello.py --task chat|vision`。
-- **DB 引擎**：`backend/app/db/session.py` 当前用 `NullPool`（pytest 跨事件循环所需）；生产连接池在性能阶段（Phase 5）评估改回。
-- **已知存量**：后端 `ruff` 仍有 `B008`（FastAPI `Depends/Query` 作默认值，属仓库既有风格），CI 中 lint 为**提示不阻断**；子 Agent 不要大规模重构存量风格。
+- **DB 引擎**：`backend/app/db/session.py` 默认 `AsyncAdaptedQueuePool`，`DB_POOL_DISABLED=True` 时回退 `NullPool`（pytest 跨事件循环兼容）。
+- **已知存量**：后端 `ruff` 存量 **275 处**：B008×166（FastAPI `Depends/Query` 作默认值，属仓库既有风格，提示不阻断）+ UP045×94、E501×7、UP017×3、UP046×2、B904×1、UP012×1、I001×1；子 Agent 不要大规模重构存量风格。
 
 ---
 

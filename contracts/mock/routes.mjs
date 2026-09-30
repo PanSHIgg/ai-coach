@@ -184,7 +184,7 @@ export const routes = [
   },
 
   // ---- 社区 ----
-  { m: 'POST', p: '/api/invite', d: { bound: false, invite_code: 'INV-1001-XYZ', poster_url: 'https://cos.example.com/invite/1001.png' } },
+  { m: 'POST', p: '/api/invite', d: { bound: false, invite_code: 'INV-1001', poster_url: 'https://cos.example.com/invite/1001.png' } },
   {
     m: 'GET', p: '/api/invite/progress',
     d: {
@@ -402,7 +402,12 @@ export const routes = [
   },
 
   // ---- 埋点（F3，允许匿名） ----
-  { m: 'POST', p: '/api/track', d: { accepted: 2 } },
+  // accepted 按请求体 events.length 回显（对齐后端实现）
+  {
+    m: 'POST',
+    p: '/api/track',
+    d: (ctx) => ({ accepted: Array.isArray(ctx?.body?.events) ? ctx.body.events.length : 0 }),
+  },
 ];
 
 /** 宽松匹配：/api 前缀可有可无、结尾/重复斜杠忽略；{param} 匹配任意单段。 */

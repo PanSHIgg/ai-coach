@@ -6,6 +6,9 @@
 RequestValidationError → 422/2001；HTTPException → 映射业务码；兜底 → 500。
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +25,7 @@ from app.core.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.observability.metrics import install_metrics
 from app.schemas.common import ErrorCode, fail
+from app.services.invite_service import start_reward_scheduler
 
 logger = get_logger(__name__)
 
@@ -37,6 +41,14 @@ _HTTP_CODE_MAP = {
 def create_app(settings: Settings | None = None) -> FastAPI:
     s = settings or get_settings()
 
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        # 邀请权益定时发放：启动时跑一次，此后每日一次（10 文档 §13.3）
+        task = start_reward_scheduler()
+        yield
+        if task is not None:
+            task.cancel()
+
     # IS-001: 生产环境禁止启用 PAY_MOCK_MODE
     if s.ENV == "prod" and s.PAY_MOCK_MODE:
         raise RuntimeError(
@@ -45,7 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     setup_logging(s.LOG_LEVEL)
-    app = FastAPI(title=s.APP_NAME, version="0.1.0", debug=s.DEBUG)
+    app = FastAPI(title=s.APP_NAME, version="0.1.0", debug=s.DEBUG, lifespan=lifespan)
 
     # ---- 异常处理 ----
 
