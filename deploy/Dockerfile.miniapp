@@ -1,0 +1,56 @@
+# AI 饮食管控教练 · 小程序 H5 预览镜像（§10.3：node:20 编译 → nginx 托管静态 H5）
+# 说明：微信小程序产物走 uni-app 编译命令（npm run build:mp-weixin），非 Docker；
+#       本镜像仅托管 H5 产物（uni build → miniapp/dist/build/h5）。
+# 构建上下文为 monorepo 根目录（与 Dockerfile.backend 一致）：
+#   docker build -f deploy/Dockerfile.miniapp -t ai-coach-miniapp:h5 .
+
+# ---------- 构建阶段：node:20 编译 ----------
+FROM node:20-alpine AS builder
+
+WORKDIR /build
+
+# 先拷依赖清单单独安装，充分利用层缓存（锁文件存在，用 npm ci 保证可复现）
+COPY miniapp/package.json miniapp/package-lock.json /build/
+
+RUN npm ci --no-audit --no-fund
+
+# 拷贝源码并构建 H5（产物：/build/dist/build/h5）
+COPY miniapp/ /build/
+RUN npm run build:h5
+
+# ---------- 运行阶段：nginx 托管静态 H5 ----------
+FROM nginx:stable-alpine
+
+ENV TZ=Asia/Shanghai
+
+# SPA 静态托管配置（hash 路由，无需后端反代；容器内自持配置，不依赖宿主 nginx.conf）
+RUN printf 'server {\n\
+    listen 80;\n\
+    server_name _;\n\
+    root /usr/share/nginx/html;\n\
+    index index.html;\n\
+\n\
+    gzip on;\n\
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;\n\
+\n\
+    location /assets/ {\n\
+        expires 7d;\n\
+        add_header Cache-Control "public";\n\
+    }\n\
+\n\
+    location / {\n\
+        try_files $uri $uri/ /index.html;\n\
+    }\n\
+}\n' > /etc/nginx/conf.d/default.conf
+
+# 拷贝 H5 产物
+COPY --from=builder /build/dist/build/h5/ /usr/share/nginx/html/
+
+EXPOSE 80
+
+# 健康检查（busybox wget 探活本机 80）
+HEALTHCHECK --interval=30s --timeout=5s --retries=5 \
+  CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1
+
+# nginx:alpine 官方镜像 master 进程以 root 绑定 80，worker 已以 nginx 非 root 用户运行
+CMD ["nginx", "-g", "daemon off;"]

@@ -60,7 +60,7 @@
 ## 4. 核心策略：契约先行 + 多轨并行
 
 并行前提是**先冻结共享契约**，之后五轨全程并行，只在"集成联调"汇合：
-1. **API 契约**：§8 的 34 接口 → OpenAPI 3.1 + pydantic schema → 生成 TS 类型 + Mock Server（Prism/msw）。前端对 Mock 开发，后端实现真接口，互不阻塞。
+1. **API 契约**：§8 的接口契约（契约全集 72 路径 / 78 操作，以 contracts/openapi.yaml 为准）→ OpenAPI 3.1 + pydantic schema → 生成 TS 类型 + Mock Server（Prism/msw）。前端对 Mock 开发，后端实现真接口，互不阻塞。
 2. **DB Schema**：§7 建表 SQL → Alembic 初始迁移，全后端共用。
 3. **设计令牌**：§4 Design Tokens → `uni.scss`/CSS 变量 + 基础组件库。
 
@@ -85,7 +85,7 @@ flowchart TD
 
 | 阶段 | 里程碑 | 周 | 主题 | 退出标准 |
 | --- | --- | --- | --- | --- |
-| Phase 0 | 准备 | W1 | 环境、契约、脚手架、设计令牌、AI spike | `compose up` 起全套、Mock 返回 34 接口、前端壳登录进首页 |
+| Phase 0 | 准备 | W1 | 环境、契约、脚手架、设计令牌、AI spike | `compose up` 起全套、Mock 覆盖契约全集（72 路径 / 78 操作）、前端壳登录进首页 |
 | Phase 1 | M1 基础 | W2–W4 | 登录、建档、热量账户、饮食/运动记录、步数校准、体重、订阅 | 账户数字对拍手算表误差 0、拍照写入环形图 <1s |
 | Phase 2 | M2 AI | W4–W6 | 拍照识别、AI 对话+RAG+次数、饭点决策 | AI 答 10 类问题、识别 ≥85%、次数尽提示邀请 |
 | Phase 3 | M3 商家 | W7–W8 | 商家/SKU/价格区间/LBS、券、订单/支付/核销、管理后台 | 下单→支付→核销全通、券不重复核销、越界价 400 |
@@ -103,7 +103,7 @@ flowchart TD
 | P0-a | Monorepo、git flow（main/develop/feature）、`.env.example`、ruff/black/eslint/prettier | 无 | 仓库骨架、提交规范 |
 | P0-b | 设计令牌 → `uni.scss`/CSS 变量 + 基础组件（按钮/卡片/表单/Toast/骨架屏，§4） | 无 | 组件库雏形 |
 | P0-c | 建表 SQL → Alembic 初始迁移 + 种子加载脚本骨架（§7） | 无 | migration、data/ |
-| P0-d | **API 契约**：34 接口 OpenAPI + pydantic schema + TS 类型生成 + Mock Server | 无（最高优先） | openapi.yaml、mock |
+| P0-d | **API 契约**：接口契约全集（72 路径 / 78 操作）OpenAPI + pydantic schema + TS 类型生成 + Mock Server | 无（最高优先） | openapi.yaml、mock |
 | P0-e | 后端脚手架：app factory、config、异步 DB session、Redis、统一响应/异常、JWT+微信 code2session、限流中间件、request_id JSON 日志 | P0-c/d 草案 | 可跑 FastAPI |
 | P0-f | 前端脚手架：uni-app 工程、Pinia、请求封装（token 刷新）、路由守卫、5 Tab+FAB、通用状态组件（§5.8） | P0-b/d 草案 | 可跑小程序壳 |
 | P0-g | docker-compose（pg+redis+api+nginx）+ CI 骨架（lint+test） | P0-a | 一键起环境 |
@@ -299,7 +299,7 @@ flowchart TD
 ## 15. 测试策略（§9）
 
 - 单元（pytest，服务层+计算逻辑，≥70%）：热量/TDEE/步数校准/价格区间/券核销/邀请防刷。
-- 接口（pytest+httpx）：34 接口全覆盖 + 错误码（1001/2001/3001/4001/5002/5004/6001/7001）。
+- 接口（pytest+httpx）：契约全集全覆盖（72 路径 / 78 操作，以 contracts/openapi.yaml 为准）+ 错误码（1001/2001/3001/4001/5002/5004/6001/7001）。
 - 前端（Vitest + uni-app 测试库）；E2E（微信开发者工具自动化 + Playwright 测 H5/后台）。
 - 专项：兼容、性能、安全（越权/注入/XSS/重放/支付篡改）。
 - 验收对拍：热量 50 行 Excel 误差 0、识别 30 图 ≥85%。
@@ -333,7 +333,7 @@ flowchart TD
 
 1. 建 monorepo 目录 + git flow + `.env.example` + lint 工具链（P0-a）。
 2. §7 建表 SQL → Alembic 初始迁移 + 种子脚本骨架（P0-c）。
-3. §8 的 34 接口 → OpenAPI + pydantic schema → 生成 TS 类型 + 起 Mock Server（**P0-d，最高优先，解锁并行**）。
+3. §8 的接口契约（契约全集 72 路径 / 78 操作，以 contracts/openapi.yaml 为准）→ OpenAPI + pydantic schema → 生成 TS 类型 + 起 Mock Server（**P0-d，最高优先，解锁并行**）。
 4. §4 设计令牌 + 基础组件（P0-b）。
 5. 后端脚手架（P0-e）+ 前端脚手架（P0-f）。
 6. docker-compose 开发环境 + CI 骨架（P0-g）。

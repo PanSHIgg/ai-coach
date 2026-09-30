@@ -35,7 +35,7 @@
 2. **AI 饭点决策引擎**：食堂/外卖/便利店场景下拍照菜单，AI 推荐最优组合并一键记录。
 3. **AI 主动介入**：覆盖 12+ 触发场景（餐前提醒、下午茶防诱惑、深夜防崩塌、超标后运动建议等），通过订阅消息推送。
 4. **AI 对话咨询**：回答"饿了能吃什么""这菜油多吗""今天为什么没瘦"等问题，邀请扩容机制。
-5. **运动与能量消耗**：步数同步、运动记录、TDEE 模型（BMR+NEAT+EAT+TEF）、步数校准。
+5. **运动与能量消耗**：步数同步、运动记录、能量消耗模型（TEE = BMR×PAL + EAT + TEF；步数校准只调 NEAT/PAL，不改 TEE 结构）、步数校准。
 6. **五种社交**：监督、兴趣社群、约战、挑战赛、动态。
 7. **商家标准化生态**：标准目录制 + 价格区间制 + 统一券池 + 商家极简后台。
 8. **分层收费 + 邀请解锁**：基础免费 / 进阶 29 元 / 高级 59 元 / 最高档终身，全部可邀请解锁。
@@ -131,7 +131,7 @@
 - 拍照记录写入后，环形图"已摄入"与明细同步更新，无延迟超过 1 秒。
 - AI 对话次数用完时，输入框上方展示"今日剩余 0 次，邀请好友解锁"，无法发送。
 - 邀请 2 人（有效）后，用户权益变更为进阶版 90 天，首页/我的可见权益标签。
-- 商家定价超出区间，后台保存时接口返回 400，前端提示"请在 ¥X-¥Y 之间定价"。
+- 商家定价超出区间，后台保存时接口返回 422 + code 2001，前端提示"请在 ¥X-¥Y 之间定价"。
 - 券核销码只能使用一次，重复使用返回"已核销"。
 - 步数为 0 时，NEAT 用默认 PAL 估算；步数 > 0 时，按步数校准公式重算。
 - 所有页面在 iPhone SE（小屏）与 iPad 上无横向溢出、无截断。
@@ -165,9 +165,12 @@
 | 21  | 邀请裂变       | /pages/invite              | 用户  | 进度、海报、规则、分享               | 我的            |
 | 22  | 我的券包       | /pages/coupon              | 用户  | 吃的券/动的券/异业券、过期            | 我的            |
 | 23  | 登录         | /pages/login               | 用户  | 微信授权、绑定手机                 | 启动拦截          |
-| 24  | 商家后台登录     | /pages/merchant/login      | 商家  | 账号密码/手机验证码                | 独立入口          |
-| 25  | 商家后台       | /pages/merchant/admin      | 商家  | 选品、定价、选券、上下架、核销、数据        | 商家登录          |
+| 24  | 商家后台登录     | /pages/merchant/login      | 商家  | 账号密码/手机验证码（商家后台合入独立 `admin/` H5（ADM1-3），小程序侧不单独建页） | 独立入口          |
+| 25  | 商家后台       | /pages/merchant/admin      | 商家  | 选品、定价、选券、上下架、核销、数据（商家后台合入独立 `admin/` H5（ADM1-3），小程序侧不单独建页） | 商家登录          |
 | 26  | 平台管理后台     | /admin（H5）                 | 运营  | 目录/商家/券/订单/内容/数据          | 独立域名          |
+| 27  | 体重记录       | /pages/weight/weight       | 用户  | 体重记录、趋势曲线                  | 首页体重卡/我的          |
+| 28  | 记录         | /pages/record/record       | 用户  | 记录中枢：拍照、饮食、运动、体重入口聚合     | 运动 Tab 入口（§3.2 蓝图对齐） |
+| 29  | 商家         | /pages/merchant/merchant   | 用户  | 附近商家列表（LBS 聚合）             | 吃什么 Tab 入口（§3.2 蓝图对齐） |
 
 ## 3.2 底部 Tab（5 个）
 
@@ -881,7 +884,7 @@
 
 ### 6.3.1 热量账户
 
-- 每日快照：每天 0 点生成 `daily_snapshot`（日期、预算、摄入、消耗、缺口、步数），避免每次打开都重算。
+- 账户快照采用**写时重算（recompute_day）+ 读兜底**，等效达成"打开即得、不重复全量重算"目标（原设计为 0 点定时任务生成 `daily_snapshot`，实现取等效方案）。
 - 写入触发：饮食记录新增/编辑/删除 → 重算当日摄入 → 更新环形图。运动记录同理。
 - 预算 = BMR × PAL；TEE = BMR×PAL + EAT + TEF（TEF=摄入×10%）。
 - 缺口 = 摄入 - TEE，负值为热量缺口（有利减重）。
@@ -900,7 +903,7 @@
 ### 6.3.4 商家与价格区间
 
 - 标准目录 `sku_catalog` 由平台运营维护，商家只选不选建。
-- 商家定价时，后端校验 `price BETWEEN min_price AND max_price`，超出返回 400。
+- 商家定价时，后端校验 `price BETWEEN min_price AND max_price`，超出返回 422 + code 2001。
 - 权重分 = 拉新贡献 40% + 券贡献 40% + 过程贡献 20%；前 20% 战略合作独家区域，前 50% 优选合作保护，连续零贡献清退。
 
 ### 6.3.5 券池
@@ -928,7 +931,9 @@
 
 ## 7.1 表清单
 
-`user`（用户）、`user_auth`（第三方登录）、`body_profile`（身体档案）、`weight_record`（体重记录）、`food`（食物库）、`food_alias`（食物别名）、`meal_record`（饮食记录）、`sport_record`（运动记录）、`step_record`（步数记录）、`daily_snapshot`（每日热量快照）、`ai_dialog`（AI 对话）、`ai_knowledge`（知识库）、`merchant`（商家）、`sku_catalog`（标准目录）、`merchant_sku`（商家SKU）、`coupon`（券）、`coupon_pool`（券池）、`order`（订单）、`order_item`（订单项）、`redeem_log`（核销日志）、`invite`（邀请关系）、`user_benefit`（用户权益）、`community_post`（动态）、`community_group`（兴趣社群）、`supervise`（监督关系）、`battle`（约战）、`challenge`（挑战赛）、`challenge_join`（挑战赛参与）、`review`（审核）、`admin_user`（运营账号）、`config`（全局配置）。
+`user`（用户）、`user_auth`（第三方登录）、`body_profile`（身体档案）、`weight_record`（体重记录）、`food`（食物库）、`food_alias`（食物别名）、`meal_record`（饮食记录）、`sport_record`（运动记录）、`step_record`（步数记录）、`daily_snapshot`（每日热量快照）、`ai_dialog`（AI 对话）、`ai_knowledge`（知识库）、`merchant`（商家）、`sku_catalog`（标准目录）、`merchant_sku`（商家SKU）、`coupon`（券）、`coupon_pool`（券池）、`order`（订单）、`order_item`（订单项）、`redeem_log`（核销日志）、`invite`（邀请关系）、`user_benefit`（用户权益）、`community_post`（动态）、`community_group`（兴趣社群）、`supervise`（监督关系）、`battle`（约战）、`challenge`（挑战赛）、`challenge_join`（挑战赛参与）、`review`（审核）、`admin_user`（运营账号）、`config`（全局配置，**预留未启用：暂无 ORM 模型与业务引用**）、`subscription`（订阅，Phase 3 新增）、`leaderboard`（排行榜，Phase 3 新增）、`track_event`（埋点事件，Phase 5 新增）、`community_comment`（动态评论，Phase 4 新增）、`community_like`（动态点赞，Phase 4 新增）。
+
+> 合计 **36 表**，与 `data/sql/001_schema.sql`（36 个 `CREATE TABLE`）对齐；Phase 3~5 新增的 5 表为 `subscription`、`leaderboard`、`track_event`、`community_comment`、`community_like`。
 
 ## 7.2 建表 SQL
 
@@ -1023,7 +1028,7 @@ CREATE TABLE meal_record (
   fat NUMERIC(7,2),
   carb NUMERIC(7,2),
   confidence NUMERIC(4,2),        -- 识别置信度
-  source SMALLINT DEFAULT 1,       -- 1拍照 2语音 3手动 4AI推荐
+  source SMALLINT DEFAULT 1,       -- 1拍照 2语音 3手动 4AI推荐 5订单核销（自动写入）
   image_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -1093,6 +1098,7 @@ CREATE TABLE merchant (
   status SMALLINT DEFAULT 1,       -- 1营业 0停业
   audit_status SMALLINT DEFAULT 0, -- 0待审 1通过 2驳回
   owner_user_id BIGINT REFERENCES "user"(id),
+  contribution_points INTEGER NOT NULL DEFAULT 0, -- 贡献分：核销成功累计（每单+1，0003 迁移）
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_merchant_geo ON merchant(lat, lng);
@@ -1362,7 +1368,9 @@ HTTP 状态码：参数错 422、未认证 401、无权限 403、资源不存在
 | 6001 | AI 服务暂不可用      |
 | 7001 | 邀请已达上限         |
 
-## 8.3 接口列表（30 个核心接口）
+## 8.3 接口列表（P0 核心 34 接口）
+
+> 下表为 P0 核心接口清单；契约全集以 `contracts/openapi.yaml` 为准（当前 72 路径 / 78 操作），含 Phase 3 管理后台（12 路径 / 13 操作）、Phase 4 社区（23 路径 / 25 操作）、Phase 5 埋点/退款等扩展。
 
 | #   | 方法     | 路径                         | 说明              |
 | --- | ------ | -------------------------- | --------------- |
@@ -1467,7 +1475,7 @@ HTTP 状态码：参数错 422、未认证 401、无权限 403、资源不存在
     "intake": 1418,
     "deficit": -974,
     "steps": 12000,
-    "calories_burnt": 320,
+    "calories_burnt": 274,
     "calibration_used": true,
     "meals": [
       {"meal_type": 1, "name": "早餐", "calories": 380},
@@ -1537,6 +1545,16 @@ HTTP 状态码：参数错 422、未认证 401、无权限 403、资源不存在
 
 请求头 `Authorization: Bearer <token>`。未带返回 1001。AI 对话额外校验 `user_benefit.ai_times_left`，不足返回 4001。全部写接口做参数校验（pydantic），金额类字段服务端重算。
 
+## 8.6 订单库存语义说明
+
+**下单阶段（POST /api/order）**：校验库存充足性（`qty <= stock` 或 `stock=-1` 不限量），但不预占、不扣减。目的是允许用户创建待支付订单而不立即锁定库存。
+
+**支付阶段（POST /api/order/{id}/pay 或 notify 回调）**：使用 `SELECT ... FOR UPDATE` 行级锁扣减库存，保证并发安全。若库存不足则支付失败（返回 4001）。
+
+**超时释放**：待支付订单 15 分钟后自动取消（`expire_at` 字段），取消时不恢复库存（因为从未扣减）。
+
+**设计考量**：该策略避免"下单即锁库存"导致的库存浪费（用户下单后不支付），同时通过支付时的行级锁保证不超卖。实测 10 并发支付 stock=3 → 恰好 3 成功，无超卖。
+
 # 第九部分：测试方案
 
 ## 9.1 测试分层
@@ -1549,7 +1567,7 @@ HTTP 状态码：参数错 422、未认证 401、无权限 403、资源不存在
 - 热量计算：覆盖 5 种活动水平 × 男女 × 各餐摄入组合，结果对照 Excel 手算表（附件 `calorie_test_cases.xlsx`【假设】需自造一份 50 行用例）。
 - 拍照识别：准备 30 张测试图（食堂餐盘 10、外卖 10、便利店 10），记录识别准确率、分量估算误差。
 - 步数校准：模拟 0/3000/8000/12000/20000 步，校验 NEAT 落在合理区间。
-- 商家定价：上边界、下边界、越界各一条，越界必返回 400。
+- 商家定价：上边界、下边界、越界各一条，越界必返回 422 + code 2001。
 - 券：过期、未达门槛、非本商家、重复使用各一条用例。
 - 邀请：自邀请、同设备、重复绑定、达上限各一条。
 
@@ -1617,7 +1635,7 @@ HTTP 状态码：参数错 422、未认证 401、无权限 403、资源不存在
 ## 10.3 Docker
 
 - `Dockerfile.backend`：python:3.12-slim + 多阶段构建，非 root 运行，暴露 8000。
-- `Dockerfile.miniapp`：node:20 编译 → nginx 托管静态 H5（小程序走 uni-app 编译命令，非 Docker）。
+- `Dockerfile.miniapp`：node:20 编译（`npm run build:h5`，产物 `miniapp/dist/build/h5`）→ nginx 托管静态 H5、暴露 80（小程序走 uni-app 编译命令，非 Docker；构建上下文为 monorepo 根目录，`docker build -f deploy/Dockerfile.miniapp .`）。
 - `docker-compose.yml`：web(api)、db、redis、worker、nginx，卷持久化 `pgdata`、`redisdata`、`uploads`。
 
 ## 10.4 Nginx
