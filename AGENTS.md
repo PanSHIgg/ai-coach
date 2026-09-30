@@ -1,6 +1,6 @@
 # AGENTS.md — AI 饮食管控教练 · 多代理协作工作流
 
-> 本文件约束本工作区内所有 AI 代理的协作方式。**仓库根 = 本文件所在目录**（本工作区为 `/workspace/ai-coach`），下述路径均相对仓库根（monorepo：`backend/ miniapp/ admin/ deploy/ data/ contracts/ docs_process/ perf/`）。交付计划见 `plan.md`，**需求唯一真源见 `docs/AI饮食管控教练_全栈开发交付文档.md`**（`docs/split/` 为其按主题拆分的等价副本，二者同源同步）。
+> 本文件约束本工作区内所有 AI 代理的协作方式。**仓库根 = 本文件所在目录**（下文命令以 `$REPO_ROOT` 指代；仓库内任意位置可用 `$(git rev-parse --show-toplevel)` 取得，**不写死绝对路径**），下述路径均相对仓库根（monorepo：`backend/ miniapp/ admin/ deploy/ data/ contracts/ docs_process/ perf/`）。交付计划见 `plan.md`，**需求唯一真源见 `docs/AI饮食管控教练_全栈开发交付文档.md`**（`docs/split/` 为其按主题拆分的等价副本，二者同源同步）。
 >
 > **docs/ 目录纪律**：`docs/` 下**只允许**存放开发交付文档（`AI饮食管控教练_全栈开发交付文档.md`）与其拆分副本 `split/`。过程性文档——验收报告（go-no-go）、冒烟清单（smoke_50）、测试报告、联调手册、打靶纪要、埋点口径、接口冻结说明、AI spike、**一致性核对报告与问题扫描清单（codediffwithdoc、issues_scan_* 等）**——一律放 `docs_process/`（2026-09-30 起，原 `docs/` 下 10 个过程文档已迁出，全仓引用已同步；同日再把仓库根的 `codediffwithdoc.md`、`issues_scan_0929.md` 迁入）。禁止把新的过程文档写回 `docs/` 或仓库根。**过期不删，留档可追溯**：被后续核对取代的过程文档迁入 `docs_process/`，并在文件头加「⚠️ 已过期归档」注记，指明取代它的最新真源。
 >
@@ -116,18 +116,19 @@
 ### 7.1 环境事实块（模板，随环境更新）
 
 ```
-仓库根：/workspace/ai-coach
-Python：要求 >=3.12（不限定 venv/目录；venv/conda/pyenv/系统均可）；本工作区实测解释器
-       /workspace/.venv312/bin/python（示例，其它环境用自带 >=3.12，探测见 dev_env.md §1.1）
-后端测试：cd backend && DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
-          "${PY:-/workspace/.venv312/bin/python}" -m pytest -q   # PY=你的 >=3.12 解释器；基线：以当次实跑为准，
+仓库根：本文件（AGENTS.md）所在目录，下文以 <repo-root> 指代；仓库内任意位置可用
+       $(git rev-parse --show-toplevel) 取得，不写死绝对路径
+Python：要求 >=3.12（不限定 venv/目录；venv/conda/pyenv/系统均可）；解释器路径不写死，
+       经 PY 变量指定或按 dev_env.md §1.1 探测（如 command -v python3.12 || command -v python3）
+后端测试：cd <repo-root>/backend && DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
+          "${PY:-python3.12}" -m pytest -q   # PY=你的 >=3.12 解释器；基线：以当次实跑为准，
           # 最近一次全量实测 496 passed + 0 failed（2026-09-30 UTC，develop dbbf198，库 ai_coach_s2/s8 两次复跑一致）
           # ⚠️ 注意 DB-5：tests/conftest.py 的 TRUNCATE 含 food/food_alias，跑完全量后种子被清空，
           #    任何依赖食物库匹配的验证（RAG/AI 识别/ILIKE 回落）必须先重跑 data/load_seeds.py，否则会误判为代码缺陷。
 PostgreSQL：127.0.0.1:5432  user=postgres password=postgres  db=ai_coach
             建表：psql -f data/sql/001_schema.sql（36 表；Alembic 0001 与之同源，二者择一）
 Redis：127.0.0.1:6379
-种子导入："${PY:-/workspace/.venv312/bin/python}" data/load_seeds.py \
+种子导入："${PY:-python3.12}" data/load_seeds.py \
           --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach" \
           --file food:data/seeds/food_full.csv --file food_alias:data/seeds/food_alias_full.csv \
           --file sku_catalog:data/seeds/standard_sku.sample.csv \

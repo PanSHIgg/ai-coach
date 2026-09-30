@@ -15,7 +15,7 @@
 ## 用法
 
 ```bash
-PY=/workspace/.venv312/bin/python
+PY=/path/to/your/python3.12    # 任意 >=3.12 解释器；PY 已在环境时无需设置
 
 # 1) 灌数据（可重复执行；--rows 调整规模；--clean 清理）
 $PY perf/seed_bulk.py

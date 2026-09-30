@@ -4,7 +4,7 @@
 >
 > 同源：本文件与 `AGENTS.md §7.1 环境事实块` 保持一致，环境变更时**两处同步**。CI 参照 `.github/workflows/ci.yml`。
 >
-> **约定**：下文 `$PY` 代表你的 Python ≥3.12 解释器。**不假设虚拟环境，也不假设 venv 目录名/路径**——venv / conda / pyenv / 系统解释器均可，探测见 §1.1。
+> **约定**：下文 `$PY` 代表你的 Python ≥3.12 解释器；`$REPO_ROOT` 代表仓库检出根目录（即本文件所在目录），在仓库内任意位置可用 `$(git rev-parse --show-toplevel)` 取得——**本文不写死任何绝对路径**。**不假设虚拟环境，也不假设 venv 目录名/路径**——venv / conda / pyenv / 系统解释器均可，探测见 §1.1。
 
 ---
 
@@ -60,7 +60,7 @@ command -v python3.12 || command -v python3 || command -v python
 python3 -m venv .venv && . .venv/bin/activate && pip install -r backend/requirements.txt
 ```
 
-> **示例路径**（**勿照抄**）：`/workspace/.venv312/bin/python`。其它环境请用你自己的 ≥3.12 解释器，本沙箱当前实测解释器为 `backend/.venv/bin/python`（Python 3.12.13）。下文所有 `$PY` 均指你选定的解释器。
+> **示例**（**勿照抄**）：解释器以 `PY=/path/to/your/python3.12` 形式指定即可，不要假设任何固定路径。本沙箱当前实测解释器为 `backend/.venv/bin/python`（Python 3.12.13）。下文所有 `$PY` 均指你选定的解释器。
 
 ---
 
@@ -69,7 +69,7 @@ python3 -m venv .venv && . .venv/bin/activate && pip install -r backend/requirem
 **方式 A：Docker（推荐）**
 
 ```bash
-cd /workspace/ai-coach
+cd "$(git rev-parse --show-toplevel)"                  # 仓库根（$REPO_ROOT）
 cp .env.example .env                                   # 开发可先留空密钥
 docker compose -f deploy/docker-compose.yml up -d postgres redis
 ```
@@ -85,7 +85,7 @@ docker compose -f deploy/docker-compose.yml up -d postgres redis
 ## 3. 初始化数据库（首次 / 重建）
 
 ```bash
-cd /workspace/ai-coach
+cd "$(git rev-parse --show-toplevel)"                  # 仓库根（$REPO_ROOT）
 export PGPASSWORD=postgres
 
 # 建库（已存在会报错，可忽略）
@@ -109,7 +109,7 @@ psql -h 127.0.0.1 -U postgres -d ai_coach -v ON_ERROR_STOP=1 -f data/sql/001_sch
 
 ```bash
 # 回归测试（真实 PostgreSQL；conftest 函数级清库保证隔离）
-cd /workspace/ai-coach/backend
+cd "$(git rev-parse --show-toplevel)/backend"
 DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
   "$PY" -m pytest -q
 
@@ -130,7 +130,7 @@ node contracts/mock/server.mjs
 ## 5. 前端：uni-app（微信小程序 + H5）
 
 ```bash
-cd /workspace/ai-coach/miniapp
+cd "$(git rev-parse --show-toplevel)/miniapp"
 npm install
 npm run type-check          # vue-tsc --noEmit，必须 0 错误
 npm run build:mp-weixin     # 微信小程序产物 → dist/build/mp-weixin
@@ -161,7 +161,7 @@ agent-browser skills get core        # 载入用法指南（随已安装版本�
 
 ```bash
 # 1) 另开终端起 H5 dev server
-cd /workspace/ai-coach/miniapp && npm run dev:h5      # http://localhost:5173
+cd "$(git rev-parse --show-toplevel)/miniapp" && npm run dev:h5      # http://localhost:5173
 
 # 2) 打开并核对
 agent-browser open http://localhost:5173

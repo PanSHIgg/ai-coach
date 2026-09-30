@@ -7,7 +7,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PY="${PY:-/workspace/.venv312/bin/python}"
+PY="${PY:-$(command -v python3.12 || command -v python3 || true)}"
+: "${PY:?未找到 python3.12/python3，请用 PY=/path/to/your/python3.12 指定（需 >=3.12）}"
 H5_PORT=5177
 ADM_PORT=4177
 API_PORT=9100

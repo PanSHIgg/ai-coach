@@ -7,7 +7,7 @@
 id 由 perf/seed_ids.json 提供（由 seed_bulk.py 生成）。
 
 用法：
-  PY=/workspace/.venv312/bin/python
+  PY=/path/to/your/python3.12        # 任意 >=3.12 解释器；PY 已在环境时无需设置
   $PY perf/harness.py --scenario account_today --concurrency 20 --duration 15
   $PY perf/harness.py --scenario order_create --jwt-secret perf-secret
   $PY perf/harness.py --scenario meal_page --page 5000 --page-size 100

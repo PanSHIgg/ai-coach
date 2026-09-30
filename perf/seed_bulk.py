@@ -10,7 +10,7 @@
 批量插入走 PostgreSQL 服务端 generate_series（单条 INSERT ... SELECT）。
 
 用法：
-  PY=/workspace/.venv312/bin/python
+  PY=/path/to/your/python3.12        # 任意 >=3.12 解释器；PY 已在环境时无需设置
   $PY perf/seed_bulk.py                    # 默认 1,000,000 meal + 200 orders
   $PY perf/seed_bulk.py --rows 500000
   $PY perf/seed_bulk.py --clean            # 清理
