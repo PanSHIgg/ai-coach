@@ -1,6 +1,8 @@
 # AGENTS.md — AI 饮食管控教练 · 多代理协作工作流
 
-> 本文件约束本工作区内所有 AI 代理的协作方式。**仓库根 = 本文件所在目录**（本工作区为 `/workspace/ai-coach`），下述路径均相对仓库根（monorepo：`backend/ miniapp/ admin/ deploy/ data/ contracts/`）。交付计划见 `plan.md`，需求真源见 `docs/split/`。
+> 本文件约束本工作区内所有 AI 代理的协作方式。**仓库根 = 本文件所在目录**（本工作区为 `/workspace/ai-coach`），下述路径均相对仓库根（monorepo：`backend/ miniapp/ admin/ deploy/ data/ contracts/ docs_process/ perf/`）。交付计划见 `plan.md`，**需求唯一真源见 `docs/AI饮食管控教练_全栈开发交付文档.md`**（`docs/split/` 为其按主题拆分的等价副本，二者同源同步）。
+>
+> **docs/ 目录纪律**：`docs/` 下**只允许**存放开发交付文档（`AI饮食管控教练_全栈开发交付文档.md`）与其拆分副本 `split/`。过程性文档——验收报告（go-no-go）、冒烟清单（smoke_50）、测试报告、联调手册、打靶纪要、埋点口径、接口冻结说明、AI spike 等——一律放 `docs_process/`（2026-09-30 起，原 `docs/` 下 10 个过程文档已迁出，全仓引用已同步）。禁止把新的过程文档写回 `docs/`。
 >
 > 优先级：本文件 > 单次任务书 > 子 Agent 自行判断。冲突时以本文件为准，并在汇报中标注。
 
@@ -141,6 +143,7 @@ Mock：node contracts/mock/server.mjs（PORT 默认 9000）
 
 ### 7.2 契约与真源
 
+- **需求唯一真源**：`docs/AI饮食管控教练_全栈开发交付文档.md`（`docs/split/` 为其按主题拆分的等价副本：01 架构需求 / 02 UI 规范 / 03 页面交互 / 04 后端与数据库 / 05 API 接口 / 06 AI 服务 / 07 测试方案 / 08 部署运维 / 09 排期验收 / 10 零提问决策规则）。**代码与实现冲突时以该文档为准**；文档与实现不一致应修复实现或在文档留痕决策，禁止无记录地单方面漂移。`docs/` 只保留交付文档与 `split/`，过程性文档一律放 `docs_process/`。
 - **契约真源**：`contracts/openapi.yaml`（路径含 `/api` 前缀；统一 envelope + 错误码 + Bearer JWT）。当前 **72 路径 / 78 ops**（Phase 1 `weight*`/`subscription*`/`auth/refresh`；Phase 3 `/api/admin/*` 12 个；Phase 4 社区/社交 25 个；Phase 5 新增 `/api/track`、`/api/order/{id}/refund`）。
 - **TS 类型有两份手写副本**（`contracts/ts/api.d.ts` 与 `miniapp/src/types/api.d.ts`）：**由主 Agent 单点同步**，禁止子 Agent 双写；变更后两份必须一致。
 - **Mock**：`contracts/mock/routes.mjs`（新增接口须同步 canned data）。
@@ -152,7 +155,7 @@ Mock：node contracts/mock/server.mjs（PORT 默认 9000）
 - **只读共享层（地基）**：见 §2.3 清单；如需变更须走"申请 → 主 Agent 决策"。
 - **AI 无 Key 环境自动落 mock**（`backend/app/ai/`），hello-world：`python backend/scripts/ai_hello.py --task chat|vision`。
 - **DB 引擎**：`backend/app/db/session.py` 默认 `AsyncAdaptedQueuePool`，`DB_POOL_DISABLED=True` 时回退 `NullPool`（pytest 跨事件循环兼容）。
-- **已知存量**：后端 `ruff` 存量 **275 处**：B008×166（FastAPI `Depends/Query` 作默认值，属仓库既有风格，提示不阻断）+ UP045×94、E501×7、UP017×3、UP046×2、B904×1、UP012×1、I001×1；子 Agent 不要大规模重构存量风格。
+- **已知存量**：后端 `ruff` 存量 **274 处**：B008×166（FastAPI `Depends/Query` 作默认值，属仓库既有风格，提示不阻断）+ UP045×94、E501×6、UP017×3、UP046×2、B904×1、UP012×1、I001×1；子 Agent 不要大规模重构存量风格。
 
 ---
 

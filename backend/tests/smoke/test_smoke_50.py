@@ -8,7 +8,8 @@
 它填的是「现有测试文件都不做：把多个模块在一次请求序列里串起来」这一空白。
 
 对齐真源：`docs/split/09-排期与验收交付.md` §11.3 里程碑验收（M1–M4）与 §12.1 功能验收项、
-`docs/split/07-测试方案.md` §9.7 上线通过标准「冒烟用例 50 条全部通过」。清单见 `docs/smoke_50.md`。
+`docs/split/07-测试方案.md` §9.7 上线通过标准「冒烟用例 50 条全部通过」。
+冒烟清单见 `docs_process/smoke_50.md`。
 
 fixture 复用 conftest 既有 `db_client / db_session / authed / admin_authed`（未改 conftest）。
 真实 DB；AI 无 Key 环境自动落 mock（`app/ai/factory.py`），无需联网。

@@ -2,7 +2,7 @@
 
 目标接口：tiia DetectFood（菜品/食物识别）。注意：2026-08 腾讯云计费列表
 未单列菜品识别，开通时需确认接口在售；若已下线，切换点见
-docs/ai-provider-spike.md（改用视觉理解大模型或阿里云 DetectFood）。
+docs_process/ai-provider-spike.md（改用视觉理解大模型或阿里云 DetectFood）。
 """
 
 import base64
@@ -107,7 +107,9 @@ class TencentVisionClient(VisionClient):
         headers = tc3_signature(
             self.secret_id, self.secret_key, payload, int(time.time()), _ACTION
         )
-        resp = httpx.post(f"https://{self.host}", headers=headers, content=payload, timeout=_TIMEOUT)
+        resp = httpx.post(
+            f"https://{self.host}", headers=headers, content=payload, timeout=_TIMEOUT
+        )
         resp.raise_for_status()
         body = resp.json().get("Response", {})
         if "Error" in body:

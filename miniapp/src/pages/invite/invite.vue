@@ -54,7 +54,7 @@
 /**
  * FE · 邀请裂变页 — CD-05
  * 依据：docs/split/01 §3.1 #21 /pages/invite（进度、海报、规则、分享）、§2.3.3 邀请裂变流程、
- *      docs/split/03:527 我的·立即邀请入口、docs/前端埋点接入说明.md（invite_share / invite_accept）。
+ *      docs/split/03:527 我的·立即邀请入口、docs_process/前端埋点接入说明.md（invite_share / invite_accept）。
  * 契约：GET /api/invite/progress、POST /api/invite（不动 invite schema）。
  * 【假设】① 分享落地即本页：onLoad 解析 inviter_id（最小侵入挂载点），未登录时先落 storage，
  *           登录后再次进入本页（或从"我的"入口进入）自动补绑；

@@ -43,9 +43,9 @@
 - 热量引擎：Mifflin-St Jeor（男 +5 / 女 −161）、PAL 1.2~2.0、MET 档 2.5/4.3/8.0、NEAT 0.6/0.4 加权、TEF 10%、`today_left = budget − intake + eat − tef`，与 `docs/split/04 §6.3.1` 逐项一致（手算对拍通过）。
 - 商家权重 40/40/20 + haversine + 同分按距离/id，与 `04 §6.3.4` 一致。
 - AI 配额 10 次/日、限流 100/20/10 每分钟，与 `04 §6.3.6`、`06 §3` 一致。
-- 埋点：`TrackIn` 1~50 条、event 1~64 字符、platform 1-3、匿名可选鉴权，与 `docs/埋点与指标口径.md §1` 一致。
+- 埋点：`TrackIn` 1~50 条、event 1~64 字符、platform 1-3、匿名可选鉴权，与 `docs_process/埋点与指标口径.md §1` 一致。
 - `/metrics` 指标、`deploy/` 产物（compose 7 服务、nginx 100r/s、prometheus 4 条告警），与 `docs/split/08 §10.3/10.4/10.7` 一致。
-- 退款闭环「2→5 幂等 + `FOR UPDATE` + 不回滚库存/券」，与 `docs/微信支付联调手册.md §5` 一致。
+- 退款闭环「2→5 幂等 + `FOR UPDATE` + 不回滚库存/券」，与 `docs_process/微信支付联调手册.md §5` 一致。
 - 错误码 `0/1001/1002/2001/3001/4001/4002/5001~5004/6001/7001` 全部有实际抛出点，HTTP 映射正确。
 - 测试质量（AGENTS §2.9）：无重复用例、无断言框架自身行为、边界值已用 `parametrize` 合并，**无问题**。
 
@@ -75,7 +75,7 @@
 
 | 编号 | 印证 | 文件:行号 | 问题 | 建议修法 |
 | --- | --- | --- | --- | --- |
-| CD-11 | ✔ | `AGENTS.md:121`（242 passed）、`docs/go-no-go.md:16`（486 passed）、`deploy/README.md:42`（95 全绿） | 三处基线数字互相打架且全部过期；实跑 **485** | 统一刷新为 485 并注明时刻+库名 |
+| CD-11 | ✔ | `AGENTS.md:121`（242 passed）、`docs_process/go-no-go.md:16`（486 passed）、`deploy/README.md:42`（95 全绿） | 三处基线数字互相打架且全部过期；实跑 **485** | 统一刷新为 485 并注明时刻+库名 |
 | CD-12 | ✔ | `dev_env.md:38`(3.12.3) vs `:63`(3.12.13)；`:39-40`(Node v24.1.0 / npm 11.4.2) | 同一文件自相矛盾，且与实测（3.12.3 / v22.13.1 / npm 11.9.0）不符 | 统一为实测值 |
 | CD-13 | ✔ | `dev_env.md:206`「miniapp 与 admin 的 node_modules **均已装**」 | `admin/node_modules` **不存在** → admin 构建无法执行 | 修正为「仅 miniapp 已装」或补安装步骤 |
 | CD-14 | ✔ | `docs/split/05:29`「接口列表（**30 个**）」 vs 表内 34 行 vs openapi 头部「34 接口」 vs 实际 72 路径/78 ops | 同一文档标题与实际、契约三者不一致 | 标题改 34，openapi 头部改「72 路径 / 78 ops」 |
@@ -86,7 +86,7 @@
 | CD-19 | 单(A) | `dev_env.md:103`、`AGENTS.md:129` | 种子命令指向 `rag_knowledge.sample.jsonl`（**仅 3 行**），但实际环境要求 `ai_knowledge=50`（`ai_knowledge_full.jsonl`）→ 照文档跑只能得 3 条 | 文档改指 `ai_knowledge_full.jsonl` |
 | CD-20 | 单(A) | `backend/app/services/account.py:131` | `04:52`「每天 0 点生成 `daily_snapshot`」→ 实际无调度任务，只在写操作后 `recompute_day` | 补调度或改文档为「写触发 + 读兜底」 |
 | CD-21 | 单(B) | `AGENTS.md:153` | 仍写「当前用 `NullPool`」；代码默认已是 `AsyncAdaptedQueuePool`（`db/session.py:22-32`） | 更新 AGENTS §7.3 |
-| CD-22 | 单(B) | `docs/go-no-go.md:6`、`docs/接口冻结说明.md:13-14` | 冻结 commit 写 `c2f2bb4`、分支写 `feature/phase5`，当前为 `develop / 138d172` | 更新冻结基线 |
+| CD-22 | 单(B) | `docs_process/go-no-go.md:6`、`docs_process/接口冻结说明.md:13-14` | 冻结 commit 写 `c2f2bb4`、分支写 `feature/phase5`，当前为 `develop / 138d172` | 更新冻结基线 |
 | CD-23 | 单(B) | `backend/app/core/idempotency.py:152` vs `app/main.py:80` | `install_idempotency()` 从未被调用，死代码 | 删除或让 main.py 调用 |
 | CD-24 | 单(B) | `backend/app/core/config.py:31` + `.env:32` | 默认 `JWT_SECRET` 仅 28 字节 → PyJWT `InsecureKeyLengthWarning`（<32B） | 默认值改为 32+ 字节，或生产环境强制校验 |
 | CD-25 | 单(B) | `AGENTS.md:154` | 只披露 B008，实际另有 UP045×94、E501×7、UP017×3 等 109 处非 B008 告警 | 更新存量告警说明或 `ruff --fix` 清理 |

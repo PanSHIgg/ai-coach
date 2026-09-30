@@ -1,6 +1,6 @@
 """DeepSeek / 通义千问同步客户端（OpenAI 兼容 /chat/completions，httpx）。
 
-切换说明见 docs/ai-provider-spike.md 与本包 README.md。
+切换说明见 docs_process/ai-provider-spike.md 与本包 README.md。
 """
 
 import httpx
@@ -19,7 +19,7 @@ class DeepSeekClient(LLMClient):
 
     default_base_url = _DEEPSEEK_BASE_URL
     # deepseek-chat 为遗留名仍被接受；当前官网主推 deepseek-flash（1M 上下文），
-    # 上线前按官网校正模型名（见 docs/ai-provider-spike.md【假设】）
+    # 上线前按官网校正模型名（见 docs_process/ai-provider-spike.md【假设】）
     default_model = "deepseek-chat"
 
     def __init__(self, api_key: str, base_url: str | None = None, model: str | None = None):
