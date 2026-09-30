@@ -352,6 +352,7 @@ const aiTip2 = computed(() =>
 const services = [
   { icon: '🔍', label: 'AI 检测', action: goCamera },
   { icon: '🍽️', label: '吃什么', action: goEat },
+  { icon: '📝', label: '记录', action: goRecord },
   { icon: '📅', label: '一键预约', action: () => onPlaceholder('一键预约（Phase 3 接入）') },
   { icon: '🏪', label: '商家比价', action: goMerchant },
   { icon: '👨‍⚕️', label: '教练问诊', action: () => onPlaceholder('教练问诊（Phase 2 接入）') },
@@ -385,8 +386,9 @@ function goAccountDetail() {
 function goCamera() {
   uni.navigateTo({ url: '/pages/record/camera' })
 }
+/** 吃什么已是 Tab 页（§3.2），Tab 间跳转须 switchTab（navigateTo 对 tab 页无效） */
 function goEat() {
-  uni.navigateTo({ url: '/pages/eat/eat' })
+  uni.switchTab({ url: '/pages/eat/eat' })
 }
 function goFoodList() {
   uni.navigateTo({ url: '/pages/record/food-list' })
@@ -394,8 +396,13 @@ function goFoodList() {
 function goSportAdd() {
   uni.navigateTo({ url: '/pages/record/sport-add' })
 }
+/** 商家已从 Tab 降为普通页（§3.2），改 navigateTo */
 function goMerchant() {
-  uni.switchTab({ url: '/pages/merchant/merchant' })
+  uni.navigateTo({ url: '/pages/merchant/merchant' })
+}
+/** 「记录」已从 Tab 降为普通页（§3.2），由首页快捷服务进入 */
+function goRecord() {
+  uni.navigateTo({ url: '/pages/record/record' })
 }
 function onPlaceholder(text: string) {
   toast.info({ title: text })

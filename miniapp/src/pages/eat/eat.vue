@@ -106,9 +106,14 @@
       <text class="eat__link" @tap="onMoreStandard">查看全部标准餐 ›</text>
     </CCard>
 
-    <!-- 7. 附近商家比价占位（§5.2-7；BE5 Phase 3） -->
+    <!-- 7. 附近商家比价占位（§5.2-7；BE5 Phase 3）；商家已从 Tab 降为普通页（§3.2），此处保留列表入口 -->
     <CCard title="附近商家比价（显示标准套餐）" class="eat__card">
-      <CEmpty icon="📍" text="附近商家比价即将上线" button-text="" />
+      <CEmpty
+        icon="📍"
+        text="附近商家比价即将上线"
+        button-text="查看附近商家"
+        @action="goMerchants"
+      />
     </CCard>
 
     <!-- 8. 专家问诊（§5.2-8；P1 权益，本期仅 UI） -->
@@ -312,7 +317,7 @@ async function pickOption(opt: RecommendOption, index: number) {
   try {
     const count = await recordCombo(opt.name, opt.calories)
     if (!count) {
-      toast.info({ title: '未匹配到食物，请到「记录」手动录入' })
+      toast.info({ title: '未匹配到食物，请在「首页·记录」手动录入' })
       return
     }
     toast.success({ title: '已记下来' })
@@ -368,6 +373,11 @@ function onAskCoach() {
 /** 查看全部标准餐占位（Phase 3 接 SKU 列表） */
 function onMoreStandard() {
   toast.info({ title: '全部标准餐（Phase 3 接入）' })
+}
+
+/** 商家已从 Tab 降为普通页（§3.2），由吃什么页保留入口（§5.2-7） */
+function goMerchants() {
+  uni.navigateTo({ url: '/pages/merchant/merchant' })
 }
 
 /** 专家问诊占位（P1 权益功能，本期仅 UI） */

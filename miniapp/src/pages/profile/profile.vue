@@ -34,6 +34,11 @@
           <text class="me__item-label">体重记录</text>
           <text class="me__item-arrow">›</text>
         </view>
+        <!-- 「记录」已从 Tab 降为普通页（§3.2），由我的页保留入口 -->
+        <view class="me__item" @tap="goRecord">
+          <text class="me__item-label">记录</text>
+          <text class="me__item-arrow">›</text>
+        </view>
         <!-- 邀请解锁入口（docs/split/03:527 我的·立即邀请 → 邀请页） -->
         <view class="me__item" @tap="goInvite">
           <text class="me__item-label">立即邀请</text>
@@ -83,6 +88,9 @@ function goAccountDetail() {
 }
 function goWeight() {
   uni.navigateTo({ url: '/pages/weight/weight' })
+}
+function goRecord() {
+  uni.navigateTo({ url: '/pages/record/record' })
 }
 function goInvite() {
   uni.navigateTo({ url: '/pages/invite/invite' })

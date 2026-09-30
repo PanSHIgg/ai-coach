@@ -121,6 +121,12 @@
       }
     },
     {
+      "path": "pages/sport/sport",
+      "style": {
+        "navigationBarTitleText": "运动"
+      }
+    },
+    {
       "path": "pages/ai/chat",
       "style": {
         "navigationBarTitleText": "AI 教练"
@@ -168,16 +174,16 @@
         "text": "首页"
       },
       {
-        "pagePath": "pages/record/record",
-        "text": "记录"
+        "pagePath": "pages/eat/eat",
+        "text": "吃什么"
+      },
+      {
+        "pagePath": "pages/sport/sport",
+        "text": "运动"
       },
       {
         "pagePath": "pages/community/community",
         "text": "社区"
-      },
-      {
-        "pagePath": "pages/merchant/merchant",
-        "text": "商家"
       },
       {
         "pagePath": "pages/profile/profile",
