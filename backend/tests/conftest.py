@@ -26,12 +26,19 @@ for _k in ("WECHAT_APPID", "WECHAT_SECRET", "JWT_SECRET", "JWT_ALGORITHM"):
     os.environ.pop(_k, None)
 
 # Phase 1：DB 基建指向本地 PG（真实 schema），可用环境变量覆盖。
-# 注意：不覆盖 REDIS_URL——限流用例需 Redis 不可达以走进程内兜底（见 make_settings）。
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach")
 # Phase 5：测试进程内禁用连接池。app 引擎是**进程级单例**，而 pytest 每个用例独立事件循环；
 # 一旦引擎以带池方式创建（如某用例走默认 Settings），该池即绑定到那个 loop，后续用例复用会报
 # 「attached to a different loop」。此处用环境变量兜住所有 Settings 构造路径（含默认 Settings）。
 os.environ.setdefault("DB_POOL_DISABLED", "true")
+
+# REDIS_URL 同理兜底为不可达端口：Settings 默认值是 redis://redis:6379/0（compose 主机名）。
+# 在容器网络中（如 act_runner 的 service 别名恰为 redis）该默认值会**意外可达**，令限流/AI
+# 配额用例走真实 Redis 并跨事件循环复用连接 → 「RuntimeError: Event loop is closed」
+# （2026-09-30 本地 + Gitea CI 双环境复现，6 条失败）。setdefault 兜住所有 Settings 构造
+# 路径（含默认 Settings()）；限流用例依赖的「不可达 → 进程内兜底」见 make_settings；
+# 测试者显式设置的 REDIS_URL 仍被尊重（setdefault 不覆盖）。
+os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:6390/0")
 
 from app.core.config import Settings  # noqa: E402
 from app.core.security import create_access_token  # noqa: E402
