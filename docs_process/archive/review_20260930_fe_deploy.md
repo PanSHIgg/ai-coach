@@ -1,5 +1,7 @@
 # 前端 miniapp + 管理后台 + UI 规范 + 页面交互 + 部署运维 全量核对报告
 
+> ⚠️ **已过期归档**（2026-09-30 迁入 `docs_process/archive/`）：本报告为 2026-09-30 分域核对分报告（slot3，前端 / 部署 / CI，基线 `dbbf198`），结论已并入同日主 Agent 定案汇总。**取代真源：`docs_process/archive/review_20260930_summary.md`**。本文仅留档。
+
 **审查 slot**: 3（只读审查 Agent）  
 **审查日期**: 2026-09-30  
 **审查分支**: docs/env-check-0930（内容 = origin/develop @ dbbf198）  

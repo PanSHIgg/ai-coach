@@ -1,5 +1,7 @@
 # 数据库 / ORM 模型 / 种子数据 全量一致性核对报告
 
+> ⚠️ **已过期归档**（2026-09-30 迁入 `docs_process/archive/`）：本报告为 2026-09-30 分域核对分报告（slot2，数据库 / ORM / 种子，基线 `dbbf198`），结论已并入同日主 Agent 定案汇总。**取代真源：`docs_process/archive/review_20260930_summary.md`**。本文仅留档。
+
 **审查分支**: docs/env-check-0930 (dbbf198, 内容 = origin/develop)  
 **审查时刻**: 2026-09-30  
 **审查库**: ai_coach (SQL 路径) / ai_coach_s2 (Alembic 路径)  

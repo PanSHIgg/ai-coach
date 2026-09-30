@@ -1,5 +1,7 @@
 # 后端 API 契约 / 鉴权 / 限流 / 幂等 — 代码-文档一致性核对报告
 
+> ⚠️ **已过期归档**（2026-09-30 迁入 `docs_process/archive/`）：本报告为 2026-09-30 分域核对分报告（slot5，后端 API / 鉴权 / 限流 / 幂等，基线 `dbbf198`），结论已并入同日主 Agent 定案汇总。**取代真源：`docs_process/archive/review_20260930_summary.md`**。本文仅留档。
+
 **审查 slot**: 5（只读）  
 **分支**: docs/env-check-0930 = origin/develop @ dbbf198  
 **日期**: 2026-09-30  

@@ -1,6 +1,6 @@
 # issues_scan_0929.md — develop 分支 Phase 0/1/2/3 扫描问题清单
 
-> ⚠️ **已过期归档（2026-09-30）**：本清单 IS-001 ~ IS-012 已全部由 `a11a2d3` 修复闭环，文中「当次实测」环境数值（PG/Redis/Node 版本、端口、库名）已失效。最新一期核对见 `docs_process/review_20260930_summary.md`，环境真源见仓库根 `dev_env.md`。本文仅留档，按 `AGENTS.md` docs/ 目录纪律由仓库根迁至 `docs_process/`。
+> ⚠️ **已过期归档**（2026-09-30 迁入 `docs_process/archive/`）：本清单 IS-001 ~ IS-012 已全部由 `a11a2d3` 修复闭环，文中「当次实测」环境数值（PG/Redis/Node 版本、端口、库名）已失效。**取代真源：`docs_process/archive/review_20260930_summary.md`**（2026-09-30 最新一期核对）；环境真源见仓库根 `dev_env.md`。本文仅留档，按 `AGENTS.md` docs/ 目录纪律由仓库根迁至 `docs_process/`。
 
 **扫描日期**：2026-09-29
 **被测分支**：`develop` @ `a2708b3`

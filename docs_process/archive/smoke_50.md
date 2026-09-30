@@ -1,5 +1,7 @@
 # F8 · 冒烟 50 条用例清单（发布级端到端）
 
+> ⚠️ **已过期归档**（2026-09-30 迁入 `docs_process/archive/`）：本清单及 2026-09-29 实测结果（61 passed）为 Phase 5 交付时点记录，本文不再更新。**现行自动化真源：`backend/tests/smoke/test_smoke_50.py`；口径真源：`docs/split/07-测试方案.md` §9.7**；最新门禁基线见仓库根 `AGENTS.md` §7.1（2026-09-30 全量核对见 `docs_process/archive/review_20260930_summary.md`）。本文仅留档。
+
 > 真源：`docs/split/07-测试方案.md` §9.7「冒烟用例 50 条全部通过」；`docs/split/09-排期与验收交付.md`
 > §11.3 里程碑验收（M1–M4）与 §12.1 功能验收项；`plan.md` §11 F8。
 > 自动化载体：`backend/tests/smoke/test_smoke_50.py`（实测 **61 条**，见文末）。

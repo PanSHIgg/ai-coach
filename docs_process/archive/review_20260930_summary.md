@@ -1,5 +1,7 @@
 # 全量代码-文档一致性核对 · 主 Agent 定案汇总（2026-09-30）
 
+> ⚠️ **已过期归档**（2026-09-30 迁入 `docs_process/archive/`）：本报告为 2026-09-30（基线 `develop @ dbbf198`）的一次性全量核对定案，属时点性留证，不再随代码演进更新。核对发现的仍有效口径/基线已沉淀于仓库根 `AGENTS.md` §7.1 与 `dev_env.md`，契约真源见 `contracts/openapi.yaml`，需求真源见 `docs/AI饮食管控教练_全栈开发交付文档.md`。本文仅留档。
+
 > 分支事实：origin/develop = `dbbf198`（Phase 5）。核对前 `main` 仍停在 `015d736`（Phase 0 骨架），**首轮误用 main 得出的结论已全部作废并从工作区移除**。
 > 环境事实：本沙箱按 `dev_env.md` 搭建并修至合规 —— PostgreSQL **16.15**（pgdg 源）、Redis **7.4.11**（官方源）、Node 22.23.2、Python 3.12.13；无 docker（dev_env §9 已定案），测试一律原生 PG/Redis + uvicorn。
 > 并行隔离：按 AGENTS.md §3 建 `ai_coach_s1..s4/s8/s9` + Redis db1..5 + 端口 8001-8005/9001-9005。

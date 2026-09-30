@@ -1,5 +1,7 @@
 # AI 服务 + 核心业务算法与业务规则 · 代码-文档一致性核对报告
 
+> ⚠️ **已过期归档**（2026-09-30 迁入 `docs_process/archive/`）：本报告为 2026-09-30 分域核对分报告（slot4，AI 与业务算法，基线 `dbbf198`），结论已并入同日主 Agent 定案汇总。**取代真源：`docs_process/archive/review_20260930_summary.md`**。本文仅留档。
+
 > **审查 Agent**：slot=4（只读审查）  
 > **审查日期**：2026-09-30  
 > **仓库分支**：`docs/env-check-0930`（内容 = `origin/develop`，`dbbf198`，Phase 5）  
