@@ -1,5 +1,7 @@
 # codediffwithdoc — 文档 vs 代码 一致性全量核对报告
 
+> ⚠️ **已过期归档（2026-09-30）**：本报告的核对基线 `develop @ 138d172` 已被后续提交超越，其中 FAIL 清单（P1×10 / P2×20）已由 `e49737e` 闭环。最新一期全量核对见 `docs_process/review_20260930_summary.md`（基线 `dbbf198`）。本文仅留档，按 `AGENTS.md` docs/ 目录纪律由仓库根迁至 `docs_process/`。
+
 > **核对对象**：`develop` 分支 `HEAD = 138d172`（Phase 0 ~ Phase 5 全部已合入）
 > **核对时间**：2026-09-29 UTC（两份审查分别于 18:27–18:56 / 19:10–19:53 实跑）
 > **方法**：按 `AGENTS.md §5` 门禁流程 —— 两个**同配置、互不相通**的只读审查 Agent（slot 1 / slot 2，各自独立数据库 `ai_coach_a1` / `ai_coach_a2`）并行全量复核 → 主 Agent 在干净环境对争议项**复跑定案** → 汇总去重。

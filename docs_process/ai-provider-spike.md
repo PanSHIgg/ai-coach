@@ -1,5 +1,8 @@
 # AI Provider 选型 spike（P0-h）
 
+> ⚠️ **选型结论已过期（2026-09-30 核对定案，AI-7）**：下述「LLM 默认 DeepSeek / 视觉默认腾讯云」是 Phase 2 的打靶结论，**与现行代码不符**。`app/ai/factory.py` 只按 `MS_API_KEY` 路由到 ModelScope Qwen VLM（对话+视觉统一），`AI_LLM_PROVIDER` / `AI_VISION_PROVIDER` 分支不存在，`llm.py` 的 `DeepSeekClient`/`QwenClient` 与 `vision.py` 的 `TencentVisionClient` 在生产路径上不被工厂引用。
+> **现行 provider 真源：仓库根 `ai_api.md`（2026-09-28 实测有效）+ `backend/app/ai/README.md`。** 本文仅作历史选型过程与成本口径留档，不再作为配置依据。
+
 > 结论先行：**LLM 默认 DeepSeek（OpenAI 兼容 `/chat/completions`），视觉默认腾讯云 tiia 菜品识别**；
 > 全部客户端经 `backend/app/ai` 工厂获取，无 Key / 未知 provider 一律回落 mock，不卡死（错误码 6001）。
 > 切换另一家 = 改环境变量为主、新增一个子类 + 工厂一个分支为辅。自检：`python3 backend/scripts/ai_hello.py --task chat|vision`（已实跑通过）。

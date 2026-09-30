@@ -35,12 +35,12 @@ agent-browser --version                      # 缺失见 §6；能力/用法见 
 
 | 工具 | 版本要求 | 本机实测 | 校验命令 | 说明 |
 | --- | --- | --- | --- | --- |
-| Python | ≥ 3.12 | 3.12.3（`/workspace/.venv312/bin/python`） | `"$PY" --version` | **不限定虚拟环境或目录**：venv/conda/pyenv/系统均可，只要 ≥3.12；探测见 §1.1 |
-| Node.js | ≥ 20 | v22.13.1 | `node --version` | 前端 uni-app 构建 |
-| npm | ≥ 10 | 11.9.0 | `npm --version` | |
-| PostgreSQL | 16.x | 16.15 | `psql --version` / `pg_isready` | `127.0.0.1:5432`，user/pass = `postgres/postgres`，db = `ai_coach` |
-| Redis | 7.x | 7.0.15 | `redis-cli ping` | `127.0.0.1:6379` |
-| agent-browser | 最新 | 0.38.1（系统 Chrome 可用） | `agent-browser --version` | H5 浏览器自动化验收；能力/用法见 `.agents/skills/agent-browser/SKILL.md`（§6） |
+| Python | ≥ 3.12 | 3.12.13（本沙箱 `backend/.venv`；示例路径见 §1.1） | `"$PY" --version` | **不限定虚拟环境或目录**：venv/conda/pyenv/系统均可，只要 ≥3.12；探测见 §1.1 |
+| Node.js | ≥ 20 | v22.23.2 | `node --version` | 前端 uni-app 构建 |
+| npm | ≥ 10 | 10.9.8 | `npm --version` | |
+| PostgreSQL | 16.x | 16.15 | `psql --version` / `pg_isready` | `127.0.0.1:5432`，user/pass = `postgres/postgres`，db = `ai_coach`。**apt 自带只有 14，须加 pgdg 源装 postgresql-16 并 `pg_createcluster 16 main`** |
+| Redis | 7.x | 7.4.11 | `redis-cli ping` | `127.0.0.1:6379`（2026-09-30 复验；packages.redis.io 官方源，勿用 apt 自带的 6.0） |
+| agent-browser | 最新 | 0.27.0（系统 Chrome 可用，H5 验收已实测跑通） | `agent-browser --version` | H5 浏览器自动化验收；能力/用法见 `.agents/skills/agent-browser/SKILL.md`（§6）。0.27.0 非最新但功能完整，升级非必需 |
 | Docker | 需要 | **不可用** | `docker --version` | 沙箱无 docker，且缺 `CAP_SYS_ADMIN`、子命名空间挂载 /proc 被拒 → 容器无法运行；**测试一律用原生 PG/Redis + uvicorn**（见 §9） |
 | 压测工具 | 任选 | **未安装**（k6/locust/hey/wrk/ab/jmeter 均无） | `command -v k6` | Phase 5 性能用 `httpx`+asyncio 自研 harness（httpx 0.28.1 已装，见 §9） |
 
@@ -60,7 +60,7 @@ command -v python3.12 || command -v python3 || command -v python
 python3 -m venv .venv && . .venv/bin/activate && pip install -r backend/requirements.txt
 ```
 
-> **本沙箱参考值**：`/workspace/.venv312/bin/python`（3.12.3）。**仅为示例**；其它环境请用你自己的 ≥3.12 解释器，**勿照抄该路径**。下文所有 `$PY` 均指你选定的解释器。
+> **示例路径**（**勿照抄**）：`/workspace/.venv312/bin/python`。其它环境请用你自己的 ≥3.12 解释器，本沙箱当前实测解释器为 `backend/.venv/bin/python`（Python 3.12.13）。下文所有 `$PY` 均指你选定的解释器。
 
 ---
 
@@ -122,6 +122,7 @@ node contracts/mock/server.mjs
 ```
 
 - **测试基线**：以当次实跑为准（每次迭代会变化，不要引用过期数字）。当前阶段基线见 `AGENTS.md §7.1`。
+- ⚠️ **跑完 pytest 必须重新导入种子（DB-5）**：`backend/tests/conftest.py` 的 `_TRUNCATE_TABLES` 含 `food` / `food_alias`，全量回归后这两张种子表被清空。此时若继续做依赖食物库匹配的验证（RAG 检索、拍照识别候选、ILIKE 回落、`/api/meal` 相关），会命中 0 行并被误判成代码缺陷。回到 §3 的 `load_seeds.py` 命令重导即可。
 - AI 无 Key 时自动落 mock（`backend/app/ai/`）；连通性自检：`"$PY" backend/scripts/ai_hello.py --task chat|vision`。
 
 ---
@@ -193,7 +194,7 @@ agent-browser screenshot --path /tmp/h5-index.png     # 截图留证
 
 ---
 
-## 9. Phase 5 环境事实（本沙箱实测，2026-09-29）
+## 9. Phase 5 环境事实（本沙箱实测，2026-09-29 记录 / 2026-09-30 复验刷新）
 
 > 结论：**测试不用容器**，一律原生 PG/Redis + `uvicorn`。以下为实测事实，子 Agent 任务书可直接引用，勿重新探测。
 
@@ -201,10 +202,10 @@ agent-browser screenshot --path /tmp/h5-index.png     # 截图留证
 | --- | --- | --- |
 | Docker / podman / containerd | **全无**；`CapEff/CapBnd=0xa80425fb` 缺 `CAP_SYS_ADMIN`；`unshare -rmpf --mount-proc` 报 `Operation not permitted` | `deploy/docker-compose.yml` **不可实跑**，F9 只做静态校验 + 产物 |
 | 压测工具 | k6/locust/hey/wrk/ab/jmeter/vegeta 全部**未安装**；`promtool` 未安装 | F5 用 `httpx`(0.28.1, 已装) + asyncio 写 harness；⚠️ 容量上限见下 |
-| `prometheus_client` | **未安装** | F9 的 `/metrics` 需先 `pip install prometheus-client` 并写入 `backend/requirements.txt` |
-| agent-browser | 0.38.1；系统 Chrome 可用（`chrome`/`chrome-headless-shell`） | F7/F3/F4 可做 H5 真实渲染；mp-weixin 仍不可（见 §6） |
-| Node / npm | v22.13.1 / 11.9.0；`miniapp/node_modules` **已装**；`admin/node_modules` **未装**，构建前需先 `cd admin && npm install` | miniapp 可直接 `type-check`/`build`；admin 需先装依赖 |
-| 内存 | cgroup `memory.max` = **4 GiB**，无 swap；CPU 3 核 | **压测必须串行**，勿与其他重活并行，否则 OOM/假失败 |
+| `prometheus_client` | **已安装**：`backend/requirements.txt:16` = `prometheus-client==0.26.0`，`backend/.venv` 实测可 import，`/metrics` 返回 200 | F9 `/metrics` 无需再手工补装；若新建 venv，按 §4 `pip install -r requirements.txt` 即得 |
+| agent-browser | 0.27.0；系统 Chrome 可用（`/usr/bin/google-chrome`、`/usr/bin/chromium`） | F7/F3/F4 可做 H5 真实渲染；mp-weixin 仍不可（见 §6）。注：§9 与 §1 曾写 0.38.1，实为本沙箱版本漂移，已统一为实测值 |
+| Node / npm | v22.23.2 / 10.9.8（2026-09-30 复验）；`miniapp/node_modules` 与 `admin/node_modules` **均已装** | 两端可直接 `type-check`/`build`；换沙箱后需各自 `npm install` |
+| 内存 / CPU | 2026-09-30 复测：`/proc/meminfo` MemTotal ≈ **7.8 GiB**、`nproc` = **4**（2026-09-29 记录为 4 GiB / 3 核）。沙箱配额随会话漂移，**以当次探测为准** | **压测必须串行**，勿与其他重活并行；起服务前先 `awk '/MemTotal|MemAvailable/' /proc/meminfo` 确认，否则 OOM/假失败 |
 | 微信支付商户号 / 微信开发者工具 / AI Key | 均无 | F1 真机联调、F7 小程序真机、F3 识别准确率不可真跑 → 产出产物 + 替代验证 |
 
-**F5 压测约定**：本机起 `uvicorn`（`127.0.0.1:8000`，单 worker 可控）后串行压测；百万行分页用 `EXPLAIN ANALYZE` + 实测耗时（真实可做）；100 并发 5 分钟 soak 在 4 GiB 内需降低并发或缩短时长，并在报告中标注实际参数与偏差。
+**F5 压测约定**：本机起 `uvicorn`（`127.0.0.1:8000`，单 worker 可控）后串行压测；百万行分页用 `EXPLAIN ANALYZE` + 实测耗时（真实可做）；100 并发 5 分钟 soak 需按上表**当次实测内存配额**降低并发或缩短时长，并在报告中标注实际参数与偏差。

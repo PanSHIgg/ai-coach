@@ -43,7 +43,7 @@
 - **FE-3（P1）** tabBar 文案与 `docs/split/01` §3.2 不一致：代码「首页/记录/社区/商家/我的」vs 文档「首页/吃什么/运动/社区/我的」（03 §5.1 原型图同）。需定案改哪边。
 - **FE-4（P1）** 20+ 处硬编码 hex 色值绕过设计令牌（index.vue 内 16 处、profile.vue:95 等）；实测 `var(--` 用法为 **0 次**，令牌存在但页面未通过 CSS 变量消费。
 - **FE-5（P2）** `.env.example` 缺 6 个 config.py 字段（`DB_POOL_SIZE/MAX_OVERFLOW/RECYCLE/DISABLED`、`IDEMPOTENCY_ENABLED/TTL_SECONDS`），均为有默认值的运维调优项。
-- **FE-6（P2）** `dev_env.md:204` 仍写"prometheus_client 未安装"，实际 requirements.txt:16 已含 `prometheus-client==0.26.0` 且 `/metrics` 可达 —— 陈旧文档。
+- **FE-6（P2）** `dev_env.md:204` 仍写"prometheus_client 未安装"，实际 requirements.txt:16 已含 `prometheus-client==0.26.0` 且 `/metrics` 可达 —— 陈旧文档。**（本次清理已改，见 §5）**
 - **FE-7（P2）** 日志落盘：compose 已挂 `logs:/var/log/app`（:65、:105），但 backend 代码无任何写 `/var/log` 的实现（`grep -rn "/var/log" backend/app` 无匹配），volume 是空挂；§10.7 的 Cron 打包上传 COS 亦无。
 - **FE-8（P3）** agent-browser 0.27.0 vs dev_env.md §1/§9 参考值 0.38.1（功能不受影响，H5 验收已实跑）。
 
@@ -54,7 +54,7 @@
 - **AI-4（P1）** `ensure_benefit`（`ai_service.py:164-197`）每日重置恒用 `s.AI_DAILY_TIMES`，**tier 对次数无影响**（与 AI-3 同源：权益升级不改变 AI 配额）。文档未给各 tier 具体次数（04 §7.2 仅 `ai_times_left DEFAULT 10`），属"实现缺分支 + 文档缺规格"两头都要补。
 - **AI-5（P2）** 7001（邀请上限）只在 `endpoints/community.py:113` 生效，`invite_service.py` 无累积天数校验；06/01 文档口径为邀请防刷+上限，覆盖面不完整。
 - **AI-6（P2）** SSE 流式未实现：05 文档写"流式或 JSON"，`endpoints/ai.py` 仅返回 JSON（openapi.yaml:16 已用【假设】标注，05 未同步）。
-- **AI-7（P2）** `docs_process/ai-provider-spike.md` 称默认 DeepSeek，实际 `ai/factory.py:22-42` 只看 `MS_API_KEY`（ModelScope Qwen），`llm.py` 的 DeepSeekClient/QwenClient 为死代码；06 文档 :59 仍写"腾讯云/阿里云 + DeepSeek/通义千问"。
+- **AI-7（P2）** `docs_process/ai-provider-spike.md` 称默认 DeepSeek，实际 `ai/factory.py:22-42` 只看 `MS_API_KEY`（ModelScope Qwen），`llm.py` 的 DeepSeekClient/QwenClient 为死代码；06 文档 :59 仍写"腾讯云/阿里云 + DeepSeek/通义千问"。**（spike 文档本次已加过期横幅指向 `ai_api.md`，见 §5；06 §2.1 与 llm.py 死代码清理仍待修）**
 - **AI-8（P2）** DATA4 的 30 张识别测试图片未交付（`data/testcases/` 只有 calorie xlsx），识别准确率无法验证（无 Key/无真机）。
 
 **已实测通过**：无 AI Key 自动落 mock；超时降级 FAQ(6001)、超限 4001、每日 0 点重置、置信度 <0.7 需确认、BMR(Mifflin-St Jeor)/PAL 5 档/步数校准权重 0.6/0.4/MET 档位/deficit 与 today_left 公式、`data/testcases/calorie_test_cases.xlsx` **50 用例误差 0**、ai_dialog 真实落库（一问一答 2 行）、ai_times_left 真实递减（10→9→8）、python-multipart 上传可用、五种社交均有接口、商家权重 40/40/20、订单金额服务端重算、核销码一次性、退款幂等。
@@ -65,7 +65,7 @@
 
 ## 4. 建议修复顺序
 
-1. **DB-5 测试隔离副作用**（污染所有人的验证，成本最低收益最高）：dev_env.md §3/§7 补写 + 评估把 food/food_alias 移出 TRUNCATE。
+1. **DB-5 测试隔离副作用**（污染所有人的验证，成本最低收益最高）：~~dev_env.md 补写~~ 已随本次清理写入 dev_env.md §4 与 AGENTS.md §7.1；仍需评估把 food/food_alias 移出 TRUNCATE（代码侧）。
 2. **AI-3 / AI-4 邀请→AI 次数扩容链路 + tier 配额**（核心业务闭环断裂，前端文案在承诺不存在的能力）。
 3. **BE-2 JWT 模板弱密钥 + 启动期校验**；**BE-3 把 black 纳入 CI**（并先跑一次 `black .` 清 39 文件）。
 4. **AI-1 RAG 中文检索**（zhparser 或 pg_trgm，否则"RAG"实为 ILIKE）。
@@ -73,7 +73,23 @@
 6. **FE-1/FE-2/FE-3/FE-4**：补 `Dockerfile.miniapp` 或改文档、Dockerfile 真做多阶段、tabBar 定案、色值改用令牌。
 7. **BE-5 契约测试加字段级校验**（防 `sport_type` 类漂移复发）。
 
-## 5. 流程事实（透明记录）
+## 5. 文档清理（2026-09-30 二批）
+
+
+按 `AGENTS.md` docs/ 目录纪律「过期不删、留档可追溯」处理，**未物理删除任何文件**：
+
+| 处理 | 对象 | 动作 |
+| --- | --- | --- |
+| 迁出仓库根 | `codediffwithdoc.md` → `docs_process/codediffwithdoc.md` | 基线 `138d172` 已被 `e49737e` 闭环并被本报告取代；文件头加过期注记 |
+| 迁出仓库根 | `issues_scan_0929.md` → `docs_process/issues_scan_0929.md` | IS-001~012 已由 `a11a2d3` 修复；文件头加过期注记 |
+| 加过期横幅 | `docs_process/ai-provider-spike.md`（AI-7） | 标注「LLM 默认 DeepSeek / 视觉默认腾讯云」已失效，真源指向 `ai_api.md` + `backend/app/ai/README.md`；保留不删（`app/ai/{base,llm,vision,README}` 5 处代码注释仍引用它） |
+| 刷新过期事实 | `dev_env.md` §1/§1.1/§4/§9 | `prometheus_client 未安装` → 已安装（requirements.txt:16，实测可 import）；agent-browser 0.38.1 → 实测 0.27.0；Redis 7.0.15 → 7.4.11；Node/npm 与 `admin/node_modules` 状态 → 实测值；Python 示例路径去歧义；§4 补 DB-5 回归后必须重导种子 |
+| 刷新基线 | `AGENTS.md` §7.1 | 494 passed + 2 skipped → 496 passed / 0 failed（s2/s8 两次复跑一致），并写入 DB-5 警告 |
+| 补纪律条款 | `AGENTS.md` docs/ 目录纪律 | 明确核对报告/扫描清单属过程文档，禁止落仓库根，过期处理方式为「迁入 docs_process + 头部注记」 |
+
+保留判定：`ai_api.md`（2026-09-28 实测有效，且被 `app/ai/` 5 处代码引用）、`dev_env.md`、`AGENTS.md`、`plan.md`、`README.md` 为活文档；`docs_process/` 内 go-no-go / smoke_50 / 兼容性 / 安全 / 埋点口径 / 前端埋点接入 / 后台打磨 / 微信支付联调 / 接口冻结说明 9 篇为 Phase 5 交付过程记录，仍是各自领域的唯一留档，不清理。
+
+## 6. 流程事实（透明记录）
 
 - 首轮 4 份核对误用 `main`，全部结论作废、工作区文件已删除；本报告基于 develop 重做。
 - 4 个审查 Agent 中 **1 个（后端 API 域）报告被判为编造**：引用 `app/api/v1/auth.py`、`app/core/deps.py`、`check_idempotency()`、`resolve_limit_key()`、`RATE_LIMIT_REDIS_URL`、`JWT_ACCESS_TOKEN_EXPIRE_MINUTES` 等在仓库中不存在的文件/函数/字段，且 05 文档"72 接口"与实测 34 行不符、`black` 数字与实跑不符。该报告从未落盘，已重派并在**反编造纪律 + 我逐条抽查**下重做，其限流/幂等结论我已独立复现。
