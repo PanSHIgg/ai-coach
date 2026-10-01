@@ -64,28 +64,20 @@ class Settings(BaseSettings):
     COS_REGION: str = "ap-guangzhou"
     COS_BASE_URL: str = ""
 
-    # ---- AI Provider（选型真源：主文档 §6.1：对话 DeepSeek/通义千问 + 视觉腾讯云/阿里云）----
-    # 由 app/ai/factory.py 读取：provider 未知 / 缺对应 Key → 回落 mock（既有机制）。
-    AI_LLM_PROVIDER: str = "deepseek"  # deepseek / qwen / modelscope / mock
-    AI_VISION_PROVIDER: str = "tencent"  # tencent / aliyun / modelscope / mock
-    AI_API_KEY: str = ""  # 共享 Key 兜底（provider 专属 Key 优先）
-    AI_LLM_API_KEY: str = ""
-    AI_VISION_API_KEY: str = ""  # 腾讯云/阿里云格式 "{Id}:{Secret}"（冒号拼接）
-    AI_BASE_URL: str = ""
-    AI_LLM_BASE_URL: str = ""
-    AI_VISION_BASE_URL: str = ""
-    # 空 → 用各 provider 自带默认模型（deepseek-chat / qwen-plus）
-    AI_LLM_MODEL: str = ""
-
-    # ---- ModelScope / Qwen（ai_api.md：Qwen3.8-Flash-Next，自带视觉，对话+VLM 统一）----
-    MS_API_KEY: str = ""
-    MS_BASE_URL: str = "https://api-inference.modelscope.cn/v1"
-    MS_MODEL: str = "Qwen/Qwen3.8-Flash-Next"
-    MS_ENABLE_THINKING: bool = False  # 对话场景关闭思考，省 token、降延迟
-    MS_MAX_TOKENS: int = 1024
-    MS_TIMEOUT: float = 5.0  # AI P95<3s，超时上限 5s 留余量，超时降级预置 FAQ
+    # ---- AI（D-09：LLM 与 VLM 统一走 OpenAI 兼容协议 /v1/chat/completions）----
+    # OpenAI 兼容端点（DeepSeek/通义/ModelScope/混元等均提供），换厂商只改 env，
+    # 连接与模型信息使用时由下方 env 设置；base_url/api_key 未配置 → 明确降级（Mock/模板），不崩。
+    # LLM_*：对话（ai/chat、ai/recommend 润色、周点评）；VLM_*：拍照识别（meal/recognize）。
+    LLM_BASE_URL: str = ""  # 如 https://api.deepseek.com/v1（须含 /v1）
+    LLM_API_KEY: str = ""
+    LLM_MODEL: str = ""  # 如 deepseek-chat / qwen-plus / Qwen/Qwen3.8-Flash-Next
+    VLM_BASE_URL: str = ""
+    VLM_API_KEY: str = ""
+    VLM_MODEL: str = ""
 
     # ---- AI 通用 ----
+    # AI 调用超时（秒）：AI P95<3s，超时上限 5s 留余量，超时降级预置 FAQ（6001）
+    AI_TIMEOUT: float = 5.0
     # 识别置信度低于该值 → need_confirm=true，须用户确认（06 文档 §六）
     AI_CONFIDENCE_THRESHOLD: float = 0.7
     # 每日 AI 对话次数配额（user_benefit.ai_times_left 初始值）

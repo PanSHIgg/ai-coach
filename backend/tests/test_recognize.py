@@ -3,37 +3,42 @@
 独立成文理由：`/api/meal/recognize` 是 BE4a 新增行为，现有 `test_meal.py` 只覆盖 Phase 1 的
 饮食记录 CRUD，混写会稀释该文件主题；`test_food_search.py` 覆盖的是搜索列表，与识别无关。
 
-分层（禁止真实联网，视觉客户端一律本地注入）：
+分层（禁止真实联网，VLM 一律本地 mock）：
 - 纯逻辑：食物表命中/未命中的热量来源、need_confirm 判定、候选归一化与条数上限——不连库不联网；
 - 接口行为：multipart 上传结构、入参 422、AI 异常降级 6001——走 db_client + authed。
   （401 鉴权与其它本波端点合并为 `test_ai_chat.py::test_ai_endpoints_require_auth`，见 §2.9）
 """
 
+import json
+
 import httpx
 import pytest
 
-from app.ai.base import VisionClient
 from app.models import Food, FoodAlias
 from app.services import recognize_service as rs
 
 
-class _StubVision(VisionClient):
-    """本地视觉客户端桩：可注入固定候选或直接抛错（模拟超时/解析失败）。"""
+def _patch_vlm(monkeypatch, items: list[dict] | None = None, error: Exception | None = None):
+    """mock VLM：patch 同步 httpx.Client.post → OpenAI 兼容响应（content 为识别 JSON 文本）。
 
-    def __init__(self, items: list[dict] | None = None, error: Exception | None = None):
-        self.items = items or []
-        self.error = error
+    强制走真实 `_OpenAICompatVLM` 路径（monkeypatch `vision_client_for`），不联网；
+    只 patch 同步 `httpx.Client`，不影响测试栈自身的 `httpx.AsyncClient`（db_client）。
+    """
 
-    def recognize_food(self, image_bytes: bytes) -> list[dict]:
-        if self.error is not None:
-            raise self.error
-        return self.items
+    def fake_post(self, url, *, headers=None, data=None, **kwargs):
+        if error is not None:
+            raise error
+        content = json.dumps({"items": items or []}, ensure_ascii=False)
+        request = httpx.Request("POST", url)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": content}}]},
+            request=request,
+        )
 
-
-def _patch_vision(monkeypatch, client: VisionClient) -> None:
-    monkeypatch.setattr(
-        "app.services.recognize_service.get_vision_client", lambda settings: client
-    )
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+    client = rs._OpenAICompatVLM("http://vlm.test/v1", "test-key", "test-vlm", timeout=5.0)
+    monkeypatch.setattr(rs, "vision_client_for", lambda settings: client)
 
 
 async def _seed_food(db_session, name: str, kcal_100g: float) -> Food:
@@ -99,18 +104,14 @@ def test_normalize_candidates_caps_and_converts_calorie_estimate():
 async def test_recognize_matches_food_table(db_client, db_session, authed, monkeypatch):
     fish = await _seed_food(db_session, "清蒸鱼", 120.0)
     rice = await _seed_food(db_session, "米饭", 116.0)
-    _patch_vision(
+    _patch_vlm(
         monkeypatch,
-        _StubVision(
-            [
-                {"name": "清蒸鱼", "confidence": 0.92, "portion_g": 150, "kcal_100g": 999},
-                {"name": "米饭", "confidence": 0.75, "portion_g": 100, "kcal_100g": 999},
-            ]
-        ),
+        items=[
+            {"name": "清蒸鱼", "confidence": 0.92, "portion_g": 150, "kcal_100g": 999},
+            {"name": "米饭", "confidence": 0.75, "portion_g": 100, "kcal_100g": 999},
+        ],
     )
-    resp = await db_client.post(
-        "/api/meal/recognize", headers=authed["headers"], files=_upload()
-    )
+    resp = await db_client.post("/api/meal/recognize", headers=authed["headers"], files=_upload())
     body = resp.json()
     assert resp.status_code == 200 and body["code"] == 0
     data = body["data"]
@@ -128,11 +129,9 @@ async def test_recognize_matches_food_alias(db_client, db_session, authed, monke
     food = await _seed_food(db_session, "番茄炒蛋", 88.0)
     db_session.add(FoodAlias(food_id=food.id, alias="西红柿炒鸡蛋"))
     await db_session.commit()
-    _patch_vision(
+    _patch_vlm(
         monkeypatch,
-        _StubVision(
-            [{"name": "西红柿炒鸡蛋", "confidence": 0.95, "portion_g": 200, "kcal_100g": 0}]
-        ),
+        items=[{"name": "西红柿炒鸡蛋", "confidence": 0.95, "portion_g": 200, "kcal_100g": 0}],
     )
     body = (
         await db_client.post("/api/meal/recognize", headers=authed["headers"], files=_upload())
@@ -143,11 +142,9 @@ async def test_recognize_matches_food_alias(db_client, db_session, authed, monke
 
 
 async def test_recognize_unmatched_item_needs_confirm(db_client, db_session, authed, monkeypatch):
-    _patch_vision(
+    _patch_vlm(
         monkeypatch,
-        _StubVision(
-            [{"name": "招牌外星汉堡", "confidence": 0.95, "portion_g": 100, "kcal_100g": 480}]
-        ),
+        items=[{"name": "招牌外星汉堡", "confidence": 0.95, "portion_g": 100, "kcal_100g": 480}],
     )
     body = (
         await db_client.post("/api/meal/recognize", headers=authed["headers"], files=_upload())
@@ -159,10 +156,8 @@ async def test_recognize_unmatched_item_needs_confirm(db_client, db_session, aut
 
 
 async def test_recognize_ai_unavailable_6001(db_client, db_session, authed, monkeypatch):
-    _patch_vision(monkeypatch, _StubVision(error=httpx.ReadTimeout("AI 超时")))
-    resp = await db_client.post(
-        "/api/meal/recognize", headers=authed["headers"], files=_upload()
-    )
+    _patch_vlm(monkeypatch, error=httpx.ReadTimeout("AI 超时"))
+    resp = await db_client.post("/api/meal/recognize", headers=authed["headers"], files=_upload())
     assert resp.status_code == 409
     assert resp.json()["code"] == 6001
     assert resp.json()["message"] == "没看清，换个角度再拍或手动搜索"

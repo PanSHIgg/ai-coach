@@ -3,17 +3,18 @@
 为何单开文件：本文件覆盖 `/api/ai/chat` + `/api/ai/times` 两个端点所属的一组行为
 （配额、降级、RAG、限流），现有测试文件均不涉及 AI 域，无重复可合并之处。
 
-【假设】LLM 一律 mock（`app.ai.factory.get_llm_client`），测试不联网。
+【假设】LLM 一律 mock：patch `httpx.Client.post` 返回 OpenAI 兼容响应
+（`choices[0].message.content`），客户端走真实 `_OpenAICompatLLM` 路径，测试不联网。
 """
 
 import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from sqlalchemy import select
 
-from app.ai import factory
 from app.ai.prompts import AI_DISCLAIMER, AI_UNAVAILABLE_FAQ
 from app.core.errors import AppException
 from app.core.rate_limit import _memory_windows
@@ -23,33 +24,38 @@ from tests.conftest import make_settings
 
 _KNOWLEDGE_SOURCE = "test-rag"  # 自插知识条目标记，便于用后清理
 _NO_TIMES_MESSAGE = "今日对话次数已用完，邀请好友可解锁更多"
+_LLM_REPLY = "先喝一杯水，15 分钟还不饱就吃个水煮蛋。"
 
 
-class _StubLLM:
-    """同步 stub：故意不实现 achat，覆盖 service 的线程池兼容分支。"""
+def _mock_openai_post(monkeypatch, reply: str, *, error: Exception | None = None) -> None:
+    """patch 同步 httpx.Client.post → OpenAI 兼容响应（AI 客户端专用）。
 
-    model = "stub-model"
+    只 patch 同步 `httpx.Client`，不影响测试栈自身的 `httpx.AsyncClient`（db_client）。
+    """
 
-    def __init__(self, reply: str = "先喝一杯水，15 分钟还不饱就吃个水煮蛋。") -> None:
-        self.reply = reply
+    def fake_post(self, url, *, headers=None, json=None, **kwargs):
+        if error is not None:
+            raise error
+        request = httpx.Request("POST", url)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": reply}}]},
+            request=request,
+        )
 
-    def chat(self, messages: list[dict]) -> str:
-        return self.reply
-
-
-class _BoomLLM:
-    model = "boom-model"
-
-    def chat(self, messages: list[dict]) -> str:
-        raise RuntimeError("LLM unavailable")
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
 
 
 @pytest.fixture
 def stub_llm(monkeypatch):
-    """替换 factory.get_llm_client 返回的客户端，避免联网。"""
+    """mock OpenAI 兼容响应并强制 chat 走真实 `_OpenAICompatLLM` 客户端，避免联网。"""
 
-    def _install(client):
-        monkeypatch.setattr(factory, "get_llm_client", lambda settings: client)
+    def _install(reply: str = _LLM_REPLY, *, error: Exception | None = None):
+        _mock_openai_post(monkeypatch, reply, error=error)
+        client = ai_service._OpenAICompatLLM(
+            "http://llm.test/v1", "test-key", "test-model", timeout=5.0
+        )
+        monkeypatch.setattr(ai_service, "llm_client_for", lambda s: client)
         return client
 
     return _install
@@ -91,7 +97,7 @@ async def _benefit(db_session, user_id: int) -> UserBenefit:
 
 async def test_chat_deducts_times_and_logs_dialog(db_client, db_session, authed, stub_llm):
     """一次对话：10→9，ai_dialog 落 user/assistant 两行，回复带免责声明。"""
-    stub_llm(_StubLLM())
+    stub_llm()
     session_id = str(uuid.uuid4())
     resp = await db_client.post(
         "/api/ai/chat",
@@ -113,7 +119,7 @@ async def test_chat_deducts_times_and_logs_dialog(db_client, db_session, authed,
 
 async def test_chat_no_times_returns_4001(db_client, db_session, authed, stub_llm):
     """次数为 0 → 4001，且不扣成负数。"""
-    stub_llm(_StubLLM())
+    stub_llm()
     benefit = await _benefit(db_session, authed["user_id"])
     benefit.ai_times_left = 0
     benefit.ai_times_reset_at = datetime.now(UTC)
@@ -133,7 +139,7 @@ async def test_chat_no_times_returns_4001(db_client, db_session, authed, stub_ll
 
 async def test_chat_llm_failure_returns_6001(db_client, db_session, authed, stub_llm):
     """LLM 抛异常 → 6001 + 预设 FAQ，且不扣次数、不落库。"""
-    stub_llm(_BoomLLM())
+    stub_llm(error=RuntimeError("LLM unavailable"))
     resp = await db_client.post(
         "/api/ai/chat",
         headers=authed["headers"],
@@ -154,7 +160,7 @@ async def test_chat_references_knowledge(
     【假设】conftest 不 TRUNCATE `ai_knowledge`，库里常驻 50 条正式语料；提问须只命中本用例
     自插条目，故标题/正文/提问统一带唯一标识词「蓝纹奶酪」（已验证 50 条语料零命中）。
     """
-    stub_llm(_StubLLM())
+    stub_llm()
     knowledge = AiKnowledge(
         category="加餐",
         title="饿了怎么办（蓝纹奶酪）",
@@ -179,7 +185,7 @@ async def test_chat_concurrent_calls_never_exceed_quota(db_client, db_session, a
     回归守卫：`ensure_benefit()` 若在「跨日重置」分支提前 commit，会释放 `FOR UPDATE` 行锁，
     并发请求各自读到同一旧余额 → 丢失更新（名额被超用）。故重置须只 flush，与扣减同事务提交。
     """
-    stub_llm(_StubLLM())
+    stub_llm()
     quota = make_settings().AI_DAILY_TIMES
     calls = quota + 2
 
@@ -244,7 +250,7 @@ async def test_ai_endpoints_require_auth(db_client, method, path, kwargs):
 
 async def test_chat_rate_limit_20_per_min(db_session, authed, stub_llm):
     """AI 对话 20 次/分钟/用户：第 21 次抛 429（次数配额先放大，隔离限流行为）。"""
-    stub_llm(_StubLLM())
+    stub_llm()
     # conftest 把 REDIS_URL 指向不可达端口 → 计数落在 rate_limit 的进程内字典，
     # 同一 key 会在 60s 窗口内跨用例累积，先清残留以保证本用例独立。
     _memory_windows.pop(f"ai:chat:user:{authed['user_id']}", None)

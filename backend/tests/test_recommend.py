@@ -5,7 +5,7 @@
 为何单开文件：本文件覆盖 `/api/ai/recommend` 一组行为（额度 → 组合 → 分级 → 降级），
 现有测试文件（test_ai_chat.py 只管对话/配额/RAG）均不涉及推荐域，无重复可合并之处。
 
-【假设】LLM 一律 mock（`app.ai.factory.get_llm_client`），测试不联网；conftest 函数级
+【假设】LLM 一律 mock（patch `ai_service.llm_client_for`，测试不联网）；conftest 函数级
 TRUNCATE `food` 表，故候选食物由本文件自插。
 """
 
@@ -13,8 +13,8 @@ from datetime import datetime
 
 import pytest
 
-from app.ai import factory
 from app.models import BodyProfile, Food, MealRecord
+from app.services import recommend_service
 from app.services.account import TZ
 
 _URL = "/api/ai/recommend"
@@ -152,7 +152,7 @@ async def test_recommend_degrades_when_llm_unavailable(db_client, db_session, au
     def _boom(_settings):
         raise RuntimeError("LLM unavailable")
 
-    monkeypatch.setattr(factory, "get_llm_client", _boom)
+    monkeypatch.setattr(recommend_service, "llm_client_for", _boom)
 
     resp = await db_client.post(_URL, headers=authed["headers"], json={"meal_type": 3})
     body = resp.json()
@@ -165,9 +165,5 @@ async def test_recommend_degrades_when_llm_unavailable(db_client, db_session, au
 @pytest.mark.parametrize("meal_type", [0, 5])
 async def test_recommend_rejects_invalid_meal_type(db_client, authed, meal_type):
     """meal_type 越界（1~4 之外）→ 422。"""
-    resp = await db_client.post(
-        _URL, headers=authed["headers"], json={"meal_type": meal_type}
-    )
+    resp = await db_client.post(_URL, headers=authed["headers"], json={"meal_type": meal_type})
     assert resp.status_code == 422
-
-

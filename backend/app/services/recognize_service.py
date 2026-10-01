@@ -26,12 +26,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import VisionClient
-from app.ai.factory import get_vision_client
+from app.ai.mock import MockVisionClient
 from app.core.config import Settings, get_settings
 from app.core.errors import AppException
 from app.models import Food, FoodAlias
 from app.schemas.common import ErrorCode
 from app.schemas.record import RecognizeData, RecognizedItem
+from app.services.ai_service import _OpenAICompatVLM
 
 MAX_ITEMS = 5
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5MB（契约/任务书口径）
@@ -90,8 +91,7 @@ def _as_float(value: object) -> float:
 def normalize_candidates(raw_items: list[dict] | None) -> list[Candidate]:
     """视觉原始条目 → 归一化候选（最多 MAX_ITEMS 条，无名称者丢弃）。
 
-    兼容两种返回形态：ModelScope `{portion_g, kcal_100g}`（`modelscope._normalize_items`）
-    与 Mock `{calorie_estimate}`（`mock.MockVisionClient`，只给总 kcal）。
+    兼容两种返回形态：VLM `{portion_g, kcal_100g}` 与 Mock `{calorie_estimate}`（只给总 kcal）。
     """
     items: list[Candidate] = []
     for raw in (raw_items or [])[:MAX_ITEMS]:
@@ -145,9 +145,7 @@ def build_item(candidate: Candidate, matched: MatchedFood | None) -> RecognizedI
 
 def resolve_need_confirm(items: list[RecognizedItem], threshold: float) -> bool:
     """任一条置信度低于阈值，或有条目未匹配到 food 表 → True（06 文档 §六）。"""
-    return any(
-        item.confidence < threshold or item.food_id is None for item in items
-    )
+    return any(item.confidence < threshold or item.food_id is None for item in items)
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +187,13 @@ async def match_food(session: AsyncSession, name: str) -> MatchedFood | None:
 # ---------------------------------------------------------------------------
 
 
+def vision_client_for(s: Settings) -> VisionClient:
+    """按 env 装配视觉客户端：VLM_BASE_URL+VLM_API_KEY 齐备 → OpenAI 兼容 VLM；否则 Mock（明确降级）。"""
+    if s.VLM_BASE_URL and s.VLM_API_KEY:
+        return _OpenAICompatVLM(s.VLM_BASE_URL, s.VLM_API_KEY, s.VLM_MODEL, timeout=s.AI_TIMEOUT)
+    return MockVisionClient()
+
+
 async def recognize(
     session: AsyncSession,
     image_bytes: bytes,
@@ -203,13 +208,11 @@ async def recognize(
     任何异常/超时统一降级为 6001「没看清，换个角度再拍或手动搜索」（06 文档 §1.4）。
     """
     s = settings or get_settings()
-    client = vision_client or get_vision_client(s)
+    client = vision_client or vision_client_for(s)
     try:
         raw_items = await asyncio.to_thread(client.recognize_food, image_bytes)
     except Exception as exc:  # 网络错误/超时/解析失败统一降级
-        raise AppException(
-            ErrorCode.AI_UNAVAILABLE, "没看清，换个角度再拍或手动搜索"
-        ) from exc
+        raise AppException(ErrorCode.AI_UNAVAILABLE, "没看清，换个角度再拍或手动搜索") from exc
 
     candidates = normalize_candidates(raw_items)
     items = [build_item(c, await match_food(session, c.name)) for c in candidates]

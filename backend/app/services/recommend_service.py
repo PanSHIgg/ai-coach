@@ -27,9 +27,9 @@ from typing import NamedTuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai import factory
 from app.ai.base import LLMClient
 from app.ai.prompts import AI_COACH_SYSTEM_PROMPT
+from app.services.ai_service import llm_client_for
 from app.core.config import Settings, get_settings
 from app.core.errors import AppException
 from app.core.logging import get_logger
@@ -259,8 +259,6 @@ async def build_combos(session: AsyncSession) -> list[Combo]:
     return combos
 
 
-
-
 # ---------------------------------------------------------------------------
 # LLM 润色（失败即降级）
 # ---------------------------------------------------------------------------
@@ -317,8 +315,8 @@ async def recommend(
     bodies: list[str] | None = None
     if combos:
         try:
-            client = llm_client or factory.get_llm_client(s)
-            bodies = await polish_reasons(client, combos, allowance, budget, s.MS_TIMEOUT)
+            client = llm_client or llm_client_for(s)
+            bodies = await polish_reasons(client, combos, allowance, budget, s.AI_TIMEOUT)
         except Exception as exc:  # noqa: BLE001 - AI 不可用只降级，不阻断推荐
             logger.warning("推荐语润色失败，降级规则文案", extra={"reason": str(exc)})
     if bodies is None:

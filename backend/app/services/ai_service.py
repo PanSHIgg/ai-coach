@@ -7,22 +7,28 @@
 - §4.4 次数用尽返 4001（"今日对话次数已用完，邀请好友可解锁更多"）；
 - §六 所有 AI 输出带免责声明；服务不可用/超时降级预设 FAQ（6001），不卡死。
 
+D-09：LLM 与 VLM 统一走 OpenAI 兼容协议（/v1/chat/completions），不再区分厂商适配器；
+连接与模型信息使用时由 env 设置（LLM_*/VLM_* 三件套），未配置时明确降级（Mock/模板）。
+
 日期口径：业务日界 UTC+8，与 `app/services/account.py` 一致。
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import re
 import uuid
 from datetime import UTC, date, datetime, time, timedelta, timezone
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
+import httpx
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai import factory
 from app.ai.base import LLMClient
+from app.ai.mock import MockLLMClient
 from app.ai.prompts import AI_COACH_SYSTEM_PROMPT, AI_DISCLAIMER, AI_UNAVAILABLE_FAQ
 from app.core.config import Settings, get_settings
 from app.core.errors import AppException
@@ -151,6 +157,145 @@ def _build_messages(message: str, docs: list[AiKnowledge]) -> list[dict]:
     return messages
 
 
+# ---------------------------------------------------------------------------
+# D-09：OpenAI 兼容单一客户端（LLM 与 VLM 共用，POST {base_url}/chat/completions）
+# ---------------------------------------------------------------------------
+
+# 视觉识别提示词：要求纯 JSON 输出，便于后端解析并匹配 food 表
+_VISION_PROMPT = (
+    "你是食物识别助手。识别图片中的食物，只输出 JSON，不要任何解释文字，格式：\n"
+    '{"items":[{"name":"食物中文名","confidence":0.0-1.0,"portion_g":整数克重,'
+    '"kcal_100g":每100克热量整数}]}\n'
+    "最多 5 项，按画面占比从大到小排序。"
+)
+
+_JSON_BLOCK = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.DOTALL)
+
+
+def _extract_json(text: str) -> Any:
+    """从模型输出中抠出 JSON：优先 ```json 代码块，其次首尾括号之间的片段。"""
+    text = (text or "").strip()
+    m = _JSON_BLOCK.search(text)
+    if m:
+        return json.loads(m.group(1))
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        start, end = text.find("["), text.rfind("]")
+    if start == -1 or end <= start:
+        raise ValueError(f"模型未返回 JSON：{text[:200]}")
+    return json.loads(text[start : end + 1])
+
+
+def _openai_compatible_chat(
+    base_url: str,
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    *,
+    timeout: float,
+    temperature: float = 0.5,
+    max_tokens: int = 1024,
+) -> str:
+    """OpenAI 兼容对话客户端（同步 httpx，调用方放线程池）：标准请求/响应结构。
+
+    POST `{base_url}/chat/completions`，payload 为 model/messages/temperature/max_tokens，
+    取 `choices[0].message.content`。任何异常由调用方捕获并降级（6001/模板），不外泄。
+    """
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    with httpx.Client(timeout=httpx.Timeout(timeout, connect=3.0)) as client:
+        resp = client.post(
+            f"{base_url.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    return (data["choices"][0]["message"].get("content") or "").strip()
+
+
+class _OpenAICompatLLM(LLMClient):
+    """OpenAI 兼容对话客户端（LLM_* 三件套）；由 `llm_client_for` 按配置装配。"""
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        *,
+        timeout: float,
+        temperature: float = 0.5,
+        max_tokens: int = 1024,
+    ):
+        self.base_url = base_url
+        self.api_key = api_key
+        self.model = model
+        self.timeout = timeout
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+
+    def chat(self, messages: list[dict]) -> str:
+        return _openai_compatible_chat(
+            self.base_url,
+            self.api_key,
+            self.model,
+            messages,
+            timeout=self.timeout,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+
+
+def llm_client_for(s: Settings) -> LLMClient:
+    """按 env 装配 LLM 客户端：LLM_BASE_URL+LLM_API_KEY 齐备 → OpenAI 兼容；否则 Mock（明确降级）。"""
+    if s.LLM_BASE_URL and s.LLM_API_KEY:
+        return _OpenAICompatLLM(s.LLM_BASE_URL, s.LLM_API_KEY, s.LLM_MODEL, timeout=s.AI_TIMEOUT)
+    logger.warning("[ai] LLM_BASE_URL/LLM_API_KEY 未配置，走 Mock 降级")
+    return MockLLMClient()
+
+
+def _vision_message(image: bytes | str) -> dict:
+    """OpenAI vision 消息格式：content 数组含 image_url；bytes → base64 data URL，str → https URL。"""
+    url = (
+        f"data:image/jpeg;base64,{base64.b64encode(image).decode()}"
+        if isinstance(image, bytes)
+        else image
+    )
+    return {
+        "role": "user",
+        "content": [
+            {"type": "image_url", "image_url": {"url": url}},
+            {"type": "text", "text": _VISION_PROMPT},
+        ],
+    }
+
+
+class _OpenAICompatVLM:
+    """OpenAI 兼容视觉客户端（VLM_* 三件套）：图片走 vision 消息，输出 JSON 候选列表。"""
+
+    def __init__(self, base_url: str, api_key: str, model: str, *, timeout: float):
+        self.base_url = base_url
+        self.api_key = api_key
+        self.model = model
+        self.timeout = timeout
+
+    def recognize_food(self, image_bytes: bytes) -> list[dict]:
+        raw = _openai_compatible_chat(
+            self.base_url,
+            self.api_key,
+            self.model,
+            [_vision_message(image_bytes)],
+            timeout=self.timeout,
+        )
+        parsed = _extract_json(raw)
+        items = parsed.get("items") if isinstance(parsed, dict) else parsed
+        return items if isinstance(items, list) else []
+
+
 async def _invoke(client: LLMClient, messages: list[dict]) -> str:
     """兼容异步/同步客户端：`achat` 优先，否则同步 `chat` 放线程池。"""
     achat = getattr(client, "achat", None)
@@ -253,19 +398,20 @@ async def chat(
 
     benefit = await ensure_benefit(session, user_id, s)
     # tier3=-1 不限次：不扣不拦（ai/times 响应字段类型 int 不变）
-    if ai_quota_for_tier(int(benefit.tier), s.AI_DAILY_TIMES) != -1 and int(
-        benefit.ai_times_left
-    ) <= 0:
+    if (
+        ai_quota_for_tier(int(benefit.tier), s.AI_DAILY_TIMES) != -1
+        and int(benefit.ai_times_left) <= 0
+    ):
         raise AppException(ErrorCode.QUOTA_EXCEEDED, NO_TIMES_MESSAGE)
 
     intent = classify_intent(message)
     docs = await retrieve_knowledge(session, message)
     references = [f"knowledge:{d.id}" for d in docs]
 
-    client = llm_client or factory.get_llm_client(s)
+    client = llm_client or llm_client_for(s)
     model = str(getattr(client, "model", "") or type(client).__name__)[:64]
     dialog_session_id = _as_uuid(session_id)
-    reply = await generate_reply(client, _build_messages(message, docs), timeout=s.MS_TIMEOUT)
+    reply = await generate_reply(client, _build_messages(message, docs), timeout=s.AI_TIMEOUT)
 
     session.add(
         AiDialog(
@@ -411,17 +557,17 @@ async def weekly_comment(
         f"缺口 {(-stats.deficit):.0f} kcal",
         f"步数 {stats.steps} 步",
     ]
-    if not s.MS_API_KEY:
+    if not (s.LLM_BASE_URL and s.LLM_API_KEY):
         content = _template_comment(stats)
     else:  # pragma: no cover - 无 Key 环境不触发
-        client = llm_client or factory.get_llm_client(s)
+        client = llm_client or llm_client_for(s)
         prompt = (
             f"这是用户本周（{key}）的数据：打卡 {stats.days} 天，"
             f"摄入 {stats.intake:.0f} kcal，缺口 {(-stats.deficit):.0f} kcal，"
             f"步数 {stats.steps} 步，体重变化 {stats.weight_change}kg。"
             "请用 2-3 句给出温和、可执行的周点评。"
         )
-        content = await generate_reply(client, _build_messages(prompt, []), timeout=s.MS_TIMEOUT)
+        content = await generate_reply(client, _build_messages(prompt, []), timeout=s.AI_TIMEOUT)
     if AI_DISCLAIMER not in content:
         content = f"{content}{AI_DISCLAIMER}"
     return WeeklyCommentData(week=key, content=content, highlights=highlights, references=[])
