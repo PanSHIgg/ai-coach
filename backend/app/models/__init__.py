@@ -15,6 +15,7 @@ from datetime import date, datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Computed,
     Date,
     DateTime,
@@ -86,21 +87,27 @@ class UserBenefit(Base):
     tier: Mapped[int] = mapped_column(SmallInteger, server_default="0", default=0)
     ai_times_left: Mapped[int] = mapped_column(Integer, server_default="10", default=10)
     ai_times_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 权益无期限（docs/changes/2026-10-01-邀请规则变更记录.md）：valid_from/valid_to 已删列
     invite_count: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
     created_at: Mapped[datetime] = _ts()
 
 
 class Invite(Base):
+    """邀请关系（新口径）：注册绑定即有效（status 恒为 1，保留为扩展位）。"""
+
     __tablename__ = "invite"
-    __table_args__ = (UniqueConstraint("invitee_id", name="invite_invitee_id_key"),)
+    __table_args__ = (
+        UniqueConstraint("invitee_id", name="invite_invitee_id_key"),
+        CheckConstraint("inviter_id <> invitee_id", name="invite_inviter_id_invitee_id_check"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     inviter_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"), index=True)
     invitee_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
-    status: Mapped[int] = mapped_column(SmallInteger, server_default="0", default=0)
-    reward_granted: Mapped[bool] = mapped_column(Boolean, server_default="false", default=False)
+    # 恒为 1（注册即有效）；保留为扩展位（变更记录 §7.2 审查批注 4）
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    # 同设备防刷标识（可空）：同设备只计 1 次，重复 → 4102
+    device_id: Mapped[str | None] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = _ts()
 
 

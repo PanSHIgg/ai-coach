@@ -208,8 +208,8 @@ export const routes = [
     m: 'GET', p: '/api/invite/progress',
     d: {
       invitee_count: 1,
-      next_tier: { need: 2, reward: '进阶版90天' },
-      benefit: { tier: 0, valid_to: null },
+      next_tier: { need: 10, reward: '终身版不限次' },
+      benefit: { tier: 1, valid_to: null },
       poster_url: 'https://cos.example.com/invite/1001.png',
     },
   },

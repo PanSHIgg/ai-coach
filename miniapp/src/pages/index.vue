@@ -228,7 +228,7 @@
       </view>
     </CCard>
 
-    <!-- 券提醒（§5.1-11）：接 /api/coupon/list 真实券；无券时引导邀请得券 -->
+    <!-- 券提醒（§5.1-11）：接 /api/coupon/list 真实券；无券时引导邀请（邀请规则新口径无「双方各得券」） -->
     <CCard title="券提醒" class="home__card">
       <view v-if="reminderCoupons.length" class="coupon">
         <view v-for="c in reminderCoupons" :key="c.id" class="coupon__row" @tap="goCoupon">
@@ -245,7 +245,7 @@
         </view>
       </view>
       <view class="coupon__invite" @tap="goInvite">
-        <text class="coupon__invite-text">邀请好友双方各得券</text>
+        <text class="coupon__invite-text">邀请好友解锁更多 AI 次数</text>
         <text class="link">立即邀请 ›</text>
       </view>
     </CCard>
@@ -646,6 +646,7 @@ const aiTimesText = computed(() => {
   if (!aiTimesLoaded.value) return 'AI 次数加载中…'
   if (aiTimesLeft.value === null) return 'AI 次数暂不可用'
   if (aiTimesLeft.value === 0) return '今日剩余 0 次，邀请好友解锁'
+  if (aiTimesLeft.value < 0) return '今日不限次' // -1=终身版不限次
   return `今日剩余 ${aiTimesLeft.value} 次`
 })
 

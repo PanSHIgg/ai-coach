@@ -43,6 +43,7 @@ export const ErrorCode = {
   REDEEM_USED: 5004,
   AI_UNAVAILABLE: 6001,
   INVITE_LIMIT: 7001,
+  INVITE_ABUSE: 4102, // 邀请防刷拦截：同设备只计 1 次
 } as const;
 
 /* ---------- 认证 / 用户 ---------- */
@@ -441,7 +442,8 @@ export type CouponPageData = PageData<CouponOut>;
 /* ---------- 社区：邀请 / 动态 / 约战 ---------- */
 
 export interface InviteIn {
-  invite_code?: string | null; // 缺省=创建邀请码；带值=绑定
+  invite_code?: string | null; // 缺省=创建邀请码；带值=绑定（注册成功即算有效邀请，实时生效）
+  device_id?: string | null; // 设备标识（防刷：同设备只计 1 次有效邀请）
 }
 
 export interface InviteData {

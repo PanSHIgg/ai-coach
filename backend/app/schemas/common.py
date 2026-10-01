@@ -28,6 +28,7 @@ class ErrorCode(IntEnum):
     REDEEM_CODE_USED = 5004  # 核销码已使用
     AI_UNAVAILABLE = 6001  # AI 服务暂不可用
     INVITE_LIMIT = 7001  # 邀请已达上限
+    INVITE_ABUSE = 4102  # 防刷拦截——同设备只计 1 次
     RATE_LIMITED = 429  # 【假设】复用 HTTP 429
     SERVER_ERROR = 500  # 【假设】复用 HTTP 500
 
@@ -47,6 +48,7 @@ class ErrorCode(IntEnum):
             cls.REDEEM_CODE_USED: "核销码已使用",
             cls.AI_UNAVAILABLE: "AI 服务暂不可用",
             cls.INVITE_LIMIT: "邀请已达上限",
+            cls.INVITE_ABUSE: "邀请异常：同设备仅可绑定一次",
             cls.RATE_LIMITED: "请求过于频繁",
             cls.SERVER_ERROR: "服务错误",
         }.get(int(code), "未知错误")

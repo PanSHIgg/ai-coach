@@ -35,22 +35,22 @@
       />
     </view>
 
-    <!-- 3. 立即邀请（open-type=share 拉起微信会话分享；分享路径带 inviter_id） -->
+    <!-- 3. 立即邀请（open-type=share 拉起微信会话分享；分享路径带 inviter_id；达终身版后换文案 §2.4） -->
     <button
       class="invite__share-btn"
       open-type="share"
       :disabled="loading"
       @tap="trackShare"
     >
-      立即邀请好友
+      {{ reachedMax ? '继续邀请帮助更多人' : '立即邀请好友' }}
     </button>
 
-    <!-- 4. 活动规则（01 §2.3.3） -->
+    <!-- 4. 活动规则（邀请规则新口径：注册即有效，2026-10-01 变更） -->
     <CCard title="活动规则" class="invite__card">
-      <text class="invite__rule">1. 累计邀请 2 / 5 / 10 位好友，分别解锁进阶版 90 天 / 180 天 / 永久（终身教练）。</text>
-      <text class="invite__rule">2. 邀请成功后双方各得券。</text>
-      <text class="invite__rule">3. 被邀请人完成 1 次拍照记录后邀请才生效。</text>
-      <text class="invite__rule">4. 同设备只计 1 次，单人奖励上限 180 天。</text>
+      <text class="invite__rule">1. 被邀请人注册成功即算有效邀请，权益实时到账。</text>
+      <text class="invite__rule">2. 只算直接邀请：好友再邀请他人与你无关。</text>
+      <text class="invite__rule">3. 累计 1 / 3 / 10 人分别解锁 20 次/日、40 次/日、不限次（终身版）。</text>
+      <text class="invite__rule">4. 同一设备只计 1 次，防刷违规将被拒绝。权益长期有效，不设期限。</text>
     </CCard>
   </view>
 </template>
@@ -63,21 +63,25 @@
  * 契约：GET /api/invite/progress、POST /api/invite（不动 invite schema）。
  * 【假设】① 分享落地即本页：onLoad 解析 inviter_id（最小侵入挂载点），未登录时先落 storage，
  *           登录后再次进入本页（或从"我的"入口进入）自动补绑；
- *         ② invite_accept 在绑定接口成功时上报（服务端"有效"口径需被邀请人完成拍照，前端无信号）；
+ *         ② invite_accept 在绑定接口成功时上报（新口径：注册即有效，绑定成功即计入，前端无额外信号）；
  *         ③ channel 固定 wechat_session（首期仅会话分享）。
  */
 import { computed, ref } from 'vue'
 import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
 import { bindInvite, getInviteProgress } from '@/api/invite'
 import { useUserStore } from '@/stores/user'
-import { track } from '@/utils/track'
+import { track, getDeviceId } from '@/utils/track'
+import { useToast } from '@/composables/useToast'
 import type { InviteProgressData } from '@/types/api'
 
-/** 档位里程碑（01 §2.3.3：2/5/10 人 → 进阶版 90 天 / 180 天 / 永久） */
+/** 防刷违规错误码（同一设备仅可参与一次，2026-10-01 邀请规则变更） */
+const CODE_INVITE_DEVICE_LIMIT = 4102
+
+/** 档位里程碑（仅展示卡：1/3/10 人 → 20 次/日 / 40 次/日 / 不限次；下一档以接口 next_tier 为准） */
 const TIERS = [
-  { need: 2, label: '进阶版 90 天' },
-  { need: 5, label: '进阶版 180 天' },
-  { need: 10, label: '永久（终身教练）' },
+  { need: 1, label: '20 次/日' },
+  { need: 3, label: '40 次/日' },
+  { need: 10, label: '不限次（终身版）' },
 ] as const
 
 /** 未登录时暂存 inviter_id，登录后补绑 */
@@ -101,6 +105,9 @@ const benefitText = computed(() => {
 function reached(need: number): boolean {
   return (progress.value?.invitee_count ?? 0) >= need
 }
+
+/** 已达终身版（tier3/不限次）：分享按钮换「继续邀请帮助更多人」 */
+const reachedMax = computed(() => (progress.value?.benefit?.tier ?? 0) >= 3)
 
 /* ---------- 数据 ---------- */
 
@@ -126,11 +133,14 @@ async function tryBind(inviterId: number) {
   // 不能邀请自己（后端同样校验，前端提前拦截）
   if (inviterId === userStore.detail?.id) return
   try {
-    await bindInvite(inviterId)
+    await bindInvite(inviterId, getDeviceId())
     track('invite_accept', { inviter_id: inviterId })
     await loadProgress()
-  } catch {
-    /* 已绑定 / 无效码 / 上限：静默，进度以服务端为准 */
+  } catch (e) {
+    // 已绑定 / 无效码：静默，进度以服务端为准；4102 防刷违规需明示用户
+    if ((e as { code?: number }).code === CODE_INVITE_DEVICE_LIMIT) {
+      useToast().error({ title: '邀请受限：同一设备仅可参与一次' })
+    }
   }
 }
 

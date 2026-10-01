@@ -12,7 +12,7 @@ info:
     HTTP 状态码映射：参数错 422(2001) / 未认证 401(1001) / 无权限 403(1002) / 资源不存在 404(3001) / 业务错 409(4001~7001) / 限流 429 / 服务错 500。
     通用错误码：0 成功 / 1001 未登录 / 1002 无权限 / 2001 参数校验失败 / 3001 资源不存在 / 4001 余额次数不足 /
     4002 重复请求（幂等拦截）/ 5001 商家停业 / 5002 券不可用 / 5003 订单已超时 / 5004 核销码已使用 /
-    6001 AI 服务暂不可用 / 7001 邀请已达上限。
+    6001 AI 服务暂不可用 / 7001 邀请已达上限 / 4102 邀请防刷拦截（同设备只计 1 次有效邀请）。
     幂等与防重放（Phase 5 / F6）：写接口（POST/PUT/PATCH/DELETE）可携带 `Idempotency-Key` 请求头
       （客户端为每个逻辑操作生成唯一值）。同一身份 + 同一 key 在 300s 窗口内重复到达时，仅首次放行，
       其余返回 **409 + 4002**（响应体另含 "idempotency_replayed": true）。未携带该头的请求行为不变。
@@ -1060,7 +1060,7 @@ paths:
               $ref: '#/components/schemas/InviteIn'
       responses:
         '200':
-          description: 无 invite_code 则生成我的邀请码；有则绑定（被邀请人完成 1 次拍照记录算有效）
+          description: 无 invite_code 则生成我的邀请码；有则绑定邀请关系（注册成功即算有效邀请，实时生效）
           content:
             application/json:
               schema:
@@ -3358,6 +3358,7 @@ components:
       description: 缺省=创建我的邀请码；带 invite_code=绑定邀请关系
       properties:
         invite_code: { type: string, nullable: true }
+        device_id: { type: string, nullable: true, description: 设备标识（防刷：同设备只计 1 次有效邀请） }
     InviteData:
       type: object
       required: [bound]
@@ -3369,8 +3370,8 @@ components:
       type: object
       required: [need, reward]
       properties:
-        need: { type: integer, description: 距下一档还差人数（按有效邀请数计） }
-        reward: { type: string, description: 下一档奖励文案，取值 进阶版90天/进阶版180天/永久·终身教练, example: 进阶版90天 }
+        need: { type: integer, description: 距下一档还差人数（按有效邀请数计）, example: 10 }
+        reward: { type: string, description: 下一档奖励文案，取值 20 次/日（进阶）/40 次/日（高级）/终身版不限次, example: 终身版不限次 }
     BenefitInfo:
       type: object
       required: [tier]
@@ -3381,7 +3382,7 @@ components:
       type: object
       required: [invitee_count, next_tier, benefit, poster_url]
       properties:
-        invitee_count: { type: integer, description: 有效邀请数（被邀请人完成 1 次拍照记录后才计数） }
+        invitee_count: { type: integer, description: 有效邀请数（被邀请人注册成功即计数） }
         next_tier:
           $ref: '#/components/schemas/NextTier'
         benefit:

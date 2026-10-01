@@ -467,7 +467,7 @@ async def test_weekly_comment_template(db_client, db_session, authed):
 
 
 async def test_invite_bind_and_progress(db_client, db_session, authed):
-    """邀请裂变：绑定后为注册态不计数；被邀请人完成 1 次拍照记录后进度 +1（CD-02）。"""
+    """邀请裂变（新口径）：绑定成功即有效（注册即有效）并实时计数（变更记录 2026-10-01）。"""
     code = (await db_client.post("/api/invite", headers=authed["headers"], json={})).json()["data"][
         "invite_code"
     ]
@@ -479,35 +479,9 @@ async def test_invite_bind_and_progress(db_client, db_session, authed):
     progress = (
         await db_client.get("/api/invite/progress", headers=authed["headers"])
     ).json()["data"]
-    assert progress["invitee_count"] == 0  # 拍照前无效
-
-    food = Food(name="inv-b 鸡胸", calories_100g=133.0, status=1)
-    db_session.add(food)
-    db_session.add(
-        BodyProfile(
-            user_id=other["user_id"],
-            gender=1,
-            height_cm=175,
-            age=30,
-            current_weight=70.0,
-            target_type=1,
-            activity_level=2,
-            goal_pace=1,
-        )
-    )
-    await db_session.commit()
-    meal = await db_client.post(
-        "/api/meal",
-        headers=other["headers"],
-        json={"meal_type": 2, "food_id": food.id, "amount_g": 100, "source": 1},
-    )
-    assert meal.json()["code"] == 0, meal.text
-    progress = (
-        await db_client.get("/api/invite/progress", headers=authed["headers"])
-    ).json()["data"]
-    assert progress["invitee_count"] == 1
-    assert progress["next_tier"]["need"] == 1  # 2-1
-    assert progress["next_tier"]["reward"] == "进阶版90天"  # CD-04 档位文案
+    assert progress["invitee_count"] == 1  # 注册即有效，绑定即计数
+    assert progress["next_tier"]["need"] == 2  # 下一档 3 人
+    assert progress["next_tier"]["reward"] == "高级版40次/日"
 
 
 async def test_battle_join_missing_returns_404(db_client, authed):

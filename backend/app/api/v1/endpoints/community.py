@@ -51,15 +51,12 @@ from app.schemas import (
 )
 from app.schemas.common import ErrorCode, ok
 from app.services import community_service as svc
+from app.services.invite_service import INVITE_TIERS, activate_and_grant
 
 router = APIRouter(tags=["社区"])
 
-# 邀请上限：单账号最多有效邀请人数（超出 7001/409）【假设】
-# 文档三档 2/5/10（01 §2.3.3），上限取最高档。
-MAX_INVITEES = 10
-
-# 档位 → 下一档奖励文案（CD-04：删写死字面量，按档位映射）
-_REWARD_BY_NEXT_NEED = {2: "进阶版90天", 5: "进阶版180天", 10: "永久·终身教练"}
+# 下一档奖励文案（docs/changes/2026-10-01-邀请规则变更记录.md §二/§8.4.9）
+_REWARD_BY_NEXT_NEED = {1: "进阶版20次/日", 3: "高级版40次/日", 10: "终身版不限次"}
 
 
 # ---- 邀请 ----
@@ -84,7 +81,12 @@ async def create_invite(
     session: AsyncSession = Depends(get_db),
     request_id: str | None = Depends(get_request_id),
 ) -> Envelope[InviteData]:
-    """无 invite_code → 返回我的邀请码；带 invite_code → 绑定邀请关系（落库，上限 7001）。"""
+    """无 invite_code → 返回我的邀请码；带 invite_code → 绑定即生效。
+
+    新口径（docs/changes/2026-10-01-邀请规则变更记录.md）：被邀请人注册绑定成功
+    即算有效邀请（注册即有效，不要求建档/拍照/活跃），绑定事务内实时升档；
+    device_id 可选，同设备只计 1 次（重复 → 4102 防刷拦截）。
+    """
     if not payload or not payload.invite_code:
         return ok(
             InviteData(
@@ -103,30 +105,10 @@ async def create_invite(
     existing = await session.scalar(select(Invite.id).where(Invite.invitee_id == user.id))
     if existing is not None:
         raise AppException(ErrorCode.VALIDATION_ERROR, "你已绑定过邀请关系")
-    # 进度/上限只数有效邀请（status=1：被邀请人完成 1 次拍照记录，10 文档 §13.3）
-    valid_count = await session.scalar(
-        select(func.count())
-        .select_from(Invite)
-        .where(Invite.inviter_id == inviter_id, Invite.status == 1)
+    # 绑定即生效：插 status=1 记录 + 同设备防刷（4102）+ 邀请人实时升档（同事务原子）
+    await activate_and_grant(
+        session, inviter_id=inviter_id, invitee_id=user.id, device_id=payload.device_id
     )
-    if int(valid_count or 0) >= MAX_INVITEES:
-        raise AppException(ErrorCode.INVITE_LIMIT, "邀请已达上限")
-    # 绑定仅记「注册态」（status=0）；被邀请人完成第 1 次拍照记录后由
-    # invite_service.activate_invitee 置 1（CD-02）。
-    # 同设备只算 1 次：同 unionid 已作为被邀请人出现过 → status=2 无效
-    # （自邀请已被 DB CHECK 挡住；User 无 device_id，unionid 为同人/同设备标识【假设】）
-    status = 0
-    invitee_unionid = await session.scalar(select(User.unionid).where(User.id == user.id))
-    if invitee_unionid:
-        dup = await session.scalar(
-            select(Invite.id)
-            .join(User, Invite.invitee_id == User.id)
-            .where(User.unionid == invitee_unionid, Invite.invitee_id != user.id)
-            .limit(1)
-        )
-        if dup is not None:
-            status = 2
-    session.add(Invite(inviter_id=inviter_id, invitee_id=user.id, status=status))
     try:
         await session.commit()
     except IntegrityError as exc:  # 并发同 invitee 绑定命中唯一约束（invite_invitee_id_key）
@@ -142,14 +124,15 @@ async def get_invite_progress(
     session: AsyncSession = Depends(get_db),
     request_id: str | None = Depends(get_request_id),
 ) -> Envelope[InviteProgressData]:
-    """邀请人数（仅有效，status=1）+ 下一档奖励 + 当前权益（落库统计）。"""
+    """邀请人数（注册即计数，status=1）+ 下一档奖励 + 当前权益（落库统计，无期限）。"""
     invitee_count = await session.scalar(
         select(func.count())
         .select_from(Invite)
         .where(Invite.inviter_id == user.id, Invite.status == 1)
     )
     count = int(invitee_count or 0)
-    next_need = 2 if count < 2 else (5 if count < 5 else 10)
+    # 档位阈值由后端配置 INVITE_TIERS=[1,3,10]（前端不硬编码，§8.4.9）
+    next_need = next((need for need in INVITE_TIERS if count < need), INVITE_TIERS[-1])
     reward = _REWARD_BY_NEXT_NEED[next_need]
     benefit = (
         await session.execute(select(UserBenefit).where(UserBenefit.user_id == user.id))
@@ -158,10 +141,7 @@ async def get_invite_progress(
         InviteProgressData(
             invitee_count=count,
             next_tier=NextTier(need=max(next_need - count, 0), reward=reward),
-            benefit=BenefitInfo(
-                tier=benefit.tier if benefit else 0,
-                valid_to=benefit.valid_to if benefit else None,
-            ),
+            benefit=BenefitInfo(tier=benefit.tier if benefit else 0),
             poster_url=f"https://cos.example.com/invite/{user.id}.png",
         ),
         request_id=request_id,

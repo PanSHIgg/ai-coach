@@ -14,6 +14,7 @@ class InviteIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     invite_code: Optional[str] = None  # 缺省=创建邀请码；带值=绑定邀请关系
+    device_id: Optional[str] = None  # 可选设备标识：同设备只计 1 次（重复 → 4102）
 
 
 class InviteData(BaseModel):
@@ -28,14 +29,13 @@ class NextTier(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     need: int  # 距下一档还差人数
-    reward: str  # 如 进阶版90天
+    reward: str  # 如 进阶版20次/日 / 高级版40次/日 / 终身版不限次
 
 
 class BenefitInfo(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    tier: int  # 0基础 1进阶 2高级 3终身
-    valid_to: Optional[datetime] = None
+    tier: int  # 0基础 1进阶 2高级 3终身（权益无期限，不回收）
 
 
 class InviteProgressData(BaseModel):

@@ -65,36 +65,36 @@ CREATE INDEX idx_auth_user ON user_auth(user_id);
 COMMENT ON TABLE user_auth IS '第三方登录身份：一个用户可绑定多个 provider，(provider, openid) 唯一';
 COMMENT ON COLUMN user_auth.provider IS '登录渠道：wechat_mp 小程序 / wechat_h5 网页 / phone 手机号';
 
--- 用户权益（§7.2）
+-- 用户权益（§7.2；docs/changes/2026-10-01：权益无期限不回收，valid_from/valid_to 已删）
 CREATE TABLE user_benefit (
     id                BIGSERIAL PRIMARY KEY,
     user_id           BIGINT UNIQUE REFERENCES "user"(id),
     tier              SMALLINT DEFAULT 0,         -- 0基础 1进阶 2高级 3终身
-    ai_times_left     INTEGER DEFAULT 10,         -- AI 对话剩余次数
+    ai_times_left     INTEGER DEFAULT 10,         -- AI 对话剩余次数（tier3 不限次，扣减链路跳过）
     ai_times_reset_at TIMESTAMPTZ,                -- 次数重置时间
-    valid_from        TIMESTAMPTZ,
-    valid_to          TIMESTAMPTZ,
     invite_count      INTEGER DEFAULT 0,          -- 有效邀请数
     created_at        TIMESTAMPTZ DEFAULT NOW(),
     CHECK (ai_times_left >= 0)
 );
-COMMENT ON TABLE user_benefit IS '用户权益：AI 次数、权益档位、邀请数（一人一条）';
-COMMENT ON COLUMN user_benefit.tier IS '权益档位：0基础 1进阶 2高级 3终身';
+COMMENT ON TABLE user_benefit IS '用户权益：AI 次数、权益档位、邀请数（一人一条）；权益无期限不回收';
+COMMENT ON COLUMN user_benefit.tier IS '权益档位：0基础 1进阶 2高级 3终身（邀请 1/3/10 人达档）';
 COMMENT ON COLUMN user_benefit.ai_times_left IS 'AI 对话剩余次数，用尽提示邀请好友解锁（BE4b）';
 
--- 邀请关系（§7.2）
+-- 邀请关系（docs/changes/2026-10-01：注册即有效，status 恒为 1 保留为扩展位）
 CREATE TABLE invite (
     id             BIGSERIAL PRIMARY KEY,
     inviter_id     BIGINT REFERENCES "user"(id),
     invitee_id     BIGINT UNIQUE REFERENCES "user"(id),
-    status         SMALLINT DEFAULT 0,            -- 0注册 1已建档(有效) 2无效
-    reward_granted BOOLEAN DEFAULT FALSE,
+    status         SMALLINT DEFAULT 1,            -- 恒为 1（注册即有效）；扩展位
+    device_id      VARCHAR(64),                   -- 同设备防刷标识：同设备只计 1 次（重复 4102）
     created_at     TIMESTAMPTZ DEFAULT NOW(),
     CHECK (inviter_id <> invitee_id)
 );
 CREATE INDEX idx_invite_inviter ON invite(inviter_id);
-COMMENT ON TABLE invite IS '邀请关系：invitee_id 唯一，一人只能被邀请一次（§7.3）';
-COMMENT ON COLUMN invite.status IS '0注册 1已建档有效（被邀请人完成1次拍照记录） 2无效（同设备/自邀）';
+CREATE INDEX idx_invite_device ON invite(device_id);
+COMMENT ON TABLE invite IS '邀请关系：invitee_id 唯一，一人只能被邀请一次（§7.3）；只算直接邀请';
+COMMENT ON COLUMN invite.status IS '恒为 1（注册即有效，docs/changes/2026-10-01）；保留为扩展位';
+COMMENT ON COLUMN invite.device_id IS '同设备防刷标识：同设备只计 1 次，重复绑定返回 4102';
 
 -- -----------------------------------------------------------------------------
 -- 2. 身体档案与记录域

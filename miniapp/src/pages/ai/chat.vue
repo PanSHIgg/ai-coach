@@ -185,6 +185,7 @@ const canSend = computed(() => {
 const quotaText = computed(() => {
   if (!timesLoaded.value) return '次数加载中…'
   if (timesLeft.value === 0) return '今日剩余 0 次，邀请好友解锁'
+  if (timesLeft.value !== null && timesLeft.value < 0) return '今日不限次' // -1=终身版不限次
   return `今日剩余 ${timesLeft.value} 次`
 })
 

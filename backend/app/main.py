@@ -25,7 +25,6 @@ from app.core.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.observability.metrics import install_metrics
 from app.schemas.common import ErrorCode, fail
-from app.services.invite_service import start_reward_scheduler
 
 logger = get_logger(__name__)
 
@@ -48,11 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        # 邀请权益定时发放：启动时跑一次，此后每日一次（10 文档 §13.3）
-        task = start_reward_scheduler()
         yield
-        if task is not None:
-            task.cancel()
 
     # IS-001: 生产环境禁止启用 PAY_MOCK_MODE
     if s.ENV == "prod" and s.PAY_MOCK_MODE:

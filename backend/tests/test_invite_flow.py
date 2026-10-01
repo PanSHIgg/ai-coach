@@ -1,16 +1,19 @@
-"""邀请裂变流程测试（CD-01/02/03/04/06）。
+"""邀请裂变流程测试（新口径：docs/changes/2026-10-01-邀请规则变更记录.md）。
 
-真源：01 §2.3.3（拍照 1 次算有效、同设备 1 次、2/5/10 三档）、10 §13.3（判定与次日批量发放）。
-一个行为一个测试，三档用 parametrize 合并；库存/核销错误码见 test_orders.py。
+口径：注册即有效（绑定即生效、实时升档）、只算直接邀请、档位 INVITE_TIERS=[1,3,10]
+（1→tier1 20次/日、3→tier2 40次/日、10→tier3 不限次·终身）、无期限、同设备只计 1 次
+（4102）、废除双方发券、删除次日批量调度。一个行为一个测试；库存/核销错误码见 test_orders.py。
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.security import create_access_token
-from app.models import BodyProfile, Coupon, CouponPool, Food, Invite, User, UserBenefit
+from app.models import Coupon, CouponPool, Invite, User, UserBenefit
+from app.schemas.common import ErrorCode
 from app.services import invite_service as isvc
 
 # ---------------------------------------------------------------------------
@@ -18,8 +21,12 @@ from app.services import invite_service as isvc
 # ---------------------------------------------------------------------------
 
 
-async def _actor(db_session, openid: str, unionid: str | None = None) -> dict:
-    user = User(openid=openid, unionid=unionid, nickname=openid, gender=1)
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+async def _actor(db_session, openid: str) -> dict:
+    user = User(openid=openid, nickname=openid, gender=1)
     db_session.add(user)
     await db_session.flush()
     db_session.add(UserBenefit(user_id=user.id, tier=0, ai_times_left=10))
@@ -28,8 +35,244 @@ async def _actor(db_session, openid: str, unionid: str | None = None) -> dict:
     return {"user_id": user.id, "headers": {"Authorization": f"Bearer {token}"}}
 
 
-async def _invite_pool(db_session) -> CouponPool:
-    """平台通用券池（merchant_id IS NULL，不限量，长期有效）。"""
+async def _invite_status(db_session, invitee_id: int) -> int:
+    return (
+        await db_session.execute(select(Invite.status).where(Invite.invitee_id == invitee_id))
+    ).scalar_one()
+
+
+# ---------------------------------------------------------------------------
+# 纯函数单元（不依赖 DB）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("count", "tier"),
+    [(0, 0), (1, 1), (2, 1), (3, 2), (9, 2), (10, 3), (11, 3)],
+)
+def test_next_tier_for_mapping(count, tier):
+    """INVITE_TIERS=[1,3,10]：0 人 tier0 基础，1/3/10 人达 tier1/2/3（单调）。"""
+    assert isvc.INVITE_TIERS == (1, 3, 10)
+    assert isvc.next_tier_for(count) == tier
+
+
+@pytest.mark.parametrize(
+    ("tier", "quota"),
+    [(0, 10), (1, 20), (2, 40), (3, -1)],
+)
+def test_ai_quota_for_tier_mapping(tier, quota):
+    """配额映射：tier0=10（AI_DAILY_TIMES 默认）、tier1=20、tier2=40、tier3=-1 不限次。"""
+    daily = get_settings().AI_DAILY_TIMES
+    assert isvc.ai_quota_for_tier(tier, daily) == quota
+
+
+def test_no_batch_scheduler_and_coupon_chain():
+    """实时生效：次日批量调度与发券链路已整体删除。"""
+    for legacy in (
+        "start_reward_scheduler",
+        "_reward_loop",
+        "run_reward_once",
+        "REWARD_INTERVAL_SECONDS",
+        "grant_invite_coupons",
+        "_gen_coupon_codes",
+        "grant_pending_invite_rewards",
+        "activate_invitee",
+    ):
+        assert not hasattr(isvc, legacy), legacy
+
+
+# ---------------------------------------------------------------------------
+# 绑定即生效（注册即有效）
+# ---------------------------------------------------------------------------
+
+
+async def test_bind_effective_immediately(db_client, db_session):
+    """注册即有效：绑定成功即 status=1 计数，无需建档/拍照；邀请人实时升 tier1。"""
+    inviter = await _actor(db_session, "inv-a")
+    invitee = await _actor(db_session, "inv-b")
+    code = (await db_client.post("/api/invite", headers=inviter["headers"], json={})).json()[
+        "data"
+    ]["invite_code"]
+
+    bound = await db_client.post(
+        "/api/invite", headers=invitee["headers"], json={"invite_code": code}
+    )
+    assert bound.json()["data"]["bound"] is True
+    assert await _invite_status(db_session, invitee["user_id"]) == 1  # 注册即有效
+
+    progress = (await db_client.get("/api/invite/progress", headers=inviter["headers"])).json()[
+        "data"
+    ]
+    assert progress["invitee_count"] == 1  # 绑定即计数
+    assert progress["next_tier"] == {"need": 2, "reward": "高级版40次/日"}  # 下一档 3 人
+
+    benefit = (
+        await db_session.execute(
+            select(UserBenefit).where(UserBenefit.user_id == inviter["user_id"])
+        )
+    ).scalar_one()
+    assert benefit.tier == 1  # 绑定事务内实时升档
+    assert benefit.ai_times_left == 20  # 提到 tier1 配额
+
+
+async def test_bind_keeps_higher_balance(db_session):
+    """升档不降额：既有余额高于新档配额时保留原余额。"""
+    inviter = User(openid="inv-keep", gender=1)
+    db_session.add(inviter)
+    await db_session.flush()
+    db_session.add(UserBenefit(user_id=inviter.id, tier=0, ai_times_left=25))
+    invitee = User(openid="inv-keep-b", gender=1)
+    db_session.add(invitee)
+    await db_session.commit()
+
+    await isvc.activate_and_grant(db_session, inviter_id=inviter.id, invitee_id=invitee.id)
+    await db_session.commit()
+    benefit = (
+        await db_session.execute(select(UserBenefit).where(UserBenefit.user_id == inviter.id))
+    ).scalar_one()
+    assert benefit.tier == 1
+    assert benefit.ai_times_left == 25  # 25 > 20，不降额
+
+
+async def test_tier_progression_1_3_10(db_session):
+    """档位推进：1 人 tier1（20）、3 人 tier2（40）、10 人 tier3 不限次（无期限）。"""
+    inviter = User(openid="tier-prog", gender=1)
+    db_session.add(inviter)
+    await db_session.flush()
+    db_session.add(UserBenefit(user_id=inviter.id, tier=0, ai_times_left=10))
+
+    async def bind(i: int) -> None:
+        invitee = User(openid=f"tier-prog-b{i}", gender=1)
+        db_session.add(invitee)
+        await db_session.flush()
+        await isvc.activate_and_grant(db_session, inviter_id=inviter.id, invitee_id=invitee.id)
+        await db_session.commit()
+
+    for i in range(10):
+        await bind(i)
+        benefit = (
+            await db_session.execute(select(UserBenefit).where(UserBenefit.user_id == inviter.id))
+        ).scalar_one()
+        if i == 0:
+            assert (benefit.tier, benefit.ai_times_left) == (1, 20)
+        elif i == 2:
+            assert (benefit.tier, benefit.ai_times_left) == (2, 40)
+        elif i == 9:
+            assert benefit.tier == 3
+            assert benefit.ai_times_left == 40  # tier3 不限次：不覆盖余额
+    # 只算直接邀请：无多级裂变，被邀请人的邀请不计入邀请人
+    count = len(
+        (
+            await db_session.execute(
+                select(Invite.id).where(Invite.inviter_id == inviter.id, Invite.status == 1)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert count == 10
+
+
+async def test_progress_at_tier3(db_client, db_session):
+    """已达 10 人：next_tier need=0、reward=终身版不限次。"""
+    inviter = await _actor(db_session, "inv-full")
+    for i in range(10):
+        invitee = User(openid=f"inv-full-b{i}", gender=1)
+        db_session.add(invitee)
+        await db_session.flush()
+        db_session.add(Invite(inviter_id=inviter["user_id"], invitee_id=invitee.id, status=1))
+    await db_session.commit()
+    progress = (await db_client.get("/api/invite/progress", headers=inviter["headers"])).json()[
+        "data"
+    ]
+    assert progress["invitee_count"] == 10
+    assert progress["next_tier"] == {"need": 0, "reward": "终身版不限次"}
+
+
+# ---------------------------------------------------------------------------
+# 防刷（4102）：同设备只计 1 次
+# ---------------------------------------------------------------------------
+
+
+async def test_same_device_second_bind_rejected_4102(db_client, db_session):
+    """同 device_id 已在 invite 表出现过（全局）→ 再次绑定返回 4102，不落库。"""
+    inviter1 = await _actor(db_session, "inv-dev-1")
+    inviter2 = await _actor(db_session, "inv-dev-2")
+    b1 = await _actor(db_session, "inv-dev-b1")
+    b2 = await _actor(db_session, "inv-dev-b2")
+    code1 = (await db_client.post("/api/invite", headers=inviter1["headers"], json={})).json()[
+        "data"
+    ]["invite_code"]
+    code2 = (await db_client.post("/api/invite", headers=inviter2["headers"], json={})).json()[
+        "data"
+    ]["invite_code"]
+
+    r1 = await db_client.post(
+        "/api/invite", headers=b1["headers"], json={"invite_code": code1, "device_id": "dev-x"}
+    )
+    assert r1.json()["data"]["bound"] is True
+
+    r2 = await db_client.post(
+        "/api/invite", headers=b2["headers"], json={"invite_code": code2, "device_id": "dev-x"}
+    )
+    assert r2.json()["code"] == ErrorCode.INVITE_ABUSE == 4102  # 防刷拦截
+    assert r2.status_code == 409
+    assert (
+        await db_session.scalar(select(Invite.id).where(Invite.invitee_id == b2["user_id"]))
+    ) is None  # 未落库
+
+    # 换设备可正常绑定（防刷只针对同设备）
+    r3 = await db_client.post(
+        "/api/invite", headers=b2["headers"], json={"invite_code": code2, "device_id": "dev-y"}
+    )
+    assert r3.json()["data"]["bound"] is True
+
+
+# ---------------------------------------------------------------------------
+# 绑定边界：自邀请 / 重复绑定
+# ---------------------------------------------------------------------------
+
+
+async def test_self_invite_rejected(db_client, authed):
+    """绑定自己的邀请码 → 2001。"""
+    code = (await db_client.post("/api/invite", headers=authed["headers"], json={})).json()["data"][
+        "invite_code"
+    ]
+    r = await db_client.post("/api/invite", headers=authed["headers"], json={"invite_code": code})
+    assert r.status_code == 422
+    assert r.json()["code"] == ErrorCode.VALIDATION_ERROR
+
+
+async def test_duplicate_bind_rejected(db_client, db_session):
+    """一人只能被邀请一次（UNIQUE invitee_id）：重复绑定 → 2001。"""
+    inviter1 = await _actor(db_session, "inv-dup-1")
+    inviter2 = await _actor(db_session, "inv-dup-2")
+    invitee = await _actor(db_session, "inv-dup-b")
+    code1 = (await db_client.post("/api/invite", headers=inviter1["headers"], json={})).json()[
+        "data"
+    ]["invite_code"]
+    code2 = (await db_client.post("/api/invite", headers=inviter2["headers"], json={})).json()[
+        "data"
+    ]["invite_code"]
+
+    r1 = await db_client.post(
+        "/api/invite", headers=invitee["headers"], json={"invite_code": code1}
+    )
+    assert r1.json()["data"]["bound"] is True
+    r2 = await db_client.post(
+        "/api/invite", headers=invitee["headers"], json={"invite_code": code2}
+    )
+    assert r2.status_code == 422
+    assert r2.json()["code"] == ErrorCode.VALIDATION_ERROR
+
+
+# ---------------------------------------------------------------------------
+# 废除双方发券：绑定/升档全程无券
+# ---------------------------------------------------------------------------
+
+
+async def test_no_coupons_granted_on_bind(db_client, db_session):
+    """新规则无发券：券池可发也不产生券，pool.granted_count 不变。"""
     pool = CouponPool(
         name="邀请通用券",
         type=1,
@@ -40,149 +283,19 @@ async def _invite_pool(db_session) -> CouponPool:
         total_count=-1,
         granted_count=0,
         status=1,
-        valid_from=datetime.now(UTC) - timedelta(days=1),
-        valid_to=datetime.now(UTC) + timedelta(days=365),
     )
     db_session.add(pool)
     await db_session.commit()
-    return pool
 
-
-async def _photo_once(db_client, db_session, authed: dict) -> None:
-    """被邀请人完成第 1 次拍照记录（走 /api/meal 创建饮食记录）。"""
-    food = Food(
-        name=f"鸡胸肉-{authed['user_id']}",
-        calories_100g=133.0,
-        protein_100g=24.0,
-        fat_100g=3.0,
-        carb_100g=1.0,
-        status=1,
-    )
-    db_session.add(food)
-    db_session.add(
-        BodyProfile(
-            user_id=authed["user_id"],
-            gender=1,
-            height_cm=175,
-            age=30,
-            current_weight=70.0,
-            target_type=1,
-            activity_level=2,
-            goal_pace=1,
-        )
-    )
-    await db_session.commit()
-    resp = await db_client.post(
-        "/api/meal",
-        headers=authed["headers"],
-        json={"meal_type": 2, "food_id": food.id, "amount_g": 100, "source": 1},
-    )
-    assert resp.json()["code"] == 0, resp.text
-
-
-async def _invite_status(db_session, invitee_id: int) -> int:
-    return (
-        await db_session.execute(select(Invite.status).where(Invite.invitee_id == invitee_id))
-    ).scalar_one()
-
-
-# ---------------------------------------------------------------------------
-# CD-02：拍照前无效 / 拍照后转有效；同设备置无效
-# ---------------------------------------------------------------------------
-
-
-async def test_invite_invalid_until_first_photo(db_client, db_session):
-    """绑定成功仅注册态（status=0，进度不计数）；完成第 1 次拍照记录后转有效。"""
-    inviter = await _actor(db_session, "inv-a")
-    invitee = await _actor(db_session, "inv-b")
-    code = (
-        await db_client.post("/api/invite", headers=inviter["headers"], json={})
-    ).json()["data"]["invite_code"]
-
-    bound = await db_client.post(
-        "/api/invite", headers=invitee["headers"], json={"invite_code": code}
-    )
-    assert bound.json()["data"]["bound"] is True
-    assert await _invite_status(db_session, invitee["user_id"]) == 0
-    progress = (
-        await db_client.get("/api/invite/progress", headers=inviter["headers"])
-    ).json()["data"]
-    assert progress["invitee_count"] == 0  # 拍照前无效
-
-    await _photo_once(db_client, db_session, invitee)
-    assert await _invite_status(db_session, invitee["user_id"]) == 1
-    progress = (
-        await db_client.get("/api/invite/progress", headers=inviter["headers"])
-    ).json()["data"]
-    assert progress["invitee_count"] == 1
-    assert progress["next_tier"] == {"need": 1, "reward": "进阶版90天"}  # CD-04 档位文案
-
-
-async def test_same_device_second_bind_marked_invalid(db_client, db_session):
-    """同设备（同 unionid）第二次绑定 → status=2 无效，不计数。"""
-    inviter1 = await _actor(db_session, "inv-dev-1")
-    inviter2 = await _actor(db_session, "inv-dev-2")
-    b1 = await _actor(db_session, "inv-dev-b1", unionid="same-device")
-    b2 = await _actor(db_session, "inv-dev-b2", unionid="same-device")
-
-    code1 = (
-        await db_client.post("/api/invite", headers=inviter1["headers"], json={})
-    ).json()["data"]["invite_code"]
-    code2 = (
-        await db_client.post("/api/invite", headers=inviter2["headers"], json={})
-    ).json()["data"]["invite_code"]
-
-    r1 = await db_client.post(
-        "/api/invite", headers=b1["headers"], json={"invite_code": code1}
-    )
-    assert r1.json()["data"]["bound"] is True
-    r2 = await db_client.post(
-        "/api/invite", headers=b2["headers"], json={"invite_code": code2}
-    )
-    assert r2.json()["data"]["bound"] is True  # 关系落库但标记无效
-    assert await _invite_status(db_session, b2["user_id"]) == 2
-
-    # 拍照不改变无效判定（status=0 的激活只对注册态生效）
-    await _photo_once(db_client, db_session, b2)
-    assert await _invite_status(db_session, b2["user_id"]) == 2
-    progress = (
-        await db_client.get("/api/invite/progress", headers=inviter2["headers"])
-    ).json()["data"]
-    assert progress["invitee_count"] == 0
-
-
-# ---------------------------------------------------------------------------
-# CD-06：生效时刻双方各得 1 张券；券池无券静默跳过
-# ---------------------------------------------------------------------------
-
-
-async def test_invite_grants_coupon_to_both_sides(db_client, db_session):
-    """status 0→1 生效时刻：邀请人与被邀请人各得 1 张平台通用券，granted_count+2。"""
-    pool = await _invite_pool(db_session)
-    inviter = await _actor(db_session, "inv-cpn-a")
-    invitee = await _actor(db_session, "inv-cpn-b")
-    code = (
-        await db_client.post("/api/invite", headers=inviter["headers"], json={})
-    ).json()["data"]["invite_code"]
+    inviter = await _actor(db_session, "inv-nocpn-a")
+    invitee = await _actor(db_session, "inv-nocpn-b")
+    code = (await db_client.post("/api/invite", headers=inviter["headers"], json={})).json()[
+        "data"
+    ]["invite_code"]
     await db_client.post("/api/invite", headers=invitee["headers"], json={"invite_code": code})
 
-    await _photo_once(db_client, db_session, invitee)
-
-    for uid in (inviter["user_id"], invitee["user_id"]):
-        coupons = (
-            (
-                await db_session.execute(
-                    select(Coupon).where(
-                        Coupon.obtain_user_id == uid, Coupon.obtain_way == 1
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        assert len(coupons) == 1
-        assert coupons[0].pool_id == pool.id and coupons[0].status == 1
-        assert coupons[0].merchant_id is None  # 平台通用券
+    coupons = (await db_session.execute(select(Coupon))).scalars().all()
+    assert coupons == []  # 无任何发券
     refreshed = (
         await db_session.execute(
             select(CouponPool)
@@ -190,168 +303,65 @@ async def test_invite_grants_coupon_to_both_sides(db_client, db_session):
             .execution_options(populate_existing=True)
         )
     ).scalar_one()
-    assert refreshed.granted_count == 2
-
-
-async def test_invite_without_available_pool_still_activates(db_client, db_session):
-    """券池无可发券：静默跳过，绑定生效不受阻断。"""
-    inviter = await _actor(db_session, "inv-nopool-a")
-    invitee = await _actor(db_session, "inv-nopool-b")
-    code = (
-        await db_client.post("/api/invite", headers=inviter["headers"], json={})
-    ).json()["data"]["invite_code"]
-    await db_client.post("/api/invite", headers=invitee["headers"], json={"invite_code": code})
-
-    await _photo_once(db_client, db_session, invitee)  # 无任何券池行
-
-    assert await _invite_status(db_session, invitee["user_id"]) == 1
-    coupons = (await db_session.execute(select(Coupon))).scalars().all()
-    assert coupons == []
+    assert refreshed.granted_count == 0
 
 
 # ---------------------------------------------------------------------------
-# CD-03：2/5/10 三档发放（直调 service，等价次日批量任务）
+# tier3 不限次：扣减链路遇 -1 不扣不拦
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("count", "tier", "days"),
-    [(2, 1, 90), (5, 2, 180), (10, 3, None)],
-)
-async def test_tier_grant_by_threshold(db_session, count, tier, days):
-    """有效邀请数达 2/5/10 → tier1/2/3；valid_to=now+90/180d，tier3 永久 NULL。"""
-    inviter = User(openid=f"tier-inv-{count}", gender=1)
-    db_session.add(inviter)
+class _StubLLM:
+    """直调 chat() 用的桩客户端：绕开真实 LLM。"""
+
+    async def achat(self, messages: list[dict]) -> str:
+        return "测试回复"
+
+
+async def test_tier3_unlimited_chat_no_deduct(db_session):
+    """tier3（-1）不限次：余额为 0 也不拦截、不扣减，times_left 响应 int 不变。"""
+    user = User(openid="inv-tier3", gender=1)
+    db_session.add(user)
     await db_session.flush()
-    db_session.add(UserBenefit(user_id=inviter.id, tier=0, ai_times_left=10))
-    for i in range(count):
-        invitee = User(openid=f"tier-inv-{count}-b{i}", gender=1)
-        db_session.add(invitee)
-        await db_session.flush()
-        db_session.add(Invite(inviter_id=inviter.id, invitee_id=invitee.id, status=1))
+    db_session.add(UserBenefit(user_id=user.id, tier=3, ai_times_left=0))
     await db_session.commit()
 
-    upgraded = await isvc.grant_pending_invite_rewards(db_session)
-    assert upgraded == 1
+    from app.services import ai_service
+
+    result = await ai_service.chat(
+        db_session,
+        user_id=user.id,
+        session_id=None,
+        message="今天吃什么",
+        settings=get_settings(),
+        llm_client=_StubLLM(),
+    )
+    assert result.times_left == 0  # 未扣减
     benefit = (
-        await db_session.execute(
-            select(UserBenefit).where(UserBenefit.user_id == inviter.id)
+        await db_session.execute(select(UserBenefit).where(UserBenefit.user_id == user.id))
+    ).scalar_one()
+    assert int(benefit.ai_times_left) == 0  # 不限次不写余额
+
+
+async def test_tier0_exhausted_still_blocked(db_session):
+    """对照：tier0 余额用尽仍返 4001（-1 仅对 tier3 生效）。"""
+    user = User(openid="inv-tier0", gender=1)
+    db_session.add(user)
+    await db_session.flush()
+    # ai_times_reset_at=now：避开 ensure_benefit 的每日重置，验证余额 0 确实被拦
+    db_session.add(UserBenefit(user_id=user.id, tier=0, ai_times_left=0, ai_times_reset_at=_now()))
+    await db_session.commit()
+
+    from app.core.errors import AppException
+    from app.services import ai_service
+
+    with pytest.raises(AppException) as exc_info:
+        await ai_service.chat(
+            db_session,
+            user_id=user.id,
+            session_id=None,
+            message="今天吃什么",
+            settings=get_settings(),
+            llm_client=_StubLLM(),
         )
-    ).scalar_one()
-    assert benefit.tier == tier
-    if days is None:
-        assert benefit.valid_to is None  # 永久·终身教练
-    else:
-        delta = (benefit.valid_to - benefit.valid_from).total_seconds()
-        assert delta == pytest.approx(days * 86400)
-
-
-async def test_tier_grant_boosts_ai_quota(db_session):
-    """达档发放同步把 ai_times_left 提升到该档配额（tier1 → 20，见 TIER_AI_QUOTA【假设】）。
-
-    文档承诺「邀请好友可解锁更多」（主文档 §111/§133/§184）：仅发 tier 不扩 AI 配额
-    时该权益不可达，故在既有「次日批量发放」链路上补齐次数扩容。
-    """
-    inviter = User(openid="tier-quota", gender=1)
-    db_session.add(inviter)
-    await db_session.flush()
-    db_session.add(UserBenefit(user_id=inviter.id, tier=0, ai_times_left=10))
-    for i in range(2):  # 达 tier1 门槛
-        invitee = User(openid=f"tier-quota-b{i}", gender=1)
-        db_session.add(invitee)
-        await db_session.flush()
-        db_session.add(Invite(inviter_id=inviter.id, invitee_id=invitee.id, status=1))
-    await db_session.commit()
-
-    assert await isvc.grant_pending_invite_rewards(db_session) == 1
-    benefit = (
-        await db_session.execute(select(UserBenefit).where(UserBenefit.user_id == inviter.id))
-    ).scalar_one()
-    assert benefit.tier == 1
-    assert benefit.ai_times_left == 20  # tier1 配额（tier0=10 → 20）
-
-
-async def test_below_threshold_keeps_tier0_quota(db_session):
-    """未达档（有效邀请 <2）不发放：tier 保持 0，ai_times_left 保持 10（文档默认值）。"""
-    inviter = User(openid="tier-below", gender=1)
-    db_session.add(inviter)
-    await db_session.flush()
-    db_session.add(UserBenefit(user_id=inviter.id, tier=0, ai_times_left=10))
-    invitee = User(openid="tier-below-b", gender=1)
-    db_session.add(invitee)
-    await db_session.flush()
-    db_session.add(Invite(inviter_id=inviter.id, invitee_id=invitee.id, status=1))
-    await db_session.commit()
-
-    assert await isvc.grant_pending_invite_rewards(db_session) == 0
-    benefit = (
-        await db_session.execute(select(UserBenefit).where(UserBenefit.user_id == inviter.id))
-    ).scalar_one()
-    assert benefit.tier == 0
-    assert benefit.ai_times_left == 10
-
-
-async def test_reward_grant_idempotent_no_stack(db_session):
-    """重复发放不叠加：tier/次数已达标不重写，第二轮 upgraded=0。"""
-    inviter = User(openid="tier-idem", gender=1)
-    db_session.add(inviter)
-    await db_session.flush()
-    db_session.add(UserBenefit(user_id=inviter.id, tier=0, ai_times_left=10))
-    for i in range(2):
-        invitee = User(openid=f"tier-idem-b{i}", gender=1)
-        db_session.add(invitee)
-        await db_session.flush()
-        db_session.add(Invite(inviter_id=inviter.id, invitee_id=invitee.id, status=1))
-    await db_session.commit()
-
-    assert await isvc.grant_pending_invite_rewards(db_session) == 1
-    first = (
-        await db_session.execute(
-            select(UserBenefit).where(UserBenefit.user_id == inviter.id)
-        )
-    ).scalar_one()
-    before = (first.tier, first.valid_from, first.valid_to, first.ai_times_left)
-
-    assert await isvc.grant_pending_invite_rewards(db_session) == 0  # 不降级、不叠加、不重复加次数
-    again = (
-        await db_session.execute(
-            select(UserBenefit).where(UserBenefit.user_id == inviter.id)
-        )
-    ).scalar_one()
-    assert (again.tier, again.valid_from, again.valid_to, again.ai_times_left) == before
-
-
-async def test_tier_upgrade_2_to_5_refreshes_validity(db_session):
-    """有效邀请数 2→5 升档：tier1→tier2 单调升级，valid_from/valid_to 随档位刷新。"""
-    inviter = User(openid="tier-up", gender=1)
-    db_session.add(inviter)
-    await db_session.flush()
-    db_session.add(UserBenefit(user_id=inviter.id, tier=0, ai_times_left=10))
-    for i in range(2):
-        invitee = User(openid=f"tier-up-a{i}", gender=1)
-        db_session.add(invitee)
-        await db_session.flush()
-        db_session.add(Invite(inviter_id=inviter.id, invitee_id=invitee.id, status=1))
-    await db_session.commit()
-
-    assert await isvc.grant_pending_invite_rewards(db_session) == 1
-    benefit = (
-        await db_session.execute(select(UserBenefit).where(UserBenefit.user_id == inviter.id))
-    ).scalar_one()
-    assert benefit.tier == 1
-    first_from, first_to = benefit.valid_from, benefit.valid_to
-
-    for i in range(3):  # 再邀 3 人 → 5 达 tier2
-        invitee = User(openid=f"tier-up-b{i}", gender=1)
-        db_session.add(invitee)
-        await db_session.flush()
-        db_session.add(Invite(inviter_id=inviter.id, invitee_id=invitee.id, status=1))
-    await db_session.commit()
-
-    assert await isvc.grant_pending_invite_rewards(db_session) == 1
-    await db_session.refresh(benefit)  # 确认升级已落库
-    assert benefit.tier == 2
-    assert benefit.valid_from > first_from
-    assert benefit.valid_to > first_to
-    delta = (benefit.valid_to - benefit.valid_from).total_seconds()
-    assert delta == pytest.approx(180 * 86400)
+    assert exc_info.value.code == ErrorCode.QUOTA_EXCEEDED

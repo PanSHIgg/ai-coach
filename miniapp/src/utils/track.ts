@@ -39,8 +39,8 @@ function genDeviceId(): string {
   return `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-/** 读取/初始化持久化 device_id（匿名事件跨端识别依赖） */
-function getDeviceId(): string {
+/** 读取/初始化持久化 device_id（匿名事件跨端识别、邀请绑定防刷依赖） */
+export function getDeviceId(): string {
   try {
     const id = uni.getStorageSync(DEVICE_ID_KEY) as string
     if (id) return id

@@ -163,10 +163,11 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
           return
         }
 
-        // 业务失败：code≠0 → toast 错误信息
+        // 业务失败：code≠0 → toast 错误信息（Error 附带 code，供调用方按错误码分支，如 4102 防刷）
         if (env.code !== 0) {
-          if (!silent) useToast().error({ title: env.message || '操作失败' })
-          reject(new Error(env.message || '操作失败'))
+          const msg = env.message || '操作失败'
+          if (!silent) useToast().error({ title: msg })
+          reject(Object.assign(new Error(msg), { code: env.code }))
           return
         }
 

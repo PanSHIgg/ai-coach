@@ -18,11 +18,12 @@ export function getInviteProgress() {
 
 /**
  * 绑定邀请关系（被邀请人侧调用；silent：已绑定/无效码等失败不弹 toast）
+ * @param deviceId 设备标识（防刷：同设备只计 1 次，后端违规返回 4102）
  */
-export function bindInvite(inviterId: number) {
+export function bindInvite(inviterId: number, deviceId?: string | null) {
   return request<InviteData>('/api/invite', {
     method: 'POST',
-    data: { invite_code: `INV-${inviterId}` },
+    data: { invite_code: `INV-${inviterId}`, device_id: deviceId ?? null },
     silent: true,
   })
 }
