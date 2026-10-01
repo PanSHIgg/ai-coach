@@ -1,11 +1,11 @@
 # current.md · 功能完成情况清单
 
-> **对象**：`develop` 分支（HEAD `99b1295`；代码侧含文档↔代码两轮对齐修复；`docs/` 已恢复至原始基线 `015d736` 并**冻结只读**）
+> **对象**：`develop` 分支（HEAD `3416158`；代码侧含文档↔代码两轮对齐修复 + 本轮两项改造——**N-7** merchant 位置字段 GEOMETRY 化（PostGIS，0008 迁移）/ **D-09** AI Provider 收敛为 LLM/VLM 统一 OpenAI 兼容协议，依据 `docs/changes/2026-10-01-文档矛盾代码对齐决策记录.md` 用户拍板；`docs/` 已恢复至原始基线 `015d736` 并**冻结只读**）
 > **依据**：`docs/AI饮食管控教练_全栈开发交付文档.md`（唯一真源，基线未被改动）
 > **口径**：`[x]` 表示代码已实现且经门禁实跑验证；`[~]` 表示已实现但有已知缺口/偏离；`[ ]` 表示未实现或待决策
 > **处置纪律（AGENTS §7.2）**：①文档对→改代码补测试；②代码做到、文档口径过时/文档自相矛盾→**在此登记，等产品拍板**；③文档要求的 P0 未实现→登记排期。**禁止改文档**。
 > **更新时间**：2026-10-01
-> **本次**：develop 工作区（未提交改动）按 `docs/changes/2026-10-01-邀请规则变更记录.md` 落地邀请新规则（2026-10-01）。
+> **本次**：develop 工作区（未提交改动）落地两项并行改造并完成门禁清账（2026-10-01）：N-7 merchant 位置字段 GEOMETRY 化、D-09 AI Provider 统一 OpenAI 兼容协议；门禁 562 passed / 0 failed / 2 skipped，契约一致性 80 passed，type-check 0 错误，三端 build 全过，alembic head 0008。
 
 ---
 
@@ -39,6 +39,8 @@
 - [x] **生产环境默认密钥守卫**（本轮修复）：`ENV=prod` 且 JWT_SECRET/ADMIN_INIT_PASSWORD 为默认值则拒绝启动
 - [x] **Redis 客户端跨事件循环修复**（本轮修复）：客户端与事件循环绑定，loop 变更即重建
 - [x] **邀请规则变更落地**（本轮）：注册即有效 / INVITE_TIERS=[1,3,10] / 实时生效 / 无期限 / 同设备防刷 4102 / 废除双方发券；删批量调度与有效期字段；0007 迁移。
+- [x] **merchant 位置字段 GEOMETRY 化**（本轮）：PostGIS + 0008 迁移 + GIST 索引 + ST_DistanceSphere，契约入出参 lat/lng 不变。
+- [x] **AI Provider 收敛为 LLM/VLM 统一 OpenAI 兼容协议**（本轮）：LLM_*/VLM_* env 配置，删 8 个厂商适配器。
 
 ### 1.2 前端小程序（uni-app + Vue3 + TS）
 
@@ -80,13 +82,11 @@
 
 ## 二、部分完成 / 有已知缺口（`[~]`，不阻塞但需知悉）
 
-- [~] **AI Provider 选型偏离文档**：文档写「视觉：腾讯云/阿里云；对话+RAG：DeepSeek/通义千问」，实现为 ModelScope Qwen3.8-Flash-Next 统一 VLM；已加配置化 provider（DeepSeek/通义/腾讯云/阿里云适配器），但**云厂商与 DeepSeek/通义为新增适配器，未真机联调**
 - [~] **中文全文检索失真**：按文档原文用 `to_tsvector('simple')`，实测不切中文（`热量` 命中 0 行），每次实际走 `ILIKE` 降级
 - [~] **设计令牌未落地消费**：`tokens.scss` 已定义，但 `miniapp/src` 内 `var(--` 使用 0 次、硬编码 hex 61 处
 - [~] **首页模块**：已按文档 §5.1 补齐评分卡/需要你关注/同款减友/自查工具/最近记录，券提醒已接真实接口（是否与设计稿完全一致未做像素级验收）
 - [~] **冒烟用例数**：文档要求 50 条，实际 55 条（超出，非缺失）
 - [~] **`.env.example` 密钥占位**：`JWT_SECRET=change-me-to-a-random-secret` 仅 28 字节 < 32（RFC 7518）
-- [~] **`.env.example` 注释**：「AI Provider 已废弃」与实现相反
 
 ---
 
@@ -111,6 +111,8 @@
 
 > `docs/` 已恢复基线 `015d736` 并冻结只读。**以下定位一律使用主文档 `docs/AI饮食管控教练_全栈开发交付文档.md`**，行号已按**当前基线**逐条复核。
 > ⚠️ 注意：回滚前的旧稿（`e34c776`）曾把 §7.1 写成「合计 36 表」、§8.3 写成「P0 核心 34 接口」，**当前基线已不含这些字样**（分别变回 31 表 / 30 接口），故旧报告的行号（如 `:936`/`:1371`）已失效；下表为当前有效定位。
+
+> **清账声明（2026-10-01）**：用户拍板（见 `docs/changes/2026-10-01-文档矛盾代码对齐决策记录.md`）：**N-7 已改代码 GEOMETRY 化、D-09 已改代码 OpenAI 兼容统一层**；N-1/N-2/D-01/D-02/D-03/D-04/D-07/N-10/D-08/N-12/D-10 保留代码登记「文档清单/DDL 滞后于文档功能章节」；N-9 遵守 TEE（代码一致）；R-01 已实现；R-02/R-03 二期。下表保留作历史登记，现状以决策记录为准。
 
 **A. 主文档内部自相矛盾（同一文档前后不一致）**
 
@@ -195,3 +197,5 @@
 残留：**F-03/F-06/F-09 三项「未真机验证」**（沙箱无微信凭证）、**R-02/R-03**（文档明示 P1/P2 二期）、**提交动作待用户确认**。
 
 本轮（2026-10-01）邀请规则新口径落地：注册即有效 / INVITE_TIERS=[1,3,10] / 实时生效 / 无期限 / 同设备防刷 4102 / 废除双方发券（0007 迁移 + 契约/TS/Mock/miniapp 同步）。门禁实跑：测试库重建+种子重灌后全量 pytest **574 passed / 0 failed / 2 skipped**（skip 为需真实 Redis 的锁定用例）；契约一致性 **80 passed**（TS 双副本漂移已修复对齐；openapi.yaml 与后端 InviteIn 均含 device_id）；`miniapp` type-check **0 错误**；`build:mp-weixin`/`build:h5`/`admin build` 均 ✓；black/ruff 见 §3.2 存量登记。种子已按 DB-5 重导。
+
+本轮（2026-10-01）两项并行改造收口（N-7 PostGIS GEOMETRY 化 / D-09 OpenAI 兼容统一层，用户拍板见 `docs/changes/2026-10-01-文档矛盾代码对齐决策记录.md`；测试库重建为 `postgis/postgis:16-3.4` 容器 ai-coach-pg）。门禁实跑：全量 pytest **562 passed / 0 failed / 2 skipped**（skip 为需真实 Redis 的锁定用例；较上轮 574 少 12 例，为 D-09 删 8 个厂商适配器带走的对应用例，非回归）；契约一致性 **80 passed**；`miniapp` type-check **0 错误**、`build:mp-weixin`/`build:h5` 均 Build complete；`admin build` ✓；alembic **head 0008**（测试库实查 `merchant.geo = geometry(Point,4326)` + `idx_merchant_geo` GIST，契约入出参 lat/lng 不变）。
