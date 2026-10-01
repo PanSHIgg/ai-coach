@@ -1,0 +1,14 @@
+# 构建上下文瘦身（Dockerfile.backend 仅 COPY backend/，Dockerfile.miniapp 仅需 miniapp/src 等）
+.git
+.github
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+backend/.venv
+backend/htmlcov
+docs
+perf
+data/seeds

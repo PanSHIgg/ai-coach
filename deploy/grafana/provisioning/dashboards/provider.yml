@@ -1,0 +1,14 @@
+# Grafana 看板自动加载（/var/lib/grafana/dashboards 由 compose 挂载 dashboard.json）
+apiVersion: 1
+
+providers:
+  - name: ai-coach
+    orgId: 1
+    folder: AI 饮食管控教练
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

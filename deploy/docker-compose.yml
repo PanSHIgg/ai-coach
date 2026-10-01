@@ -20,6 +20,8 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # 首次初始化自动建表（PostGIS 扩展由镜像提供；001_schema.sql 含 CREATE EXTENSION IF NOT EXISTS）
+      - ../data/sql/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -102,6 +104,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
       REDIS_URL: redis://redis:6379/0
     command: ["sh", "-c", "while true; do python -m app.tasks.snapshot --once || true; sleep 86400; done"]
+    # worker 为循环任务非 HTTP 服务，禁用继承自 Dockerfile 的 /healthz 探活
+    healthcheck:
+      disable: true
     volumes:
       - logs:/var/log/app
     depends_on:
@@ -161,7 +166,8 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafanadata:/var/lib/grafana
-      # 看板 JSON 挂载后手动导入（或后续用 provisioning 目录自动加载）：
+      # provisioning 自动装配数据源与看板（开箱即用，无需手动导入）：
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboard.json:/var/lib/grafana/dashboards/ai-coach-f9.json:ro
     ports:
       - "${GRAFANA_PORT:-3000}:3000"

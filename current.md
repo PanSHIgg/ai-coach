@@ -161,6 +161,7 @@
 
 - [x] **H5 E2E 点击流：21/21 断言 PASS**（playwright + 系统 Chromium）：5 Tab 切换、邀请页新口径文案断言（「注册成功即算有效邀请」「1/3/10」「同设备只计 1 次」）+ 分享按钮交互、AI 对话页、商家列表（`/api/merchant/list` 请求发出）、记录中枢；登录走 mock code2session（`WECHAT_SECRET` 空）+ 后端签发 JWT 注入 localStorage；aiohttp 反代 :8080 同源接入 `/api`。控制台**严重报错 0**；轻微 2 类均为预期降级（监督空数据 3001 的 404 envelope、COS 占位域名 DNS 失败）。辅助脚本/截图留 /tmp 不入仓库
 - [x] **CI 复现（按 `.github/workflows/ci.yml` 三 job 逐条）**：backend **564 passed / 0 failed / 0 skipped**（起真实 redis:7 后原 2 例锁定用例转执行全过；ruff/black 非阻断存量告警与 CI 口径一致）；frontend type-check + `build:mp-weixin`/`build:h5` ✓；admin `npm ci` + build ✓。偏差仅环境性（postgis:16-3.4 镜像替代 postgres:16、Python 3.11 vs 3.12）→ **推送 GitHub Actions / Gitea Actions（同构 runner）将全绿**
+- [x] **docker compose 全栈部署实测**（2026-10-01）：7 服务全部健康（postgres/redis/api/worker/nginx/prometheus/grafana）；补齐部署缺口——postgres 自动初始化 schema（initdb 挂载）、Grafana provisioning 开箱即用（datasource uid=prometheus + 看板自动加载）、Dockerfile PyPI 国内源、nginx 443 块拆分至 `nginx-ssl.conf.example`（无证书环境可启动）、worker 禁用继承的 HTTP 探活；种子导入 + 8 用户全链路流量（登录/建档/记餐/商家 PostGIS 查询/账户）后 Prometheus targets `ai-coach-api up`、`http_requests_total` 等业务指标入采集
 - [ ] 微信开发者工具小程序验收（沙箱无该工具；H5 层交互已覆盖）
 - [ ] admin H5 交互级 E2E（现覆盖：构建 + 后端 API 测试；浏览器点击流未做）
 - [ ] 性能压测 / 兼容性 / 全链路 E2E（`perf/` 有独立报告）
