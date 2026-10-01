@@ -83,7 +83,7 @@
           </view>
         </view>
       </template>
-      <CEmpty v-else icon="📈" text="暂无趋势数据" button-text="去记录" @action="goRecord" />
+      <CEmpty v-else icon="empty-weight" text="暂无趋势数据" button-text="去记录" @action="goRecord" />
     </CCard>
   </view>
 </template>

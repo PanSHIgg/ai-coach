@@ -1,7 +1,7 @@
 <template>
   <view class="bt">
     <view class="bt__head">
-      <text class="bt__title">🏸 约战</text>
+      <text class="bt__title">约战</text>
       <text class="bt__link" @tap="showCreate = !showCreate">{{ showCreate ? '收起' : '发起约战' }}</text>
     </view>
 
@@ -20,7 +20,7 @@
     <CSkeleton v-if="loading && !loaded" type="card" />
     <CError v-else-if="error" @retry="load" />
     <template v-else>
-      <CEmpty v-if="!battles.length" icon="🏸" text="暂无约战" button-text="" />
+      <CEmpty v-if="!battles.length" icon="empty-sport" text="暂无约战" button-text="" />
       <CCard v-for="b in battles" :key="b.id" class="bt__card">
         <text class="bt__name">{{ b.title }}</text>
         <text class="bt__meta">

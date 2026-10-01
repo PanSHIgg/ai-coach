@@ -7,7 +7,7 @@
       <CCard title="拍照识别" class="camera__card">
         <!-- 1. 未选图：引导拍照 / 选择 -->
         <view v-if="!imagePath" class="camera__empty">
-          <view class="camera__empty-icon">📷</view>
+          <image class="camera__empty-icon" src="/static/illustrations/empty-camera.png" mode="aspectFit" />
           <text class="camera__empty-text">拍下这一餐，AI 帮你识别热量</text>
           <CButton block @click="choosePic">选择 / 拍摄照片</CButton>
           <CButton class="camera__manual" type="ghost" block @click="goManual">手动搜索录入</CButton>
@@ -268,12 +268,9 @@ function goLogin() {
   }
 
   &__empty-icon {
-    @include flex-center;
-
-    width: 120rpx;
-    height: 120rpx;
+    width: 176rpx;
+    height: 176rpx;
     margin-bottom: $space-md;
-    font-size: 64rpx;
     background: #f3f4f6;
     border-radius: 50%;
   }

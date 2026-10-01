@@ -34,7 +34,7 @@
       <CCard title="快速记录" class="record__card">
         <view class="grid">
           <view v-for="item in entries" :key="item.label" class="grid__item" @tap="item.action">
-            <text class="grid__icon">{{ item.icon }}</text>
+            <image class="grid__icon" :src="`/static/icons/${item.icon}.png`" mode="aspectFit" />
             <text class="grid__label">{{ item.label }}</text>
           </view>
         </view>
@@ -75,11 +75,11 @@ const stepsText = computed(() => fmt(accountStore.today?.steps ?? 0))
 
 // 聚合入口：拍照识别 / 饮食列表 / 运动 / 步数同步 / 体重
 const entries = [
-  { icon: '📷', label: '拍照记录', action: goCamera },
-  { icon: '🍽️', label: '饮食记录', action: goFoodList },
-  { icon: '🏃', label: '运动记录', action: goSport },
-  { icon: '👟', label: '同步步数', action: onSyncSteps },
-  { icon: '⚖️', label: '体重记录', action: goWeight },
+  { icon: 'ic-camera', label: '拍照记录', action: goCamera },
+  { icon: 'ic-bowl', label: '饮食记录', action: goFoodList },
+  { icon: 'ic-run', label: '运动记录', action: goSport },
+  { icon: 'ic-shoe', label: '同步步数', action: onSyncSteps },
+  { icon: 'ic-scale', label: '体重记录', action: goWeight },
 ]
 
 onShow(() => {
@@ -175,7 +175,8 @@ function goLogin() {
   }
 
   &__icon {
-    font-size: 48rpx;
+    width: 56rpx;
+    height: 56rpx;
   }
 
   &__label {

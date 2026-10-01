@@ -18,7 +18,7 @@
 
     <!-- 3. 订单卡片：商家名/金额/状态/时间 -->
     <CSkeleton v-if="loading && !list.length" type="card" />
-    <CEmpty v-else-if="!list.length" icon="🧾" text="暂无相关订单" button-text="" />
+    <CEmpty v-else-if="!list.length" icon="empty-order" text="暂无相关订单" button-text="" />
     <template v-else>
       <view
         v-for="o in list"

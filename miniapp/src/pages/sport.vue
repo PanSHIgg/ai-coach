@@ -2,9 +2,9 @@
   <view class="sport-tab">
     <!-- 顶部栏：标题 + 通知占位（§5.3 顶部；消息二期接入） -->
     <view class="sport-tab__bar">
-      <text class="sport-tab__title">🏃 运动</text>
+      <text class="sport-tab__title">运动</text>
       <view class="sport-tab__bell" @tap="onNotice">
-        <text class="sport-tab__bell-icon">🔔</text>
+        <image class="sport-tab__bell-icon" src="/static/icons/ic-bell.png" mode="aspectFit" />
       </view>
     </view>
 
@@ -63,7 +63,7 @@
         <template v-else>
           <CEmpty
             v-if="!sports.length"
-            icon="🏃"
+            icon="empty-sport"
             text="今天还没有运动记录"
             button-text="添加运动"
             @action="goAdd"
@@ -79,7 +79,7 @@
       <!-- 4. 周期管理（§5.3-7，跳转挑战赛页 §5.6） -->
       <CCard title="周期管理" class="sport-tab__card">
         <view class="plan">
-          <text class="plan__desc">📅 21 天挑战 / 90 天计划</text>
+          <text class="plan__desc">21 天挑战 / 90 天计划</text>
           <CButton type="ghost" size="sm" @click="goChallenge">查看详情 ›</CButton>
         </view>
       </CCard>
@@ -270,7 +270,8 @@ function onNotice() {
   }
 
   &__bell-icon {
-    font-size: 32rpx;
+    width: 36rpx;
+    height: 36rpx;
   }
 
   &__card {

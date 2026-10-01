@@ -26,8 +26,13 @@
     </CCard>
 
     <!-- 2. 分享海报位（poster_url 有则显示） -->
-    <view v-if="progress?.poster_url" class="invite__poster">
-      <image class="invite__poster-img" :src="progress.poster_url" mode="widthFix" />
+    <view v-if="progress?.poster_url && !posterFailed" class="invite__poster">
+      <image
+        class="invite__poster-img"
+        :src="progress.poster_url"
+        mode="widthFix"
+        @error="posterFailed = true"
+      />
     </view>
 
     <!-- 3. 立即邀请（open-type=share 拉起微信会话分享；分享路径带 inviter_id） -->
@@ -81,6 +86,8 @@ const PENDING_INVITER_KEY = 'pending_inviter_id'
 const userStore = useUserStore()
 const progress = ref<InviteProgressData | null>(null)
 const loading = ref(true)
+/** 海报外链加载失败 → 整块隐藏（不展示破图） */
+const posterFailed = ref(false)
 
 /** 当前权益文案（tier：0基础 1进阶 2高级 3终身，对齐 §5.5） */
 const benefitText = computed(() => {
@@ -101,6 +108,7 @@ async function loadProgress() {
   loading.value = true
   try {
     progress.value = await getInviteProgress()
+    posterFailed.value = false
   } catch (e) {
     // request 层已统一 toast / 401 跳登录；本地保留空态
   } finally {

@@ -22,7 +22,7 @@
       <view v-if="isMock" class="card__mock">示例数据 · 后端暂未连接</view>
 
       <CSkeleton v-if="couponLoading" :rows="3" />
-      <CEmpty v-else-if="!coupons.length" icon="🎟️" text="暂无可用券" button-text="" />
+      <CEmpty v-else-if="!coupons.length" icon="empty-coupon" text="暂无可用券" button-text="" />
       <template v-else>
         <view
           v-for="c in coupons"

@@ -1,6 +1,6 @@
 <template>
   <view class="login">
-    <view class="login__logo">🥗</view>
+    <image class="login__logo" src="/static/logo.png" mode="aspectFit" />
     <text class="login__title">AI 饮食管控教练</text>
     <text class="login__desc">拍一拍，热量全知道</text>
     <CButton class="login__btn" block :loading="loading" @click="onLogin">微信一键登录</CButton>
@@ -104,14 +104,10 @@ async function onLogin() {
   padding: 0 $space-lg;
 
   &__logo {
-    @include flex-center;
-
     width: 160rpx;
     height: 160rpx;
     margin-top: 26vh;
     margin-bottom: $space-lg;
-    font-size: 80rpx;
-    background: $card;
     border-radius: $radius-lg;
     box-shadow: $shadow;
   }

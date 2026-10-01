@@ -5,7 +5,7 @@
       <view class="chat__inner">
         <CEmpty
           v-if="!messages.length"
-          icon="🤖"
+          icon="empty-chat"
           text="饿了能吃什么？今天为什么没瘦？问问 AI 教练"
           button-text=""
         />
@@ -17,7 +17,11 @@
           class="msg"
           :class="m.role === 'user' ? 'msg--user' : 'msg--ai'"
         >
-          <text class="msg__avatar">{{ m.role === 'user' ? '🙋' : '🤖' }}</text>
+          <image
+            class="msg__avatar"
+            :src="m.role === 'user' ? '/static/icons/ic-user.png' : '/static/icons/ic-robot.png'"
+            mode="aspectFit"
+          />
           <view class="msg__bubble">
             <text class="msg__text" :class="{ 'msg__text--error': m.error }">{{ m.text }}</text>
 
@@ -33,15 +37,14 @@
             <view v-if="m.role === 'ai' && !m.error" class="rate">
               <text class="rate__label">{{ m.score ? '感谢你的评价' : '这个回答有帮助吗？' }}</text>
               <view class="rate__stars">
-                <text
+                <image
                   v-for="s in 5"
                   :key="s"
                   class="rate__star"
-                  :class="{ 'rate__star--on': (m.score || 0) >= s }"
+                  :src="(m.score || 0) >= s ? '/static/icons/ic-star.png' : '/static/icons/ic-star-gray.png'"
+                  mode="aspectFit"
                   @tap="onRate(i, s)"
-                >
-                  ★
-                </text>
+                />
               </view>
             </view>
           </view>
@@ -57,11 +60,11 @@
           <text v-for="q in QUICK_QUESTIONS" :key="q" class="chips__item" @tap="onPick(q)">
             {{ q }}
           </text>
-          <text class="chips__item chips__item--sos" @tap="openRescue">🚨 饥饿急救</text>
+          <text class="chips__item chips__item--sos" @tap="openRescue">饥饿急救</text>
         </view>
       </scroll-view>
       <view v-else class="chips chips--single">
-        <text class="chips__item chips__item--sos" @tap="openRescue">🚨 饥饿急救</text>
+        <text class="chips__item chips__item--sos" @tap="openRescue">饥饿急救</text>
       </view>
 
       <!-- 次数提示（06 §1.5：次数用完时输入框上方展示，无法发送） -->
@@ -93,7 +96,7 @@
     <!-- 饥饿急救弹窗（预置话术，不发请求也能给建议） -->
     <view v-if="rescueVisible" class="mask" @tap="closeRescue">
       <view class="rescue" @tap.stop>
-        <text class="rescue__title">🚨 饥饿急救</text>
+        <text class="rescue__title">饥饿急救</text>
         <view v-for="(t, i) in RESCUE_TIPS" :key="i" class="rescue__item">
           <text class="rescue__num">{{ i + 1 }}</text>
           <text class="rescue__text">{{ t }}</text>
@@ -371,11 +374,10 @@ onShow(() => {
     width: 64rpx;
     height: 64rpx;
     margin-right: $space-sm;
-    font-size: 40rpx;
-    line-height: 64rpx;
-    text-align: center;
-    background: #f3f4f6;
+    padding: 12rpx;
+    background: #f0fdf4;
     border-radius: 50%;
+    box-sizing: border-box;
   }
 
   &__bubble {
@@ -458,13 +460,8 @@ onShow(() => {
   }
 
   &__star {
-    font-size: $t-28;
-    line-height: 1;
-    color: $disabled;
-
-    &--on {
-      color: $warn;
-    }
+    width: 36rpx;
+    height: 36rpx;
   }
 }
 

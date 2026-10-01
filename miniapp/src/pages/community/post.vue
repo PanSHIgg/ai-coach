@@ -38,16 +38,24 @@
           <text class="post-card__content">{{ post.content }}</text>
           <view class="post-card__foot">
             <text class="post-card__action" @tap="toggleLike">
-              {{ post.liked ? '❤️' : '🤍' }} {{ post.like_count }}
+              <image
+                class="post-card__act-icon"
+                :src="post.liked ? '/static/icons/ic-heart.png' : '/static/icons/ic-heart-o.png'"
+                mode="aspectFit"
+              />
+              {{ post.like_count }}
             </text>
-            <text class="post-card__action">💬 {{ post.comment_count }}</text>
+            <text class="post-card__action">
+              <image class="post-card__act-icon" src="/static/icons/ic-chat.png" mode="aspectFit" />
+              {{ post.comment_count }}
+            </text>
             <text v-if="post.anonymous" class="post-card__time">匿名</text>
           </view>
         </view>
 
         <view class="post__comments">
           <text class="post__section">评论</text>
-          <CEmpty v-if="!comments.length" icon="💬" text="还没有评论" button-text="" />
+          <CEmpty v-if="!comments.length" icon="empty-chat" text="还没有评论" button-text="" />
           <view v-for="c in comments" :key="c.id" class="comment">
             <text class="comment__name">{{ c.user.nickname }}</text>
             <text class="comment__content">{{ c.content }}</text>
@@ -315,8 +323,16 @@ onLoad((options?: Record<string, string>) => {
   }
 
   &__action {
+    display: flex;
+    align-items: center;
+    gap: 6rpx;
     font-size: $t-24;
     color: $text-2;
+  }
+
+  &__act-icon {
+    width: 30rpx;
+    height: 30rpx;
   }
 }
 

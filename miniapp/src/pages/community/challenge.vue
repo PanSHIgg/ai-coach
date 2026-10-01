@@ -3,9 +3,9 @@
     <CSkeleton v-if="loading && !loaded" type="card" />
     <CError v-else-if="error" @retry="load" />
     <template v-else>
-      <CEmpty v-if="!challenges.length" icon="🔥" text="暂无挑战赛" button-text="" />
+      <CEmpty v-if="!challenges.length" icon="empty-crown" text="暂无挑战赛" button-text="" />
       <CCard v-for="c in challenges" :key="c.id" class="ch__card">
-        <text class="ch__name">🔥 {{ c.title }}</text>
+        <text class="ch__name">{{ c.title }}</text>
         <text class="ch__meta">参与 {{ c.join_count }} 人 · {{ c.status === 2 ? '已结束' : '进行中' }}</text>
         <view class="ch__actions">
           <CButton size="sm" :disabled="c.joined || c.status === 2" @click="join(c)">
@@ -14,7 +14,7 @@
           <CButton size="sm" type="secondary" @click="showBoard(c)">查看排行榜</CButton>
         </view>
         <view v-if="boards[c.id]" class="ch__board">
-          <CEmpty v-if="!boards[c.id].length" icon="🏅" text="暂无排名" button-text="" />
+          <CEmpty v-if="!boards[c.id].length" icon="empty-crown" text="暂无排名" button-text="" />
           <view v-for="e in boards[c.id]" :key="e.user.id" class="ch__row">
             <text class="ch__rank">{{ e.rank }}</text>
             <text class="ch__nick">{{ e.user.nickname }}</text>

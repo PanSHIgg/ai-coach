@@ -4,7 +4,7 @@
     <CError v-else-if="error" @retry="load" />
     <template v-else>
       <CCard v-if="supervise" class="sv__card">
-        <text class="sv__title">👥 我的监督搭子</text>
+        <text class="sv__title">我的监督搭子</text>
         <text class="sv__desc">{{ supervise.partner.nickname }} · 已互相监督 {{ supervise.days }} 天</text>
         <view class="sv__actions">
           <CButton size="sm" type="secondary" @click="remind">提醒打卡</CButton>
@@ -12,14 +12,14 @@
         </view>
       </CCard>
       <CCard v-else class="sv__card">
-        <text class="sv__title">👥 还没有监督搭子</text>
+        <text class="sv__title">还没有监督搭子</text>
         <text class="sv__desc">匹配一个减友，互相监督打卡</text>
         <CButton class="sv__match" :loading="matching" @click="match">匹配搭子</CButton>
       </CCard>
 
       <CCard v-if="showRecords && records" class="sv__card">
         <text class="sv__title">{{ records.partner.nickname }} 的近 7 天</text>
-        <CEmpty v-if="!records.items.length" icon="📈" text="暂无记录" button-text="" />
+        <CEmpty v-if="!records.items.length" icon="empty-weight" text="暂无记录" button-text="" />
         <view v-for="r in records.items" :key="r.date" class="sv__rec">
           <text class="sv__rec-date">{{ r.date }}</text>
           <text class="sv__rec-val">摄入 {{ r.intake.toFixed(0) }} · 步数 {{ r.steps }} · 缺口 {{ r.deficit.toFixed(0) }}</text>

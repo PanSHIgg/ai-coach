@@ -10,9 +10,10 @@
           <image
             v-if="userStore.detail?.avatar_url"
             class="me__avatar"
-            :src="userStore.detail?.avatar_url || ''"
+            :src="userStore.detail?.avatar_url"
+            @error="onAvatarError"
           />
-          <view v-else class="me__avatar me__avatar--icon">🧑</view>
+          <image v-else class="me__avatar" src="/static/avatar-default.png" />
           <view class="me__info">
             <text class="me__nickname">{{ userStore.nickname }}</text>
             <text class="me__tier">当前版本：{{ tierLabel }}</text>
@@ -81,6 +82,10 @@ onShow(() => {
 function goLogin() {
   redirectToLogin()
 }
+/** 外链头像加载失败 → 回退本地默认头像（置空触发 v-else 分支） */
+function onAvatarError() {
+  if (userStore.detail) userStore.detail.avatar_url = ''
+}
 function goEdit() {
   uni.navigateTo({ url: '/pages/profile/edit' })
 }
@@ -128,14 +133,8 @@ function onLogout() {
     width: 96rpx;
     height: 96rpx;
     margin-right: $space-md;
+    background: $bg;
     border-radius: 50%;
-
-    &--icon {
-      @include flex-center;
-
-      font-size: 48rpx;
-      background: $bg;
-    }
   }
 
   &__info {

@@ -20,7 +20,7 @@
     <CSkeleton v-if="loading && !list.length" type="card" />
     <CEmpty
       v-else-if="!list.length"
-      icon="🏪"
+      icon="empty-store"
       text="附近商家正在入驻"
       button-text=""
     />
@@ -31,15 +31,16 @@
         class="m-card"
         @tap="goDetail(m.id)"
       >
-        <!-- 头图占位（cover_url 多为空，渐变块 + emoji） -->
+        <!-- 头图（cover_url 多为空 → 品牌默认插画；外链失败 @error 回退） -->
         <view class="m-card__cover">
           <image
             v-if="m.cover_url"
             class="m-card__img"
             :src="m.cover_url"
             mode="aspectFill"
+            @error="m.cover_url = null"
           />
-          <text v-else class="m-card__cover-icon">{{ iconOf(m.category) }}</text>
+          <image v-else class="m-card__img" src="/static/merchant-default.png" mode="aspectFill" />
         </view>
 
         <view class="m-card__main">
@@ -54,7 +55,10 @@
           </view>
           <view class="m-card__meta">
             <text class="m-card__cat">{{ m.category }}</text>
-            <text class="m-card__rating">⭐ {{ m.rating.toFixed(1) }}</text>
+            <view class="m-card__rating">
+              <image class="m-card__star" src="/static/icons/ic-star.png" mode="aspectFit" />
+              <text>{{ m.rating.toFixed(1) }}</text>
+            </view>
           </view>
           <text class="m-card__dist">{{ fmtDist(m.distance_m) }}</text>
         </view>
@@ -105,12 +109,6 @@ const userLat = ref<number | null>(null)
 const userLng = ref<number | null>(null)
 
 /* ---------- 工具 ---------- */
-
-function iconOf(category: string): string {
-  if (category.includes('健身') || category.includes('运动')) return '🏋️'
-  if (category.includes('轻食') || category.includes('餐') || category.includes('食')) return '🥗'
-  return '🏬'
-}
 
 /** 距离格式化：米 <1000 显示 m，否则 km（字段可空） */
 function fmtDist(distanceM?: number | null): string {
@@ -259,10 +257,6 @@ onReachBottom(() => {
     height: 100%;
   }
 
-  &__cover-icon {
-    font-size: 64rpx;
-  }
-
   &__main {
     flex: 1;
     min-width: 0;
@@ -308,8 +302,16 @@ onReachBottom(() => {
   }
 
   &__rating {
+    display: flex;
+    align-items: center;
+    gap: 4rpx;
     font-size: $t-24;
-    color: $warn;
+    color: $text-1;
+  }
+
+  &__star {
+    width: 26rpx;
+    height: 26rpx;
   }
 
   &__dist {

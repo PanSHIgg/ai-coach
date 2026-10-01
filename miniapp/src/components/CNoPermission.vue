@@ -1,6 +1,6 @@
 <template>
   <view class="c-state">
-    <view class="c-state__icon">{{ icon }}</view>
+    <image class="c-state__illus" :src="`/static/illustrations/${icon}.png`" mode="aspectFit" />
     <text class="c-state__text">{{ text }}</text>
     <CButton v-if="buttonText" size="md" @click="emit('action')">{{ buttonText }}</CButton>
   </view>
@@ -10,6 +10,7 @@
 import CButton from './CButton.vue'
 
 interface Props {
+  /** 未登录插画资产名，渲染 /static/illustrations/{icon}.png */
   icon?: string
   /** 未登录/无权限文案（§5.8：插画 + "登录后查看" + 主按钮"去登录"） */
   text?: string
@@ -17,7 +18,7 @@ interface Props {
 }
 
 withDefaults(defineProps<Props>(), {
-  icon: '🔒',
+  icon: 'empty-lock',
   text: '登录后查看',
   buttonText: '去登录',
 })
@@ -33,15 +34,10 @@ const emit = defineEmits<{
 
   padding: $space-xl $space-lg;
 
-  &__icon {
-    @include flex-center;
-
-    width: 120rpx;
-    height: 120rpx;
+  &__illus {
+    width: 176rpx;
+    height: 176rpx;
     margin-bottom: $space-md;
-    border-radius: 50%;
-    background: #f3f4f6;
-    font-size: 64rpx;
   }
 
   &__text {

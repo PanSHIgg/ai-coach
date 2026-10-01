@@ -15,7 +15,7 @@
     <!-- 未建档引导（§5.1：未建档时首页展示建档引导） -->
     <CCard v-if="userStore.needProfile" class="home__guide">
       <view class="guide">
-        <text class="guide__icon">📋</text>
+        <image class="guide__icon" src="/static/icons/ic-doc.png" />
         <view class="guide__main">
           <text class="guide__title">先建档，才能算出今天还能吃多少</text>
           <text class="guide__desc">填写性别 / 身高 / 体重 / 目标，1 分钟搞定</text>
@@ -58,7 +58,7 @@
     >
       <view v-for="it in attentionItems" :key="it.key" class="att">
         <view class="att__head">
-          <text class="att__dot">{{ it.dot }}</text>
+          <view class="att__dot" :style="{ background: it.dot }" />
           <text class="att__title">{{ it.title }}</text>
           <text class="att__value">{{ it.value }}</text>
         </view>
@@ -90,7 +90,7 @@
       <CError v-else-if="accountStore.error && !accountStore.today" @retry="accountStore.refresh" />
       <CEmpty
         v-else-if="userStore.needProfile || !accountStore.today"
-        icon="📋"
+        icon="empty-food"
         text="建档后展示今日热量账户"
         button-text="去建档"
         @action="goEditProfile"
@@ -149,7 +149,7 @@
           <text class="meal-list__kcal">{{ fmt(m.calories) }} kcal</text>
         </view>
       </view>
-      <CEmpty v-else icon="🍽️" :text="emptyMealText" @action="goCamera" />
+      <CEmpty v-else icon="empty-food" :text="emptyMealText" @action="goCamera" />
     </CCard>
 
     <!-- 运动明细（§5.1-6：步数 + 运动消耗） -->
@@ -180,7 +180,7 @@
       :class="{ 'home__card--dim': userStore.needProfile }"
     >
       <view v-for="m in coreMetrics" :key="m.label" class="core">
-        <text class="core__icon">{{ m.icon }}</text>
+        <image class="core__icon" :src="`/static/icons/${m.icon}.png`" mode="aspectFit" />
         <text class="core__label">{{ m.label }}</text>
         <text class="core__value" :class="{ 'core__value--empty': !m.value }">
           {{ m.value || '--' }}
@@ -222,7 +222,7 @@
     <CCard title="快捷服务" class="home__card">
       <view class="grid">
         <view v-for="item in services" :key="item.label" class="grid__item" @tap="item.action">
-          <text class="grid__icon">{{ item.icon }}</text>
+          <image class="grid__icon" :src="`/static/icons/${item.icon}.png`" mode="aspectFit" />
           <text class="grid__label">{{ item.label }}</text>
         </view>
       </view>
@@ -232,7 +232,7 @@
     <CCard title="券提醒" class="home__card">
       <view v-if="reminderCoupons.length" class="coupon">
         <view v-for="c in reminderCoupons" :key="c.id" class="coupon__row" @tap="goCoupon">
-          <text class="coupon__icon">🎟️</text>
+          <image class="coupon__icon" src="/static/icons/ic-coupon.png" mode="aspectFit" />
           <text class="coupon__name">{{ couponLabel(c) }}</text>
           <text class="coupon__days">{{ daysLeft(c) }} 天后过期</text>
           <text class="coupon__use">去使用 ›</text>
@@ -240,7 +240,7 @@
       </view>
       <view v-else class="coupon">
         <view class="coupon__row coupon__row--empty">
-          <text class="coupon__icon">🎟️</text>
+          <image class="coupon__icon" src="/static/icons/ic-coupon.png" mode="aspectFit" />
           <text class="coupon__name">暂无可用券</text>
         </view>
       </view>
@@ -279,11 +279,13 @@
         </view>
         <text class="recent__food">{{ recentMeal.food_name }}</text>
       </view>
-      <CEmpty v-else icon="📝" text="还没有记录" button-text="去记录" @action="goCamera" />
+      <CEmpty v-else icon="empty-food" text="还没有记录" button-text="去记录" @action="goCamera" />
     </CCard>
 
     <!-- FAB 拍照按钮（§5.1-15，直径 120rpx） -->
-    <view class="fab" @tap="goCamera">📷</view>
+    <view class="fab" @tap="goCamera">
+      <image class="fab__icon" src="/static/icons/ic-camera-white.png" mode="aspectFit" />
+    </view>
   </view>
 </template>
 
@@ -449,7 +451,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
   // 🔴 蛋白质摄入不足 —— 【假设】今日账户无蛋白质字段，按文档示例口径静态展示
   items.push({
     key: 'protein',
-    dot: '🔴',
+    dot: '#ef4444',
     title: '蛋白质摄入不足',
     value: '今日缺口 -15g',
     actions: [
@@ -461,7 +463,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
   if (steps.value < 5000) {
     items.push({
       key: 'sport',
-      dot: '🟡',
+      dot: '#f59e0b',
       title: '运动不足',
       value: `今日 ${fmt(steps.value)} 步`,
       actions: [
@@ -474,7 +476,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
   if (userStore.tier === 0) {
     items.push({
       key: 'member',
-      dot: '🟢',
+      dot: '#22c55e',
       title: '会员到期',
       value: '15 天后',
       actions: [{ label: '续费', run: () => onPlaceholder('会员续费即将上线') }],
@@ -483,7 +485,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
   // 🔵 复查提醒 —— 【假设】无复查接口，静态提醒
   items.push({
     key: 'review',
-    dot: '🔵',
+    dot: '#3b82f6',
     title: '复查提醒',
     value: '30 天后',
     actions: [{ label: '预约复查', run: () => onPlaceholder('预约复查即将上线') }],
@@ -493,7 +495,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
   if (soon) {
     items.push({
       key: 'coupon',
-      dot: '🟠',
+      dot: '#f97316',
       title: '券即将过期',
       value: `${daysLeft(soon)} 天后`,
       actions: [{ label: '去使用', run: goCoupon }],
@@ -525,10 +527,10 @@ const coreMetrics = computed(() => {
   if (!p) {
     // 未建档：灰显占位（值空 → 展示 --）
     return [
-      { icon: '⚖️', label: '体重', value: '', bar: 0, color: '#3b82f6' },
-      { icon: '📊', label: 'BMI', value: '', bar: 0, color: '#3b82f6' },
-      { icon: '🔥', label: '基础代谢', value: '', bar: 0, color: '#3b82f6' },
-      { icon: '🎯', label: '目标体重', value: '', bar: 0, color: '#9ca3af' },
+      { icon: 'ic-scale', label: '体重', value: '', bar: 0, color: '#3b82f6' },
+      { icon: 'ic-chart', label: 'BMI', value: '', bar: 0, color: '#3b82f6' },
+      { icon: 'ic-flame', label: '基础代谢', value: '', bar: 0, color: '#3b82f6' },
+      { icon: 'ic-target', label: '目标体重', value: '', bar: 0, color: '#9ca3af' },
     ]
   }
   const bmiVal = bmi.value
@@ -540,28 +542,28 @@ const coreMetrics = computed(() => {
   const bmr = p.bmr || accountStore.today?.bmr || 0
   return [
     {
-      icon: '⚖️',
+      icon: 'ic-scale',
       label: '体重',
       value: `${p.current_weight.toFixed(1)} kg`,
       bar: clamp((p.current_weight / 120) * 100),
       color: '#3b82f6',
     },
     {
-      icon: '📊',
+      icon: 'ic-chart',
       label: 'BMI',
       value: bmiVal > 0 ? bmiVal.toFixed(1) : '',
       bar: clamp((bmiVal / 35) * 100),
       color: bmiColor,
     },
     {
-      icon: '🔥',
+      icon: 'ic-flame',
       label: '基础代谢',
       value: bmr ? `${Math.round(bmr)} kcal` : '',
       bar: clamp((bmr / 2200) * 100),
       color: '#22c55e',
     },
     {
-      icon: '🎯',
+      icon: 'ic-target',
       label: '目标体重',
       value: p.target_weight != null ? `${p.target_weight.toFixed(1)} kg` : '',
       bar: p.target_weight != null ? clamp((p.target_weight / 120) * 100) : 0,
@@ -608,12 +610,12 @@ const aiTip2 = computed(() =>
 
 /* ---------- 快捷服务 ---------- */
 const services = [
-  { icon: '🔍', label: 'AI 检测', action: goCamera },
-  { icon: '🍽️', label: '吃什么', action: goEat },
-  { icon: '📝', label: '记录', action: goRecord },
-  { icon: '📅', label: '一键预约', action: () => onPlaceholder('一键预约即将上线') },
-  { icon: '🏪', label: '商家比价', action: goMerchant },
-  { icon: '👨‍⚕️', label: '教练问诊', action: () => onPlaceholder('教练问诊即将上线') },
+  { icon: 'ic-robot', label: 'AI 检测', action: goCamera },
+  { icon: 'ic-bowl', label: '吃什么', action: goEat },
+  { icon: 'ic-doc', label: '记录', action: goRecord },
+  { icon: 'ic-calendar', label: '一键预约', action: () => onPlaceholder('一键预约即将上线') },
+  { icon: 'ic-store', label: '商家比价', action: goMerchant },
+  { icon: 'ic-gym', label: '教练问诊', action: () => onPlaceholder('教练问诊即将上线') },
 ]
 
 /* ---------- 生命周期 ---------- */
@@ -802,8 +804,9 @@ function onBmrTest() {
   align-items: center;
 
   &__icon {
+    width: 48rpx;
+    height: 48rpx;
     margin-right: $space-sm;
-    font-size: 44rpx;
   }
 
   &__main {
@@ -883,8 +886,10 @@ function onBmrTest() {
   }
 
   &__dot {
-    margin-right: $space-xs;
-    font-size: $t-24;
+    width: 14rpx;
+    height: 14rpx;
+    margin-right: $space-sm;
+    border-radius: 50%;
   }
 
   &__title {
@@ -1018,8 +1023,9 @@ function onBmrTest() {
   padding: $space-xs 0;
 
   &__icon {
-    width: 44rpx;
-    font-size: 34rpx;
+    width: 40rpx;
+    height: 40rpx;
+    margin-right: $space-xs;
   }
 
   &__label {
@@ -1104,7 +1110,8 @@ function onBmrTest() {
   }
 
   &__icon {
-    font-size: 48rpx;
+    width: 56rpx;
+    height: 56rpx;
   }
 
   &__label {
@@ -1129,8 +1136,9 @@ function onBmrTest() {
   }
 
   &__icon {
+    width: 36rpx;
+    height: 36rpx;
     margin-right: $space-xs;
-    font-size: 34rpx;
   }
 
   &__name {
@@ -1222,9 +1230,13 @@ function onBmrTest() {
   z-index: $z-fab;
   width: 120rpx;
   height: 120rpx;
-  font-size: 56rpx;
   background: $brand;
   border-radius: 50%;
   box-shadow: $shadow-lg;
+
+  &__icon {
+    width: 56rpx;
+    height: 56rpx;
+  }
 }
 </style>

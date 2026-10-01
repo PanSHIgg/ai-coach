@@ -2,8 +2,14 @@
   <view class="detail">
     <!-- 1. 商家头图占位（cover_url 多为空，渐变块占位） -->
     <view class="detail__hero" :class="{ 'detail__hero--img': !!mer?.cover_url }">
-      <image v-if="mer?.cover_url" class="detail__hero-img" :src="mer.cover_url" mode="aspectFill" />
-      <text v-else class="detail__hero-icon">{{ iconOf(mer?.category || '') }}</text>
+      <image
+        v-if="mer?.cover_url"
+        class="detail__hero-img"
+        :src="mer.cover_url"
+        mode="aspectFill"
+        @error="mer.cover_url = null"
+      />
+      <image v-else class="detail__hero-img" src="/static/merchant-default.png" mode="aspectFill" />
     </view>
 
     <CSkeleton v-if="loading" :rows="4" class="detail__body" />
@@ -23,18 +29,21 @@
           </text>
         </view>
         <view class="info__meta">
-          <text class="info__rating">⭐ {{ mer.rating.toFixed(1) }}</text>
+          <view class="info__rating">
+            <image class="info__star" src="/static/icons/ic-star.png" mode="aspectFit" />
+            <text>{{ mer.rating.toFixed(1) }}</text>
+          </view>
           <text class="info__cat">{{ mer.category }}</text>
           <text v-if="mer.distance_m != null" class="info__dist">
             {{ mer.distance_m < 1000 ? `${mer.distance_m}m` : `${(mer.distance_m / 1000).toFixed(1)}km` }}
           </text>
         </view>
         <view v-if="mer.address" class="info__row">
-          <text class="info__row-icon">📍</text>
+          <image class="info__row-icon" src="/static/icons/ic-pin.png" mode="aspectFit" />
           <text class="info__row-text">{{ mer.address }}</text>
         </view>
         <view v-if="mer.phone" class="info__row" @tap="callMerchant">
-          <text class="info__row-icon">📞</text>
+          <image class="info__row-icon" src="/static/icons/ic-phone.png" mode="aspectFit" />
           <text class="info__row-text info__row-text--link">{{ mer.phone }}</text>
           <text class="info__row-action">拨打</text>
         </view>
@@ -43,7 +52,7 @@
       <!-- 4. 在售 SKU：名称/价格/库存 + 数量加减 -->
       <view class="skus">
         <view class="skus__title">在售套餐</view>
-        <CEmpty v-if="!mer.skus.length" icon="🧾" text="商家暂未上架套餐" button-text="" />
+        <CEmpty v-if="!mer.skus.length" icon="empty-order" text="商家暂未上架套餐" button-text="" />
         <view v-for="sku in mer.skus" :key="sku.id" class="sku">
           <view class="sku__main">
             <text class="sku__name">{{ sku.name }}</text>
@@ -152,12 +161,6 @@ const totalAmount = computed(() => {
 
 /* ---------- 工具 ---------- */
 
-function iconOf(category: string): string {
-  if (category.includes('健身') || category.includes('运动')) return '🏋️'
-  if (category.includes('轻食') || category.includes('餐') || category.includes('食')) return '🥗'
-  return '🏬'
-}
-
 function qtyOf(skuId: number): number {
   return selected.value[skuId] || 0
 }
@@ -243,10 +246,6 @@ onLoad((options) => {
   &__hero-img {
     width: 100%;
     height: 100%;
-  }
-
-  &__hero-icon {
-    font-size: 120rpx;
   }
 
   &__body {
@@ -337,8 +336,16 @@ onLoad((options) => {
   }
 
   &__rating {
+    display: flex;
+    align-items: center;
+    gap: 4rpx;
     font-size: $t-24;
-    color: $warn;
+    color: $text-1;
+  }
+
+  &__star {
+    width: 26rpx;
+    height: 26rpx;
   }
 
   &__cat,
@@ -356,7 +363,8 @@ onLoad((options) => {
 
   &__row-icon {
     flex: none;
-    font-size: $t-24;
+    width: 32rpx;
+    height: 32rpx;
   }
 
   &__row-text {

@@ -36,7 +36,7 @@
         <template v-else>
           <CEmpty
             v-if="!sports.length"
-            icon="🏃"
+            icon="empty-sport"
             text="这一天还没有运动记录"
             button-text="添加运动"
             @action="goAdd"

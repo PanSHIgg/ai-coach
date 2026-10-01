@@ -3,7 +3,7 @@
     <CSkeleton v-if="loading && !loaded" type="card" />
     <CError v-else-if="error" @retry="load" />
     <template v-else>
-      <CEmpty v-if="!groups.length" icon="🏃" text="暂无社群" button-text="" />
+      <CEmpty v-if="!groups.length" icon="empty-sport" text="暂无社群" button-text="" />
       <CCard v-for="g in groups" :key="g.id" class="grp__card">
         <text class="grp__name">{{ g.name }}</text>
         <text class="grp__meta">{{ g.category || '兴趣' }} · {{ g.member_count }}人 · {{ g.city || '全国' }}</text>

@@ -18,7 +18,7 @@
 
     <!-- 3. 券卡片：面额/门槛/有效期/状态（已用/过期置灰） -->
     <CSkeleton v-if="loading && !loaded" type="card" />
-    <CEmpty v-else-if="!visible.length" icon="🎟️" text="该分组暂无优惠券" button-text="" />
+    <CEmpty v-else-if="!visible.length" icon="empty-coupon" text="该分组暂无优惠券" button-text="" />
     <template v-else>
       <view
         v-for="c in visible"

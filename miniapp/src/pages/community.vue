@@ -28,7 +28,7 @@
           <text class="rank-row__name">{{ it.user.nickname }}</text>
           <text class="rank-row__score">{{ it.score.toFixed(0) }}</text>
         </view>
-        <CEmpty v-if="!leaderboard.length" icon="🏆" text="暂无榜单数据" button-text="" />
+        <CEmpty v-if="!leaderboard.length" icon="empty-crown" text="暂无榜单数据" button-text="" />
       </CCard>
     </view>
 
@@ -36,7 +36,7 @@
     <view v-else-if="active === 'supervise'" class="community__panel">
       <CCard class="community__card">
         <view class="community__row community__row--head">
-          <text class="community__title">👥 我的监督</text>
+          <text class="community__title">我的监督</text>
           <text class="community__link" @tap="go('/pages/community/supervise')">查看</text>
         </view>
         <template v-if="supervise">
@@ -52,14 +52,14 @@
     <view v-else-if="active === 'group'" class="community__panel">
       <CCard class="community__card">
         <view class="community__row community__row--head">
-          <text class="community__title">🏃 兴趣社群</text>
+          <text class="community__title">兴趣社群</text>
           <text class="community__link" @tap="go('/pages/community/group')">全部</text>
         </view>
         <view v-for="g in groups.slice(0, 3)" :key="g.id" class="community__line" @tap="go('/pages/community/group')">
           <text class="community__line-title">{{ g.name }}</text>
           <text class="community__desc">{{ g.member_count }}人</text>
         </view>
-        <CEmpty v-if="!groups.length" icon="🏃" text="暂无社群" button-text="" />
+        <CEmpty v-if="!groups.length" icon="empty-sport" text="暂无社群" button-text="" />
       </CCard>
     </view>
 
@@ -67,7 +67,7 @@
     <view v-else-if="active === 'battle'" class="community__panel">
       <CCard class="community__card">
         <view class="community__row community__row--head">
-          <text class="community__title">🏸 约战</text>
+          <text class="community__title">约战</text>
           <text class="community__link" @tap="go('/pages/community/battle')">全部 / 发起</text>
         </view>
         <view v-for="b in battles.slice(0, 3)" :key="b.id" class="community__line">
@@ -76,7 +76,7 @@
             {{ b.sport_name || '运动' }} · 缺 {{ Math.max(b.need_count - b.join_count, 0) }} 人
           </text>
         </view>
-        <CEmpty v-if="!battles.length" icon="🏸" text="暂无约战" button-text="" />
+        <CEmpty v-if="!battles.length" icon="empty-sport" text="暂无约战" button-text="" />
       </CCard>
     </view>
 
@@ -84,14 +84,14 @@
     <view v-else-if="active === 'challenge'" class="community__panel">
       <CCard class="community__card">
         <view class="community__row community__row--head">
-          <text class="community__title">🔥 挑战赛</text>
+          <text class="community__title">挑战赛</text>
           <text class="community__link" @tap="go('/pages/community/challenge')">全部</text>
         </view>
         <view v-for="c in challenges.slice(0, 3)" :key="c.id" class="community__line">
           <text class="community__line-title">{{ c.title }}</text>
           <text class="community__desc">参与 {{ c.join_count }} 人 · {{ c.joined ? '已参加' : '未参加' }}</text>
         </view>
-        <CEmpty v-if="!challenges.length" icon="🔥" text="暂无挑战赛" button-text="" />
+        <CEmpty v-if="!challenges.length" icon="empty-crown" text="暂无挑战赛" button-text="" />
       </CCard>
     </view>
 
@@ -105,12 +105,20 @@
         <text class="post-card__content">{{ p.content }}</text>
         <view class="post-card__foot">
           <text class="post-card__action" @tap.stop="toggleLike(p)">
-            {{ p.liked ? '❤️' : '🤍' }} {{ p.like_count }}
+            <image
+              class="post-card__act-icon"
+              :src="p.liked ? '/static/icons/ic-heart.png' : '/static/icons/ic-heart-o.png'"
+              mode="aspectFit"
+            />
+            {{ p.like_count }}
           </text>
-          <text class="post-card__action">💬 {{ p.comment_count }}</text>
+          <text class="post-card__action">
+            <image class="post-card__act-icon" src="/static/icons/ic-chat.png" mode="aspectFit" />
+            {{ p.comment_count }}
+          </text>
         </view>
       </view>
-      <CEmpty v-if="!posts.length" icon="💬" text="还没有动态，发一条吧" button-text="发动态" @action="goPost(0)" />
+      <CEmpty v-if="!posts.length" icon="empty-chat" text="还没有动态，发一条吧" button-text="发动态" @action="goPost(0)" />
     </view>
 
     <CButton v-if="active === 'post'" class="community__fab" size="md" @click="goPost(0)">
@@ -365,8 +373,16 @@ onShow(() => {
   }
 
   &__action {
+    display: flex;
+    align-items: center;
+    gap: 6rpx;
     font-size: $t-24;
     color: $text-2;
+  }
+
+  &__act-icon {
+    width: 30rpx;
+    height: 30rpx;
   }
 }
 

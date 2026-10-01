@@ -2,9 +2,9 @@
   <view class="eat">
     <!-- 1. 顶部栏：标题 + 通知占位（§5.2-1；消息二期接入） -->
     <view class="eat__bar">
-      <text class="eat__title">🍽️ 吃什么</text>
+      <text class="eat__title">吃什么</text>
       <view class="eat__bell" @tap="onNotice">
-        <text class="eat__bell-icon">🔔</text>
+        <image class="eat__bell-icon" src="/static/icons/ic-bell.png" mode="aspectFit" />
       </view>
     </view>
 
@@ -12,9 +12,9 @@
     <view class="eat__entry">
       <text class="eat__entry-label">AI 帮我找吃的</text>
       <view class="eat__entry-row">
-        <CButton class="eat__entry-btn" size="md" @click="goCamera">📷 拍照菜单/货架</CButton>
+        <CButton class="eat__entry-btn" size="md" @click="goCamera">拍照菜单 / 货架</CButton>
         <CButton class="eat__entry-btn" size="md" type="secondary" @click="onVoice">
-          🎙️ 语音输入
+          语音输入
         </CButton>
       </view>
     </view>
@@ -30,7 +30,7 @@
       </template>
       <CEmpty
         v-else
-        icon="🔍"
+        icon="empty-food"
         text="还没有识别结果，拍张菜单或货架试试"
         button-text="去拍照"
         @action="goCamera"
@@ -43,7 +43,7 @@
       <CError v-else-if="recError" @retry="loadRecommend" />
       <CEmpty
         v-else-if="!options.length"
-        icon="🤖"
+        icon="empty-chat"
         text="暂无推荐方案"
         button-text="重新推荐"
         @action="loadRecommend"
@@ -109,7 +109,7 @@
     <!-- 7. 附近商家比价占位（§5.2-7；BE5 Phase 3）；商家已从 Tab 降为普通页（§3.2），此处保留列表入口 -->
     <CCard title="附近商家比价（显示标准套餐）" class="eat__card">
       <CEmpty
-        icon="📍"
+        icon="empty-store"
         text="附近商家比价即将上线"
         button-text="查看附近商家"
         @action="goMerchants"
@@ -120,7 +120,7 @@
     <CCard title="专家问诊" class="eat__card">
       <template v-if="expertUnlocked">
         <view class="expert">
-          <text class="expert__icon">👨‍⚕️</text>
+          <image class="expert__icon" src="/static/icons/ic-gym.png" mode="aspectFit" />
           <view class="expert__main">
             <text class="expert__title">真人健身教练在线确认</text>
             <text class="expert__desc">进阶版 / 高级版可用</text>
@@ -135,7 +135,7 @@
         @action="onConsult"
       >
         <view class="expert expert--dim">
-          <text class="expert__icon">👨‍⚕️</text>
+          <image class="expert__icon" src="/static/icons/ic-gym.png" mode="aspectFit" />
           <view class="expert__main">
             <text class="expert__title">真人健身教练在线确认</text>
             <text class="expert__desc">进阶版 / 高级版可用</text>
@@ -457,7 +457,8 @@ onUnmounted(() => {
   }
 
   &__bell-icon {
-    font-size: 32rpx;
+    width: 36rpx;
+    height: 36rpx;
   }
 
   // 2. AI 帮我找吃的（§4.7 输入框外观 + §5.2-2 大输入框内含两个按钮）
@@ -673,8 +674,9 @@ onUnmounted(() => {
   @include flex-center;
 
   &__icon {
+    width: 56rpx;
+    height: 56rpx;
     margin-right: $space-sm;
-    font-size: 48rpx;
   }
 
   &__main {

@@ -39,7 +39,7 @@
               </view>
             </scroll-view>
           </view>
-          <CEmpty v-else icon="📈" text="还没有体重数据" button-text="" />
+          <CEmpty v-else icon="empty-weight" text="还没有体重数据" button-text="" />
         </template>
       </CCard>
 
@@ -47,7 +47,7 @@
       <CCard title="记录列表" class="weight__card">
         <CSkeleton v-if="loading" type="line" :rows="3" />
         <template v-else>
-          <CEmpty v-if="!records.length" icon="⚖️" text="还没有体重记录" button-text="" />
+          <CEmpty v-if="!records.length" icon="empty-weight" text="还没有体重记录" button-text="" />
           <view v-for="r in records" :key="r.id" class="weight__item">
             <view>
               <text class="weight__item-val">{{ r.weight }} kg</text>

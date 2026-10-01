@@ -1,6 +1,6 @@
 <template>
   <view class="c-state">
-    <view class="c-state__icon">{{ icon }}</view>
+    <image class="c-state__illus" :src="`/static/illustrations/${icon}.png`" mode="aspectFit" />
     <text class="c-state__text">{{ text }}</text>
     <CButton v-if="buttonText" size="md" @click="emit('action')">{{ buttonText }}</CButton>
   </view>
@@ -10,7 +10,7 @@
 import CButton from './CButton.vue'
 
 interface Props {
-  /** 图标占位（§4.5 空状态插画 64rpx；未引 uni-icons 依赖，用 emoji 占位可替换） */
+  /** 空态插画资产名，渲染 /static/illustrations/{icon}.png（§4.5 空状态插画） */
   icon?: string
   /** 空态文案（§5.8：插画 + "还没有记录" + 主按钮"去记录"） */
   text?: string
@@ -19,7 +19,7 @@ interface Props {
 }
 
 withDefaults(defineProps<Props>(), {
-  icon: '🍽️',
+  icon: 'empty-food',
   text: '还没有记录',
   buttonText: '去记录',
 })
@@ -35,16 +35,10 @@ const emit = defineEmits<{
 
   padding: $space-xl $space-lg;
 
-  &__icon {
-    @include flex-center;
-
-    width: 120rpx;
-    height: 120rpx;
+  &__illus {
+    width: 176rpx;
+    height: 176rpx;
     margin-bottom: $space-md;
-    border-radius: 50%;
-    // 【假设】插画底色文档未定义，取灰阶 #F3F4F6
-    background: #f3f4f6;
-    font-size: 64rpx;
   }
 
   &__text {
