@@ -4,12 +4,13 @@
 token 一律经 /api/admin/login 获取（与 C 端 JWT 体系解耦）。
 """
 
+import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
-from app.models import AdminUser, Coupon, Merchant, MerchantSku, Order, User
+from app.models import AdminUser, Coupon, Merchant, MerchantSku, Order, SkuCatalog, User
 
 # sku_catalog 为种子参照数据（FD-001: ¥19-¥32 ...），测试直接引用其 id/区间
 
@@ -72,6 +73,7 @@ async def test_login_success_and_wrong_password(db_client: AsyncClient, admin_au
 
 async def test_admin_endpoints_require_token(db_client: AsyncClient):
     """未带 token 访问任一 admin 接口 -> 1001/401。"""
+    sku_body = {"code": "FD-900", "name": "x", "base_price": 1, "min_price": 1, "max_price": 1}
     cases = [
         ("GET", "/api/admin/merchants", None),
         ("POST", "/api/admin/merchants/1/audit", {"audit_status": 1}),
@@ -81,6 +83,8 @@ async def test_admin_endpoints_require_token(db_client: AsyncClient):
         ("POST", "/api/admin/coupon-pools/1/grant", {"pool_id": 1, "user_id": 1}),
         ("GET", "/api/admin/orders", None),
         ("GET", "/api/admin/dashboard", None),
+        ("POST", "/api/admin/sku-catalog", sku_body),
+        ("PUT", "/api/admin/sku-catalog/1", sku_body),
     ]
     for method, url, json in cases:
         r = await db_client.request(method, url, json=json)
@@ -127,6 +131,109 @@ async def test_admin_sku_catalog(db_client: AsyncClient, admin_authed: dict):
     )
     assert r2.status_code == 200
     assert len(r2.json()["data"]["items"]) == 3
+
+
+@pytest.fixture
+async def created_catalog_codes(db_session: AsyncSession):
+    """登记本用例新建的标准目录编码，用例结束后删除。
+
+    sku_catalog 是种子参照表（conftest 不 TRUNCATE），不清理会污染
+    test_admin_sku_catalog 的「恰好 5 行」断言（重复运行时尤为明显）。
+    """
+    codes: list[str] = []
+    yield codes
+    if codes:
+        await db_session.execute(delete(SkuCatalog).where(SkuCatalog.code.in_(codes)))
+        await db_session.commit()
+
+
+async def test_create_and_update_sku_catalog(
+    db_client: AsyncClient, admin_authed: dict, created_catalog_codes: list[str]
+):
+    """POST 新建（区间合法）+ PUT 编辑；不存在 id -> 3001/404。"""
+    token = (await _login(db_client, admin_authed))["token"]
+    created_catalog_codes.append("FD-901")
+
+    r = await db_client.post(
+        "/api/admin/sku-catalog",
+        json={
+            "code": "FD-901",
+            "name": "测试轻食碗",
+            "category": "标准减脂餐",
+            "calories_low": 300,
+            "calories_high": 480,
+            "base_price": 30.0,
+            "min_price": 25.0,
+            "max_price": 40.0,
+            "unit": "份",
+        },
+        headers=_auth(token),
+    )
+    assert r.status_code == 200 and r.json()["code"] == 0
+    item = r.json()["data"]
+    assert item["code"] == "FD-901" and item["name"] == "测试轻食碗"
+    assert item["min_price"] == 25.0 and item["base_price"] == 30.0 and item["max_price"] == 40.0
+
+    cid = item["id"]
+    r = await db_client.put(
+        f"/api/admin/sku-catalog/{cid}",
+        json={
+            "code": "FD-901",
+            "name": "测试轻食碗(改)",
+            "category": "标准减脂餐",
+            "base_price": 28.0,
+            "min_price": 22.0,
+            "max_price": 38.0,
+            "unit": "盒",
+        },
+        headers=_auth(token),
+    )
+    assert r.status_code == 200 and r.json()["code"] == 0
+    upd = r.json()["data"]
+    assert upd["id"] == cid and upd["name"] == "测试轻食碗(改)" and upd["unit"] == "盒"
+
+    # 编辑不存在的目录项 -> 3001/404
+    r = await db_client.put(
+        "/api/admin/sku-catalog/99999",
+        json={"code": "FD-999", "name": "不存在", "base_price": 1, "min_price": 1, "max_price": 1},
+        headers=_auth(token),
+    )
+    assert r.status_code == 404 and r.json()["code"] == 3001
+
+
+async def test_create_sku_catalog_validation(db_client: AsyncClient, admin_authed: dict):
+    """区间越界 / 缺必填 -> 422/2001；编码重名（引用种子 FD-001）-> 2001/422。"""
+    token = (await _login(db_client, admin_authed))["token"]
+    for body in (
+        {"code": "FD-902", "name": "越界A", "base_price": 20, "min_price": 30, "max_price": 40},
+        {"code": "FD-903", "name": "越界B", "base_price": 50, "min_price": 10, "max_price": 40},
+        {"name": "缺编码", "base_price": 10, "min_price": 10, "max_price": 10},
+        {"code": "FD-904", "name": "", "base_price": 10, "min_price": 10, "max_price": 10},
+    ):
+        r = await db_client.post("/api/admin/sku-catalog", json=body, headers=_auth(token))
+        assert r.status_code == 422, body
+        assert r.json()["code"] == 2001, body
+
+    r = await db_client.post(
+        "/api/admin/sku-catalog",
+        json={"code": "FD-001", "name": "重名", "base_price": 10, "min_price": 10, "max_price": 10},
+        headers=_auth(token),
+    )
+    assert r.status_code == 422 and r.json()["code"] == 2001
+
+
+async def test_sku_catalog_write_denied_for_merchant_role(
+    db_session: AsyncSession, db_client: AsyncClient
+):
+    """role=3 商家账号维护标准目录 -> 403/1002（平台级操作）。"""
+    m = await _create_merchant(db_session, "目录越权店")
+    cred = await _create_role3_admin(db_session, m.id)
+    token = (await _login(db_client, cred))["token"]
+    body = {"code": "FD-905", "name": "越权", "base_price": 10, "min_price": 10, "max_price": 10}
+    for method, url in (("post", "/api/admin/sku-catalog"), ("put", "/api/admin/sku-catalog/1")):
+        r = await getattr(db_client, method)(url, json=body, headers=_auth(token))
+        assert r.status_code == 403, url
+        assert r.json()["code"] == 1002, url
 
 
 # ---- 商家审核 ----
@@ -221,7 +328,7 @@ async def test_upsert_sku_price_out_of_range(
             json={"merchant_id": m.id, "catalog_id": 1, "price": price},
             headers=_auth(token),
         )
-        assert r.status_code == 422, price
+        assert r.status_code == 400, price
         body = r.json()
         assert body["code"] == 2001
         assert "19" in body["message"] and "32" in body["message"]

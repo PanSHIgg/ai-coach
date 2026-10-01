@@ -34,6 +34,12 @@ const router = createRouter({
           meta: { title: '选品定价', roles: [1, 2] },
         },
         {
+          path: 'sku-catalog',
+          name: 'sku-catalog',
+          component: () => import('@/views/SkuCatalogView.vue'),
+          meta: { title: '标准目录', roles: [1, 2] },
+        },
+        {
           path: 'coupon-pools',
           name: 'coupon-pools',
           component: () => import('@/views/CouponPoolsView.vue'),

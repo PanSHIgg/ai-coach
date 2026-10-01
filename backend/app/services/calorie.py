@@ -44,6 +44,12 @@ MET_SIT = 1.0  # 静坐
 STEP_WEIGHT = 0.6  # 步数占比
 STATE_WEIGHT = 0.4  # 状态占比
 
+# ---- 第四层「体重变化·周度反推」校准（04 §6.3.3 第四层，F-07）----
+KCAL_PER_KG = 7700.0  # 1kg 体重 ≈ 7700 kcal（业界常用换算）
+WEEK_PAL_FACTOR_MIN = 0.90  # 修正系数下限（有界，避免发散）
+WEEK_PAL_FACTOR_MAX = 1.10  # 修正系数上限
+WEEK_FACTOR_PER_KG = 0.05  # 每 1kg（实际−预测）偏差 → 5% PAL 修正【假设】
+
 
 def pal_for_level(level: int | None) -> float:
     return PAL_BY_LEVEL.get(level or DEFAULT_ACTIVITY_LEVEL, PAL_BY_LEVEL[DEFAULT_ACTIVITY_LEVEL])
@@ -119,6 +125,45 @@ def calibrate_neat(
         return state, False
     step_val = steps_neat(weight_kg=weight_kg, steps=steps, hourly=hourly)
     return round(STEP_WEIGHT * step_val + STATE_WEIGHT * state, 1), True
+
+
+@dataclass
+class WeeklyCalibration:
+    """周度反推校准结果（第四层，F-07）。"""
+
+    pal_factor: float  # NEAT/PAL 修正系数（有界 0.90~1.10）
+    predicted_change_kg: float  # 按累计缺口预测的体重变化（kg，负=减重）
+    actual_change_kg: float  # 实际体重变化（kg，负=减重）
+    deviation_kg: float  # 实际 − 预测
+    bounded: bool  # 原始系数是否触及上下限（被裁剪）
+
+
+def weekly_neat_calibration(
+    *, actual_change_kg: float, predicted_deficit_kcal: float
+) -> WeeklyCalibration:
+    """NEAT 第四层「体重变化·周度反推」终极校准（纯函数，04 §6.3.3，F-07）。
+
+    口径（【假设】）：
+    - 预测体重变化 = 近一周累计缺口 kcal / 7700（缺口为负 → 预测减重为负）；
+    - 偏差 = 实际体重变化 − 预测体重变化：
+        实际掉秤多于预测（偏差 < 0）→ 真实消耗高于模型 → PAL 上修（系数 > 1）；
+        实际掉秤少于预测/反增（偏差 > 0）→ 真实消耗低于模型 → PAL 下修（系数 < 1）；
+    - 修正系数 = clamp(1 − 偏差kg × 0.05, 0.90, 1.10)，有界避免发散。
+    仅用于「周度」路径修正 NEAT/PAL；**不改 TEE 结构**（TEE=BMR×PAL′+EAT+TEF 由调用方施加）。
+    """
+    predicted = round(float(predicted_deficit_kcal) / KCAL_PER_KG, 3)
+    actual = round(float(actual_change_kg), 3)
+    deviation = round(actual - predicted, 3)
+    raw = 1.0 - deviation * WEEK_FACTOR_PER_KG
+    bounded = raw < WEEK_PAL_FACTOR_MIN or raw > WEEK_PAL_FACTOR_MAX
+    factor = round(min(max(raw, WEEK_PAL_FACTOR_MIN), WEEK_PAL_FACTOR_MAX), 4)
+    return WeeklyCalibration(
+        pal_factor=factor,
+        predicted_change_kg=predicted,
+        actual_change_kg=actual,
+        deviation_kg=deviation,
+        bounded=bounded,
+    )
 
 
 @dataclass

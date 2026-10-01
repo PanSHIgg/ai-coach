@@ -1032,7 +1032,7 @@ async def test_smoke_45_admin_sku_pricing_flow(db_client, db_session, admin_auth
         headers=headers,
         json={"merchant_id": merchant.id, "catalog_id": 1, "price": 999.0},
     )
-    assert bad.status_code == 422 and bad.json()["code"] == 2001
+    assert bad.status_code == 400 and bad.json()["code"] == 2001
 
 
 async def test_smoke_46_admin_coupon_pool_grant_to_user(

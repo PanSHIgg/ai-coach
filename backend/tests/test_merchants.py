@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.models import Merchant, MerchantSku
+from app.models import Merchant, MerchantSku, RedeemLog
+from app.services import merchant_service
 
 TZ = timezone(timedelta(hours=8))
 
@@ -74,7 +75,10 @@ async def test_list_returns_briefs_with_distance(db_client, db_session, authed):
     # 待审/停业不出现；权重排序【假设】拉新分生效：远店创建更晚 → 排前
     assert names == ["远店", "近店"]
     item = body["data"]["items"][0]
-    assert set(item) >= {"id", "name", "category", "distance_m", "rating", "status"}
+    assert set(item) >= {
+        "id", "name", "category", "distance_m", "rating", "status", "partner_level",
+    }
+    assert item["partner_level"] == 0  # 默认普通商家（R-01）
     assert item["distance_m"] > 0 and isinstance(item["distance_m"], int)
     assert item["rating"] == 4.8
     assert body["data"]["page"]["total"] == 2
@@ -178,6 +182,7 @@ async def test_detail_contains_skus(db_client, db_session, authed):
     assert len(data["skus"]) == 1
     assert data["skus"][0]["price"] == 18.0 and data["skus"][0]["stock"] == -1
     assert isinstance(data["lat"], float) and isinstance(data["lng"], float)
+    assert data["partner_level"] == 0  # 合作层级默认普通（R-01）
 
 
 @pytest.mark.parametrize(
@@ -226,3 +231,63 @@ async def test_sku_catalog_returns_seed_with_price_range(db_client, authed):
     assert resp2.status_code == 200 and body2["code"] == 0
     assert len(body2["data"]["items"]) == 3
     assert {it["category"] for it in body2["data"]["items"]} == {"标准减脂餐"}
+
+
+# ---------------------------------------------------------------------------
+# R-01：权重保护 / 清退（§6.3.4）
+# ---------------------------------------------------------------------------
+
+
+async def test_partner_levels_ranking_bands(db_session):
+    """排名分档：5 家同质商家（仅创建时间递减）→ 前 20% 战略 / 前 50% 优选 / 其余普通。"""
+    now = datetime.now(TZ)
+    ms = [
+        await _seed_merchant(db_session, f"M{i}", rating=5.0, created_at=now - timedelta(minutes=i))
+        for i in range(5)
+    ]
+    await db_session.commit()
+
+    levels = await merchant_service.evaluate_partner_levels(db_session)
+    # 权重分降序 = 创建时间新→旧 = id 升序；ceil(0.2*5)=1、ceil(0.5*5)=3
+    assert [levels[m.id] for m in ms] == [2, 1, 1, 0, 0]
+
+
+async def test_partner_levels_ranking_monotonic(db_session):
+    """单调性：10 家 → 名次越靠前层级越高（2/1/0 非递增），不出现低分高档。"""
+    now = datetime.now(TZ)
+    ms = [
+        await _seed_merchant(db_session, f"K{i}", rating=5.0, created_at=now - timedelta(minutes=i))
+        for i in range(10)
+    ]
+    await db_session.commit()
+
+    levels = await merchant_service.evaluate_partner_levels(db_session)
+    ordered = [levels[m.id] for m in ms]
+    # ceil(0.2*10)=2、ceil(0.5*10)=5
+    assert ordered == [2, 2, 1, 1, 1, 0, 0, 0, 0, 0]
+    assert ordered == sorted(ordered, reverse=True)  # 单调不递增
+
+
+async def test_zero_contribution_eviction_and_no_false_eviction(db_session):
+    """零贡献清退：建店满窗口且近 N 天无成功核销 → 清退；有核销/新店不误伤。"""
+    now = datetime.now(TZ)
+    old = now - timedelta(days=30)
+    aged = await _seed_merchant(db_session, "沉默老店", created_at=old)
+    active = await _seed_merchant(db_session, "活跃老店", created_at=old)
+    newbie = await _seed_merchant(db_session, "新店", created_at=now)
+    db_session.add(
+        RedeemLog(merchant_id=active.id, result=1, created_at=now - timedelta(days=1))
+    )
+    await db_session.commit()
+
+    evicted = await merchant_service.evict_zero_contribution(db_session)
+    assert evicted == [aged.id]
+
+    from sqlalchemy import select
+
+    rows = {m.id: m for m in (await db_session.scalars(select(Merchant))).all()}
+    assert rows[aged.id].status == 0 and rows[aged.id].partner_level == 0  # 已清退
+    assert rows[active.id].status == 1  # 有贡献不清退
+    assert rows[active.id].last_contribution_at is not None  # 回填最近贡献时间
+    assert rows[newbie.id].status == 1  # 新店（未满窗口）不清退
+    assert rows[newbie.id].last_contribution_at is None

@@ -1,12 +1,14 @@
-"""提醒订阅测试（BE-n）：幂等 upsert、取消保留累计、行级隔离、调度降级。"""
+"""提醒订阅测试（BE-n + F-06）：幂等 upsert、取消保留累计、行级隔离、调度降级、
+场景模板覆盖、订阅消息无凭证降级、消费者处理入队任务。"""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from sqlalchemy import func, select
 
 from app.core.security import create_access_token
 from app.models import Subscription, User
 from app.services import notification_service
+from app.tasks import reminder_consumer
 
 TZ = timezone(timedelta(hours=8))
 
@@ -112,3 +114,94 @@ async def test_enqueue_due_reminders_degrades_without_redis(db_session, authed):
     # 非提醒窗口 → 空
     off = at.replace(hour=3, minute=0)
     assert await notification_service.enqueue_due_reminders(db_session, at=off) == []
+
+
+def test_scene_templates_cover_documented_scenes():
+    """F-06：场景模板覆盖文档所述 12+ 触发场景，模板 ID 为占位（不可当真实模板用）。"""
+    scenes = notification_service.SCENE_TEMPLATES
+    assert len(scenes) >= 12
+    codes = {s.code for s in scenes.values()}
+    # 文档明示场景：餐前、下午茶防诱惑、深夜防崩塌、超标后运动建议
+    for expected in (
+        "lunch_pre",
+        "dinner_pre",
+        "afternoon_tea_guard",
+        "late_night_guard",
+        "over_intake_sport",
+    ):
+        assert expected in codes
+    # 占位模板 ID → 发送层判定为未配置
+    for scene in scenes.values():
+        assert scene.template_id.endswith(notification_service.PLACEHOLDER_SUFFIX)
+    # 既有 4 类 template_type 定时语义不变
+    assert notification_service.REMINDER_SCHEDULE[1] == time(11, 0)
+    assert notification_service.REMINDER_SCHEDULE[2] == time(17, 0)
+    assert notification_service.REMINDER_SCHEDULE[3] == time(22, 30)
+    assert notification_service.REMINDER_SCHEDULE[4] == time(8, 0)
+
+
+async def test_send_subscribe_message_degrades_without_credentials():
+    """无凭证 → 明确降级为日志记录，sent=False 且 degraded=True，不伪造成功。"""
+    result = await notification_service.send_subscribe_message(1, 1, openid="openid-x")
+    assert result.sent is False
+    assert result.degraded is True
+    assert result.reason == "no_credentials"
+    # 未启用时即使给了模板 ID 覆盖也不发送
+    assert notification_service.subscribe_message_ready() is False
+
+
+async def test_process_reminder_enqueued_task(db_session, authed):
+    """消费者处理入队任务：订阅有效 → 走发送抽象（无凭证则降级）。"""
+    db_session.add(
+        Subscription(
+            user_id=authed["user_id"],
+            template_type=1,
+            status=1,
+            subscribe_count=1,
+            last_subscribe_at=datetime.now(TZ),
+        )
+    )
+    await db_session.commit()
+    payload = {
+        "user_id": authed["user_id"],
+        "template_type": 1,
+        "at": datetime.now(TZ).isoformat(),
+    }
+    result = await reminder_consumer.process_reminder(db_session, payload)
+    assert result.user_id == authed["user_id"]
+    assert result.template_type == 1
+    assert result.sent is False
+    assert result.degraded is True
+
+
+async def test_process_reminder_skips_unsubscribed(db_session, authed):
+    """未订阅（或已退订）的任务 → 不发送，且不算降级。"""
+    payload = {"user_id": authed["user_id"], "template_type": 2, "at": datetime.now(TZ).isoformat()}
+    result = await reminder_consumer.process_reminder(db_session, payload)
+    assert result.sent is False
+    assert result.degraded is False
+    assert result.reason == "unsubscribed"
+
+
+async def test_consume_once_degrades_without_redis(db_session):
+    """Redis 不可达（conftest 钉死不可达端口）→ 消费降级返回空列表，不抛异常。"""
+    assert await reminder_consumer.consume_once(db_session) == []
+
+
+async def test_run_once_offline_processes_pending(db_session, authed):
+    """无 Redis 时 run_once 端到端降级：入队待发 → 进程内直接处理。"""
+    db_session.add(
+        Subscription(
+            user_id=authed["user_id"],
+            template_type=1,
+            status=1,
+            subscribe_count=1,
+            last_subscribe_at=datetime.now(TZ),
+        )
+    )
+    await db_session.commit()
+    at = datetime.now(TZ).replace(hour=11, minute=0, second=0, microsecond=0)
+    results = await reminder_consumer.run_once(db_session, at=at)
+    assert any(
+        r.user_id == authed["user_id"] and r.template_type == 1 and r.degraded for r in results
+    )

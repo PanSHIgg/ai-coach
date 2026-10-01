@@ -1,12 +1,20 @@
 /**
  * account API · 热量账户（今日 / 趋势）
  */
-import type { DailyAccount, AccountTrendData } from '@/types/api'
+import type { DailyAccount, AccountTrendData, TodayStatusIn } from '@/types/api'
 import { request } from './request'
 
 /** 今日热量账户 */
 export function getToday() {
   return request<DailyAccount>('/api/account/today')
+}
+
+/** 写入当日状态（F-01，§2.3.1 五选一）；返回重算后的今日账户 */
+export function setTodayStatus(activity_level: TodayStatusIn['activity_level']) {
+  return request<DailyAccount>('/api/account/today-status', {
+    method: 'POST',
+    data: { activity_level },
+  })
 }
 
 /** 近 N 天趋势（默认 7 天；契约参数为 start_date/end_date，格式 YYYY-MM-DD） */

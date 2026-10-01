@@ -23,6 +23,7 @@ from app.core.errors import AppException
 from app.models import Food, FoodAlias, MealRecord, SportRecord
 from app.schemas.common import ErrorCode, PageMeta
 from app.schemas.record import (
+    FoodCustomData,
     FoodItem,
     FoodSearchData,
     MealCreatedData,
@@ -99,47 +100,63 @@ def _food_item(food: Food) -> FoodItem:
     )
 
 
-async def _search_by_ts(session: AsyncSession, keyword: str, limit: int) -> list[Food]:
+def _visible_clause(user_id: int):
+    """可见性：平台食物（owner 为 NULL）或本人自定义食物（F-02，仅本人可见）。"""
+    return or_(Food.owner_user_id.is_(None), Food.owner_user_id == user_id)
+
+
+async def _search_by_ts(
+    session: AsyncSession, user_id: int, keyword: str, limit: int
+) -> list[Food]:
     ts_query = func.plainto_tsquery("simple", keyword)
     rows = await session.execute(
         select(Food)
-        .where(Food.status == 1, Food.search_vec.op("@@")(ts_query))
+        .where(Food.status == 1, _visible_clause(user_id), Food.search_vec.op("@@")(ts_query))
         .order_by(Food.id)
         .limit(limit)
     )
     return list(rows.scalars().all())
 
 
-async def _search_by_name(session: AsyncSession, keyword: str, limit: int) -> list[Food]:
+async def _search_by_name(
+    session: AsyncSession, user_id: int, keyword: str, limit: int
+) -> list[Food]:
     rows = await session.execute(
         select(Food)
-        .where(Food.status == 1, Food.name.ilike(f"%{keyword}%"))
+        .where(Food.status == 1, _visible_clause(user_id), Food.name.ilike(f"%{keyword}%"))
         .order_by(Food.id)
         .limit(limit)
     )
     return list(rows.scalars().all())
 
 
-async def _search_by_alias(session: AsyncSession, keyword: str, limit: int) -> list[Food]:
+async def _search_by_alias(
+    session: AsyncSession, user_id: int, keyword: str, limit: int
+) -> list[Food]:
     rows = await session.execute(
         select(Food)
         .join(FoodAlias, FoodAlias.food_id == Food.id)
-        .where(Food.status == 1, FoodAlias.alias.ilike(f"%{keyword}%"))
+        .where(Food.status == 1, _visible_clause(user_id), FoodAlias.alias.ilike(f"%{keyword}%"))
         .order_by(Food.id)
         .limit(limit)
     )
     return list(rows.scalars().all())
 
 
-async def search_food(session: AsyncSession, keyword: str, limit: int = 20) -> FoodSearchData:
-    """tsvector + name + alias 联合检索，去重后按命中优先级返回。"""
+async def search_food(
+    session: AsyncSession, user_id: int, keyword: str, limit: int = 20
+) -> FoodSearchData:
+    """tsvector + name + alias 联合检索，去重后按命中优先级返回。
+
+    结果含平台食物 + 本人自定义食物（owner_user_id = user_id），不含他人自定义食物。
+    """
     kw = keyword.strip()
     if not kw:
         return FoodSearchData(items=[], total=0)
     candidates: list[Food] = []
-    candidates += await _search_by_ts(session, kw, limit)
-    candidates += await _search_by_name(session, kw, limit)
-    candidates += await _search_by_alias(session, kw, limit)
+    candidates += await _search_by_ts(session, user_id, kw, limit)
+    candidates += await _search_by_name(session, user_id, kw, limit)
+    candidates += await _search_by_alias(session, user_id, kw, limit)
     merged: dict[int, Food] = {}
     for food in candidates:
         merged.setdefault(food.id, food)
@@ -152,9 +169,34 @@ async def search_food(session: AsyncSession, keyword: str, limit: int = 20) -> F
         Food.id.in_(select(FoodAlias.food_id).where(FoodAlias.alias.ilike(f"%{kw}%"))),
     )
     total = await session.scalar(
-        select(func.count()).select_from(Food).where(Food.status == 1, match_any)
+        select(func.count())
+        .select_from(Food)
+        .where(Food.status == 1, _visible_clause(user_id), match_any)
     )
     return FoodSearchData(items=items, total=int(total or 0))
+
+
+async def create_custom_food(session: AsyncSession, user_id: int, payload) -> FoodCustomData:
+    """新建用户自定义食物：owner=当前用户、audit_status=0（待审），仅本人可见。"""
+    food = Food(
+        name=payload.name,
+        calories_100g=payload.calories_100g,
+        protein_100g=payload.protein_100g,
+        fat_100g=payload.fat_100g,
+        carb_100g=payload.carb_100g,
+        status=1,
+        owner_user_id=user_id,
+        audit_status=0,
+    )
+    session.add(food)
+    await session.flush()  # 拿到 id 并校验约束
+    await session.commit()  # 与 meal 写入一致：请求内提交，后续搜索可见
+    return FoodCustomData(
+        id=food.id,
+        name=food.name,
+        calories_100g=float(food.calories_100g),
+        audit_status=int(food.audit_status),
+    )
 
 
 # ---------------------------------------------------------------------------

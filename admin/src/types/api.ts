@@ -116,6 +116,19 @@ export interface AdminSkuStatusIn {
   status: 0 | 1
 }
 
+/** 标准目录维护入参（contracts/openapi.yaml AdminSkuCatalogIn；F-05） */
+export interface AdminSkuCatalogIn {
+  code: string
+  name: string
+  category?: string | null
+  calories_low?: number | null
+  calories_high?: number | null
+  base_price: number
+  min_price: number
+  max_price: number
+  unit?: string | null
+}
+
 /** 标准 SKU 目录项（contracts/openapi.yaml:2253） */
 export interface CatalogItem {
   id: number

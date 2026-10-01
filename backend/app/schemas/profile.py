@@ -16,8 +16,10 @@ class BodyProfileIn(BaseModel):
     birth_year: int | None = Field(default=None, ge=1900, le=9999)
     current_weight: float = Field(gt=0, le=500)  # kg
     target_weight: float | None = Field(default=None, gt=0, le=500)  # kg
-    target_type: int = Field(ge=1, le=3)  # 1减脂 2增肌 3维持
-    activity_level: int = Field(ge=1, le=5)  # 1卧床 2久坐 3轻度 4中度 5高度
+    # 文档 §13.3：未填默认 1（减脂，每周 0.5kg）；越界仍 422/2001
+    target_type: int = Field(default=1, ge=1, le=3)  # 1减脂 2增肌 3维持
+    # 文档 §13.3：未填默认 2（久坐，PAL 1.4）；越界仍 422/2001
+    activity_level: int = Field(default=2, ge=1, le=5)  # 1卧床 2久坐 3轻度 4中度 5高度
     # goal_pace 写 SMALLINT：档位 0~3；越界前置 422/2001（避免写库溢出 500）
     goal_pace: int | None = Field(default=None, ge=0, le=3)
 

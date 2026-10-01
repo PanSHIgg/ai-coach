@@ -88,13 +88,15 @@ export interface BodyProfileIn {
   birth_year?: number | null;
   current_weight: number; // kg
   target_weight?: number | null;
-  target_type: 1 | 2 | 3; // 1减脂 2增肌 3维持
-  activity_level: 1 | 2 | 3 | 4 | 5;
+  target_type?: 1 | 2 | 3; // 1减脂 2增肌 3维持；未填默认 1（每周 0.5kg）
+  activity_level?: 1 | 2 | 3 | 4 | 5; // 未填默认 2（久坐，PAL 1.4）
   goal_pace?: number | null; // 每周目标 kg 档位
 }
 
 export interface BodyProfileOut extends BodyProfileIn {
   id: number;
+  target_type: 1 | 2 | 3;
+  activity_level: 1 | 2 | 3 | 4 | 5;
   bmr: number; // 基础代谢 kcal
   target_calories: number;
   created_at?: string | null;
@@ -123,7 +125,12 @@ export interface DailyAccount {
   calories_burnt: number;
   calibration_used: boolean;
   today_left: number; // 环形图「还能吃」= BMR×PAL − 摄入 + 运动 − TEF
+  activity_level?: number | null; // 当日已选状态 1卧床..5高度；null=未选，前端据此决定是否弹窗
   meals: MealSummary[];
+}
+
+export interface TodayStatusIn {
+  activity_level: 1 | 2 | 3 | 4 | 5; // 当日所选状态：1卧床 2久坐 3轻度 4中度 5高度
 }
 
 export interface DailyTrendItem {
@@ -159,6 +166,21 @@ export interface FoodItem {
 export interface FoodSearchData {
   items: FoodItem[];
   total: number;
+}
+
+export interface FoodCustomIn {
+  name: string;
+  calories_100g: number; // 每 100g 热量 kcal
+  protein_100g?: number | null;
+  fat_100g?: number | null;
+  carb_100g?: number | null;
+}
+
+export interface FoodCustomData {
+  id: number;
+  name: string;
+  calories_100g: number;
+  audit_status: 0 | 1 | 2; // 0待审 1通过 2驳回；新建恒为 0
 }
 
 export interface RecognizedItem {
@@ -245,6 +267,8 @@ export interface StepsSyncIn {
   date: string;
   steps: number;
   hourly?: Record<string, number>; // 键 0-23
+  encrypted_data?: string; // 微信运动加密数据（uni.getWeRunData）
+  iv?: string; // 加密初始向量（与 encrypted_data 成对）
 }
 
 export interface StepsSyncData {
@@ -304,6 +328,7 @@ export interface MerchantBrief {
   rating: number;
   cover_url?: string | null;
   status: number; // 1营业 0停业
+  partner_level: number; // 合作层级：0普通 1优选合作 2战略合作
 }
 
 export interface SkuOut {

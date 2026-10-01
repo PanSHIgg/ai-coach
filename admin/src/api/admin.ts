@@ -14,7 +14,9 @@ import type {
   AdminMerchantSkuIn,
   AdminReviewData,
   AdminReviewIn,
+  AdminSkuCatalogIn,
   CatalogData,
+  CatalogItem,
   DashboardData,
   OrderPageData,
 } from '@/types/api'
@@ -46,6 +48,16 @@ export function auditMerchant(id: number, data: AdminAuditIn): Promise<unknown> 
 /** 标准目录 GET /api/admin/sku-catalog（管理侧；category 可选） */
 export function getSkuCatalog(category?: string): Promise<CatalogData> {
   return unwrap(client.get('/admin/sku-catalog', { params: category ? { category } : {} }))
+}
+
+/** 新建标准目录项 POST /api/admin/sku-catalog（平台运营维护；重名 2001/422） */
+export function createSkuCatalog(data: AdminSkuCatalogIn): Promise<CatalogItem> {
+  return unwrap(client.post('/admin/sku-catalog', data))
+}
+
+/** 编辑标准目录项 PUT /api/admin/sku-catalog/{id}（平台运营维护；不存在 3001/404） */
+export function updateSkuCatalog(id: number, data: AdminSkuCatalogIn): Promise<CatalogItem> {
+  return unwrap(client.put(`/admin/sku-catalog/${id}`, data))
 }
 
 /** 商家选品定价 POST /api/admin/merchant-skus */

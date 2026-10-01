@@ -93,3 +93,53 @@ def test_cadence_met_mapping():
     assert calorie.steps_neat(weight_kg=70, steps=0, hourly={"9": 500}) == round(2.5 * 70 * 1, 1)
     assert calorie.steps_neat(weight_kg=70, steps=0, hourly={"9": 1500}) == round(4.3 * 70 * 1, 1)
     assert calorie.steps_neat(weight_kg=70, steps=0, hourly={"9": 3000}) == round(8.0 * 70 * 1, 1)
+
+
+# ---------------------------------------------------------------------------
+# F-07：第四层「体重变化·周度反推」校准（04 §6.3.3）
+# ---------------------------------------------------------------------------
+
+
+def test_weekly_calibration_weight_unchanged_lowers_pal():
+    """体重不变但预测为减重（有缺口）→ 真实消耗偏低 → PAL 下修（系数 < 1）。"""
+    # 缺口 -3850 kcal → 预测 -0.5kg；实际 0 → 偏差 +0.5kg
+    r = calorie.weekly_neat_calibration(actual_change_kg=0.0, predicted_deficit_kcal=-3850.0)
+    assert r.predicted_change_kg == -0.5
+    assert r.deviation_kg == 0.5
+    assert r.pal_factor < 1.0
+    assert calorie.WEEK_PAL_FACTOR_MIN <= r.pal_factor <= calorie.WEEK_PAL_FACTOR_MAX
+    assert r.bounded is False
+
+
+def test_weekly_calibration_weight_drop_matches_prediction():
+    """实际下降与预测一致（偏差 0）→ 系数 = 1.0（不改）。"""
+    r = calorie.weekly_neat_calibration(actual_change_kg=-0.5, predicted_deficit_kcal=-3850.0)
+    assert r.deviation_kg == 0.0
+    assert r.pal_factor == 1.0
+    assert r.bounded is False
+
+
+def test_weekly_calibration_weight_gain_lowers_pal_more():
+    """体重上升（偏差进一步为正）→ 下修幅度更大，方向单调。"""
+    unchanged = calorie.weekly_neat_calibration(
+        actual_change_kg=0.0, predicted_deficit_kcal=-3850.0
+    )
+    gained = calorie.weekly_neat_calibration(
+        actual_change_kg=0.3, predicted_deficit_kcal=-3850.0
+    )
+    assert gained.pal_factor < unchanged.pal_factor < 1.0
+    assert calorie.WEEK_PAL_FACTOR_MIN <= gained.pal_factor <= calorie.WEEK_PAL_FACTOR_MAX
+
+
+@pytest.mark.parametrize(
+    "actual_change_kg, expect_factor",
+    [(-5.0, calorie.WEEK_PAL_FACTOR_MAX), (5.0, calorie.WEEK_PAL_FACTOR_MIN)],
+    ids=["clamp-high", "clamp-low"],
+)
+def test_weekly_calibration_is_bounded(actual_change_kg: float, expect_factor: float):
+    """极端偏差 → 系数被裁剪到 [0.90, 1.10]（有界，避免发散）。"""
+    r = calorie.weekly_neat_calibration(
+        actual_change_kg=actual_change_kg, predicted_deficit_kcal=-3850.0
+    )
+    assert r.pal_factor == expect_factor
+    assert r.bounded is True

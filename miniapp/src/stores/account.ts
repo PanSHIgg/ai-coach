@@ -8,8 +8,8 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { DailyAccount } from '@/types/api'
-import { getToday } from '@/api/account'
+import type { DailyAccount, TodayStatusIn } from '@/types/api'
+import { getToday, setTodayStatus as setTodayStatusApi } from '@/api/account'
 
 export const useAccountStore = defineStore('account', () => {
   const today = ref<DailyAccount | null>(null)
@@ -67,6 +67,14 @@ export const useAccountStore = defineStore('account', () => {
     }
   }
 
+  /**
+   * 写入当日状态（F-01，§2.3.1 五选一）并刷新今日账户。
+   * 失败会抛出（由调用方决定是否打扰用户）；成功直接采用接口返回的最新账户。
+   */
+  async function setTodayStatus(level: TodayStatusIn['activity_level']) {
+    today.value = await setTodayStatusApi(level)
+  }
+
   return {
     today,
     loading,
@@ -77,5 +85,6 @@ export const useAccountStore = defineStore('account', () => {
     percent,
     refresh,
     fetchToday,
+    setTodayStatus,
   }
 })

@@ -65,10 +65,12 @@ from app.schemas.admin import (
     AdminMerchantSkuIn,
     AdminReviewData,
     AdminReviewIn,
+    AdminSkuCatalogIn,
     AdminSkuStatusIn,
 )
 from app.schemas.common import ErrorCode, PageMeta
 from app.schemas.coupon import CouponOut
+from app.schemas.merchant import CatalogItem
 from app.schemas.order import OrderBrief, OrderPageData
 
 logger = get_logger(__name__)
@@ -289,7 +291,7 @@ async def upsert_merchant_sku(
 ) -> AdminMerchantSkuData:
     """选品定价 upsert：(merchant_id, catalog_id) 存在则更新，否则插入。
 
-    价格越出目录 [min_price, max_price] -> 2001/422（message 带区间）。
+    价格越出目录 [min_price, max_price] -> 2001/400（业务规则拒绝，HTTP 400；code 仍 2001）。
     并发安全：PG ON CONFLICT（uk_ms 唯一索引）原子 upsert，不再撞 uk_ms 报 500。
     """
     ensure_scope(principal, payload.merchant_id)
@@ -307,6 +309,7 @@ async def upsert_merchant_sku(
         raise AppException(
             ErrorCode.VALIDATION_ERROR,
             f"价格超出目录区间 ¥{catalog.min_price:g}-¥{catalog.max_price:g}",
+            http_status=400,  # 业务规则拒绝：code 仍 2001，HTTP 覆盖为 400
         )
     stmt = pg_insert(MerchantSku).values(
         merchant_id=payload.merchant_id,
@@ -354,6 +357,69 @@ async def set_sku_status(
         raise AppException(ErrorCode.NOT_FOUND, "目录 SKU 不存在")
     await session.commit()
     return _sku_out(sku, merchant, catalog)
+
+
+# ---- 标准目录维护（F-05：平台运营维护，商家只选不建）----
+
+
+def _catalog_out(c: SkuCatalog) -> CatalogItem:
+    return CatalogItem.model_validate(c)
+
+
+async def create_sku_catalog(
+    session: AsyncSession, principal: AdminPrincipal, payload: AdminSkuCatalogIn
+) -> CatalogItem:
+    """新建标准目录项；仅超管/运营（role 1/2）。code 重名 -> 2001/422。"""
+    ensure_manager(principal)
+    dup = await session.scalar(select(SkuCatalog.id).where(SkuCatalog.code == payload.code))
+    if dup is not None:
+        raise AppException(ErrorCode.VALIDATION_ERROR, f"目录编码 {payload.code} 已存在")
+    catalog = SkuCatalog(
+        code=payload.code,
+        name=payload.name,
+        category=payload.category,
+        calories_low=payload.calories_low,
+        calories_high=payload.calories_high,
+        base_price=payload.base_price,
+        min_price=payload.min_price,
+        max_price=payload.max_price,
+        unit=payload.unit,
+    )
+    session.add(catalog)
+    await session.commit()
+    await session.refresh(catalog)
+    return _catalog_out(catalog)
+
+
+async def update_sku_catalog(
+    session: AsyncSession, principal: AdminPrincipal, catalog_id: int, payload: AdminSkuCatalogIn
+) -> CatalogItem:
+    """编辑标准目录项；仅超管/运营。不存在 3001/404，code 与其它项重名 2001/422。"""
+    ensure_manager(principal)
+    catalog = (
+        await session.execute(select(SkuCatalog).where(SkuCatalog.id == catalog_id))
+    ).scalar_one_or_none()
+    if catalog is None:
+        raise AppException(ErrorCode.NOT_FOUND, "目录 SKU 不存在")
+    dup = await session.scalar(
+        select(SkuCatalog.id).where(
+            SkuCatalog.code == payload.code, SkuCatalog.id != catalog_id
+        )
+    )
+    if dup is not None:
+        raise AppException(ErrorCode.VALIDATION_ERROR, f"目录编码 {payload.code} 已存在")
+    catalog.code = payload.code
+    catalog.name = payload.name
+    catalog.category = payload.category
+    catalog.calories_low = payload.calories_low
+    catalog.calories_high = payload.calories_high
+    catalog.base_price = payload.base_price
+    catalog.min_price = payload.min_price
+    catalog.max_price = payload.max_price
+    catalog.unit = payload.unit
+    await session.commit()
+    await session.refresh(catalog)
+    return _catalog_out(catalog)
 
 
 # ---- 券池 ----

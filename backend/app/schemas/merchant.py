@@ -17,6 +17,7 @@ class MerchantBrief(BaseModel):
     rating: float
     cover_url: Optional[str] = None
     status: int  # 1营业 0停业
+    partner_level: int = 0  # 合作层级：0普通 1优选合作 2战略合作（§6.3.4，R-01）
 
 
 class SkuOut(BaseModel):
@@ -41,6 +42,7 @@ class MerchantDetail(BaseModel):
     rating: float
     status: int  # 1营业 0停业
     distance_m: Optional[int] = None
+    partner_level: int = 0  # 合作层级：0普通 1优选合作 2战略合作（§6.3.4，R-01）
     skus: list[SkuOut] = []
 
 

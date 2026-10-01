@@ -213,6 +213,66 @@ paths:
           $ref: '#/components/responses/Validation422'
         '500':
           $ref: '#/components/responses/ServerError'
+  /api/account/today-status:
+    post:
+      tags: [热量账户]
+      summary: 写入当日状态（卧床/久坐/轻度/中度/高度五选一）
+      operationId: setAccountTodayStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TodayStatusIn'
+      responses:
+        '200':
+          description: 写入成功并返回重算后的今日账户（当日 PAL/NEAT 取所选状态）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DailyAccount'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/food/custom:
+    post:
+      tags: [记录]
+      summary: 新建用户自定义食物（仅本人可见，待审核）
+      operationId: createCustomFood
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FoodCustomIn'
+      responses:
+        '200':
+          description: 创建成功（audit_status 恒为 0 待审）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FoodCustomData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
   /api/food/search:
     post:
       tags: [记录]
@@ -1969,7 +2029,7 @@ paths:
   /api/admin/merchant-skus:
     post:
       tags: [管理]
-      summary: 商家选品定价（已存在则更新价格/库存；价格越出目录区间 → 2001/422）
+      summary: 商家选品定价（已存在则更新价格/库存；价格越出目录区间 → 2001/400）
       operationId: adminUpsertMerchantSku
       requestBody:
         required: true
@@ -1990,6 +2050,16 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/AdminMerchantSkuData'
+        '400':
+          description: 价格超出目录区间（code=2001，message 带 [min_price, max_price]）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      code: { const: 2001 }
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -2203,6 +2273,73 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [管理]
+      summary: 新建标准目录项（平台运营维护，商家只选不建；重名 2001/422）
+      operationId: adminCreateSkuCatalog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminSkuCatalogIn'
+      responses:
+        '200':
+          description: 新建的目录项
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CatalogItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/sku-catalog/{id}:
+    put:
+      tags: [管理]
+      summary: 编辑标准目录项（平台运营维护；不存在 3001/404，重名 2001/422）
+      operationId: adminUpdateSkuCatalog
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminSkuCatalogIn'
+      responses:
+        '200':
+          description: 编辑后的目录项
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CatalogItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
         '500':
           $ref: '#/components/responses/ServerError'
   # ---- Phase 1 新增（plan.md §7：BE-w 体重 / BE-n 提醒订阅 / 登录刷新）----
@@ -2716,15 +2853,23 @@ components:
       enum: [1, 2, 3, 4, 5]
     BodyProfileIn:
       type: object
-      required: [gender, height_cm, current_weight, target_type, activity_level]
+      required: [gender, height_cm, current_weight]
       properties:
         gender: { enum: [1, 2], description: 1男 2女, type: integer }
         height_cm: { type: number, exclusiveMinimum: 0, maximum: 200, example: 175.0 }
         birth_year: { type: integer, nullable: true, minimum: 1900, maximum: 9999, example: 1995, description: 服务端额外校验出生年份对应年龄在10至120岁之间（即当前年份-120至当前年份-10），不符合时返回业务码2001 }
         current_weight: { type: number, exclusiveMinimum: 0, maximum: 500, description: kg, example: 75.5 }
         target_weight: { type: number, nullable: true, exclusiveMinimum: 0, maximum: 500, description: kg }
-        target_type: { $ref: '#/components/schemas/TargetType' }
-        activity_level: { $ref: '#/components/schemas/ActivityLevel' }
+        target_type:
+          allOf:
+            - $ref: '#/components/schemas/TargetType'
+          default: 1
+          description: 未填默认 1（减脂，每周 0.5kg）
+        activity_level:
+          allOf:
+            - $ref: '#/components/schemas/ActivityLevel'
+          default: 2
+          description: 未填默认 2（久坐，PAL 1.4）
         goal_pace:
           type: integer
           nullable: true
@@ -2773,10 +2918,16 @@ components:
         calories_burnt: { type: number, description: 运动消耗 kcal }
         calibration_used: { type: boolean }
         today_left: { type: number, description: 环形图「还能吃」= BMR×PAL − 摄入 + 运动 − TEF }
+        activity_level: { type: integer, nullable: true, minimum: 1, maximum: 5, description: '当日已选状态（1卧床..5高度）；null=未选，前端据此决定是否弹「今天什么状态」' }
         meals:
           type: array
           items:
             $ref: '#/components/schemas/MealSummary'
+    TodayStatusIn:
+      type: object
+      required: [activity_level]
+      properties:
+        activity_level: { type: integer, minimum: 1, maximum: 5, description: 当日所选状态 1卧床 2久坐 3轻度 4中度 5高度 }
     DailyTrendItem:
       type: object
       required: [date, intake, tee, deficit]
@@ -2821,6 +2972,23 @@ components:
           items:
             $ref: '#/components/schemas/FoodItem'
         total: { type: integer }
+    FoodCustomIn:
+      type: object
+      required: [name, calories_100g]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128, description: 自定义食物名称 }
+        calories_100g: { type: number, exclusiveMinimum: 0, maximum: 1000, description: 每 100g 热量 kcal }
+        protein_100g: { type: number, nullable: true, minimum: 0, maximum: 100 }
+        fat_100g: { type: number, nullable: true, minimum: 0, maximum: 100 }
+        carb_100g: { type: number, nullable: true, minimum: 0, maximum: 100 }
+    FoodCustomData:
+      type: object
+      required: [id, name, calories_100g, audit_status]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        calories_100g: { type: number, description: 每 100g 热量 kcal }
+        audit_status: { type: integer, enum: [0, 1, 2], description: '0待审 1通过 2驳回；新建恒为 0' }
     RecognizedItem:
       type: object
       required: [food_id, name, confidence, amount_g, calories]
@@ -2947,6 +3115,12 @@ components:
           description: 逐时步数（键为 0-23 小时），用于校准
           propertyNames: { pattern: '^([0-9]|1[0-9]|2[0-3])$' }
           additionalProperties: { type: integer, minimum: 0, maximum: 200000 }
+        encrypted_data:
+          type: string
+          description: 微信运动加密数据（uni.getWeRunData）；有则后端尝试 AES-128-CBC 解密
+        iv:
+          type: string
+          description: 微信运动加密初始向量（与 encrypted_data 成对出现）
     StepsSyncData:
       type: object
       required: [neat_calibrated, met, delta_calories]
@@ -3020,6 +3194,7 @@ components:
         rating: { type: number }
         cover_url: { type: string, nullable: true }
         status: { type: integer, description: 1营业 0停业 }
+        partner_level: { type: integer, description: 合作层级：0普通 1优选合作 2战略合作（§6.3.4） }
     SkuOut:
       type: object
       required: [id, name, price]
@@ -3042,6 +3217,7 @@ components:
         rating: { type: number }
         status: { type: integer, description: 1营业 0停业 }
         distance_m: { type: integer, nullable: true }
+        partner_level: { type: integer, description: 合作层级：0普通 1优选合作 2战略合作（§6.3.4） }
         skus:
           type: array
           items:
@@ -3645,6 +3821,20 @@ components:
       required: [status]
       properties:
         status: { type: integer, enum: [0, 1], description: 1上架 0下架 }
+    AdminSkuCatalogIn:
+      type: object
+      description: 标准目录维护入参（F-05：平台运营维护，商家只选不建）；须满足 min_price <= base_price <= max_price
+      required: [code, name, base_price, min_price, max_price]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 32, example: FD-001 }
+        name: { type: string, minLength: 1, maxLength: 128 }
+        category: { type: string, nullable: true, maxLength: 64 }
+        calories_low: { type: integer, nullable: true, minimum: 0 }
+        calories_high: { type: integer, nullable: true, minimum: 0 }
+        base_price: { type: number, minimum: 0, description: 基准价（元） }
+        min_price: { type: number, minimum: 0, description: 限价下限（元） }
+        max_price: { type: number, minimum: 0, description: 限价上限（元） }
+        unit: { type: string, nullable: true, maxLength: 32, example: 份 }
     AdminCouponPoolIn:
       type: object
       required: [name, type, scope, total_count]

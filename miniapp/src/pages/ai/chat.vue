@@ -270,7 +270,7 @@ function onRate(index: number, score: number) {
  * 对话失败处理：
  * - 4001 次数用尽 → 次数置 0 并展示「邀请好友解锁」（文案由后端 message 给出）
  * - 网络层失败 → 保留 request.ts 原始提示
- * - 其余（6001 AI 不可用 / 超时）→ 降级提示「AI 正在思考，稍后再问」（06 §1.4）
+ * - 其余（6001 AI 不可用 / 超时）→ 展示后端降级返回的预设 FAQ 文案；msg 为空才回退固定提示（§2.4/§13.3）
  * - 1001/HTTP 401 已由 request.ts 静默刷新失败后 reLaunch 登录页，此处不再处理
  */
 function handleChatError(e: unknown) {
@@ -282,13 +282,9 @@ function handleChatError(e: unknown) {
     loadTimes()
     return
   }
-  const text = NETWORK_KEYWORDS.some((k) => msg.includes(k)) ? msg || '网络开小差了，请稍后重试' : AI_BUSY_TEXT
+  // 6001 降级：后端 message 即预设 FAQ 文案，优先展示，不再用固定话术覆盖（避免吞掉 FAQ）
+  const text = NETWORK_KEYWORDS.some((k) => msg.includes(k)) ? msg || '网络开小差了，请稍后重试' : msg || AI_BUSY_TEXT
   pushMessage({ role: 'ai', text, error: true })
-  if (text === AI_BUSY_TEXT) {
-    // 覆盖 request.ts 已弹出的后端原始文案，保证用户看到的是约定降级话术
-    uni.hideToast()
-    toast.info({ title: AI_BUSY_TEXT })
-  }
 }
 
 /* ---------- 饥饿急救弹窗 ---------- */

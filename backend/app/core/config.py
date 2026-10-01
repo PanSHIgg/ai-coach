@@ -43,6 +43,20 @@ class Settings(BaseSettings):
     WECHAT_PAY_KEY: str = ""
     PAY_MOCK_MODE: bool = False  # 沙箱支付：pay 即推进支付成功（生产必须 false）
 
+    # ---- 微信订阅消息（F-06 AI 主动介入推送）----
+    # 复用上方 WECHAT_APPID/WECHAT_SECRET 作为凭证；以下两项为订阅消息专属。
+    # 总开关：默认 False → 一律降级为日志记录，绝不静默伪造发送成功。
+    WECHAT_SUBSCRIBE_ENABLED: bool = False
+    # 模板 ID 映射（占位）：逗号分隔 "template_type:template_id"，如 "1:TPL_xx,2:TPL_yy"；
+    # 留空/未覆盖的场景回落 notification_service.SCENE_TEMPLATES 的占位 ID（判定为未配置）。
+    WECHAT_SUBSCRIBE_TEMPLATE_IDS: str = ""
+
+    # ---- 微信运动步数解密（F-09）----
+    # uni.getWeRunData 的 encryptedData 解密所需 session_key（AES-128-CBC 密钥，base64）。
+    # 真实实现应由 code2session 获取并按用户落库读取；骨架阶段以可选配置占位，默认空
+    # → 无凭证时明确降级（不伪造步数，由前端回退传 0 → 后端按 PAL 估算 NEAT）。
+    WECHAT_STEPS_SESSION_KEY: str = ""
+
     # ---- 腾讯云 COS ----
     COS_SECRET_ID: str = ""
     COS_SECRET_KEY: str = ""

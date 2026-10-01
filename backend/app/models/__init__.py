@@ -160,6 +160,11 @@ class Food(Base):
     gi: Mapped[int | None] = mapped_column(SmallInteger)
     is_standard: Mapped[bool] = mapped_column(Boolean, server_default="false", default=False)
     status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    # 用户自定义食物（F-02）：平台食物 owner 为 NULL；自定义食物仅本人可见
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"), index=True)
+    audit_status: Mapped[int] = mapped_column(
+        SmallInteger, server_default="0", default=0
+    )  # 0待审 1通过 2驳回（仅自定义食物有业务含义）
     # 生成列（GENERATED ALWAYS ... STORED）：只读映射，写入时由数据库维护
     search_vec: Mapped[str | None] = mapped_column(
         TSVECTOR,
@@ -265,6 +270,9 @@ class DailySnapshot(Base):
         Numeric(8, 1, asdecimal=False), server_default="0", default=0
     )
     calibration_used: Mapped[bool] = mapped_column(Boolean, server_default="false", default=False)
+    # 当日所选活动状态：1卧床 2久坐 3轻度 4中度 5高度；NULL=未选（回退建档 activity_level）。
+    # NEAT 四层融合第一层「状态选择（粗调）」（§2.3.1 / §6.3.3，F-01，0006 迁移加列）。
+    activity_level: Mapped[int | None] = mapped_column(SmallInteger)
     created_at: Mapped[datetime] = _ts()
 
 
@@ -364,6 +372,12 @@ class Merchant(Base):
     contribution_points: Mapped[int] = mapped_column(
         Integer, server_default="0", default=0
     )  # 贡献分：核销成功累计（每单 +1，0003 迁移加列）
+    partner_level: Mapped[int] = mapped_column(
+        SmallInteger, server_default="0", default=0
+    )  # 合作层级：0普通 1优选合作 2战略合作（R-01，0005 迁移加列）
+    last_contribution_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )  # 最近一次贡献（成功核销）时间；连续零贡献清退判定依据（R-01）
     created_at: Mapped[datetime] = _ts()
 
 

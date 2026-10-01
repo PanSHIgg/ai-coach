@@ -121,7 +121,7 @@ const QTY_CAP = 9
 const MOCK_DETAILS: MerchantDetail[] = [
   {
     id: 101, name: '轻食盒子（科技园店）', category: '轻食', distance_m: 450, rating: 4.8,
-    cover_url: null, status: 1, phone: '0755-88881001',
+    cover_url: null, status: 1, partner_level: 2, phone: '0755-88881001',
     address: '南山区科技园南区 A 座 1 层',
     skus: [
       { id: 1, name: '高蛋白餐（鸡胸/牛肉任选）', price: 28, stock: 50 },
@@ -131,7 +131,7 @@ const MOCK_DETAILS: MerchantDetail[] = [
   },
   {
     id: 103, name: '超级猩猩健身（南山店）', category: '健身房', distance_m: 1200, rating: 4.7,
-    cover_url: null, status: 1, phone: '0755-88882003',
+    cover_url: null, status: 1, partner_level: 1, phone: '0755-88882003',
     address: '南山区海岸城 3 层',
     skus: [
       { id: 11, name: '单次团课（操课/单车）', price: 50, stock: 20 },

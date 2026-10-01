@@ -5,6 +5,7 @@
  *   POST /api/order               创建订单（金额服务端重算）
  *   POST /api/order/{id}/pay      微信支付预下单
  *   POST /api/order/{id}/redeem   核销（核销码唯一）
+ *   POST /api/order/{id}/refund   申请退款（2 已支付待核销 → 5 已退款）
  *   GET  /api/order/list          我的订单（status 可选）
  *   GET  /api/coupon/list         我的券（status/scope 可选）
  */
@@ -16,6 +17,7 @@ import type {
   CouponPageData,
   RedeemIn,
   RedeemData,
+  RefundData,
 } from '@/types/api'
 import { request } from './request'
 
@@ -51,4 +53,9 @@ export function getCoupons(params?: {
 /** 核销（商家侧扫码；用户侧仅展示核销码，此处按契约封装备用） */
 export function redeemOrder(id: number, data: RedeemIn) {
   return request<RedeemData>(`/api/order/${id}/redeem`, { method: 'POST', data })
+}
+
+/** 申请退款（2 已支付待核销 → 5 已退款；后端幂等，重复申请仍返回成功） */
+export function refundOrder(id: number) {
+  return request<RefundData>(`/api/order/${id}/refund`, { method: 'POST', data: {} })
 }

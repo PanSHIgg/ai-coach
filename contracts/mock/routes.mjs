@@ -1,4 +1,4 @@
-// 路由表：method + 路径模板 → canned envelope data（覆盖 openapi.yaml 全部 78 接口）。
+// 路由表：method + 路径模板 → canned envelope data（覆盖 openapi.yaml 全部 82 接口）。
 // 匹配规则（宽松）：/api 前缀可有可无、结尾斜杠与多斜杠忽略、{param} 匹配任意单段。
 // 零依赖：仅用标准 JS，供 server.mjs 消费。
 
@@ -31,11 +31,27 @@ export const routes = [
       intake: 1418, deficit: -966, steps: 12000, calories_burnt: 274, calibration_used: true,
       // today_left = BMR×PAL − intake + eat − tef = 1968.4 − 1418 + 274 − 141.8 = 682.6 → 682（对齐 05 §8.4.3 示例）
       today_left: 682,
+      // 当日已选状态（F-01）：null=未选，前端据此决定是否弹「今天什么状态」
+      activity_level: 2,
       meals: [
         { meal_type: 1, name: '早餐', calories: 380 },
         { meal_type: 2, name: '午餐', calories: 620 },
       ],
     },
+  },
+  // 写入当日状态（F-01）：回显入参 activity_level，其余同 GET today canned
+  {
+    m: 'POST', p: '/api/account/today-status',
+    d: (ctx) => ({
+      date: today(), bmr: 1406, pal: 1.4, neat: 1644, eat: 274, tef: 141.8, tee: 2384,
+      intake: 1418, deficit: -966, steps: 12000, calories_burnt: 274, calibration_used: true,
+      today_left: 682,
+      activity_level: Number(ctx?.body?.activity_level) || null,
+      meals: [
+        { meal_type: 1, name: '早餐', calories: 380 },
+        { meal_type: 2, name: '午餐', calories: 620 },
+      ],
+    }),
   },
   {
     m: 'GET', p: '/api/account/trend',
@@ -49,6 +65,7 @@ export const routes = [
 
   // ---- 记录 ----
   { m: 'POST', p: '/api/food/search', d: { items: [{ id: 208, name: '清蒸鱼', calories_100g: 120.0, protein_100g: 18.2, fat_100g: 4.5, carb_100g: 1.2, gi: 0 }], total: 1 } },
+  { m: 'POST', p: '/api/food/custom', d: { id: 9001, name: '自制沙拉', calories_100g: 88.0, audit_status: 0 } },
   {
     m: 'POST', p: '/api/meal/recognize',
     d: {
@@ -132,7 +149,7 @@ export const routes = [
   {
     m: 'GET', p: '/api/merchant/list',
     d: {
-      items: [{ id: 88, name: '轻食一号店', category: '轻食', distance_m: 350, rating: 4.8, cover_url: 'https://cos.example.com/m/88.png', status: 1 }],
+      items: [{ id: 88, name: '轻食一号店', category: '轻食', distance_m: 350, rating: 4.8, cover_url: 'https://cos.example.com/m/88.png', status: 1, partner_level: 2 }],
       page,
     },
   },
@@ -140,7 +157,7 @@ export const routes = [
     m: 'GET', p: '/api/merchant/{id}',
     d: {
       id: 88, name: '轻食一号店', category: '轻食', address: 'XX路1号', lat: 31.2304, lng: 121.4737,
-      phone: '021-0000000', rating: 4.8, status: 1, distance_m: 350,
+      phone: '021-0000000', rating: 4.8, status: 1, distance_m: 350, partner_level: 2,
       skus: [{ id: 12, name: '鸡胸肉沙拉', price: 28.0, stock: 99 }],
     },
   },
@@ -380,6 +397,14 @@ export const routes = [
   {
     m: 'GET', p: '/api/admin/sku-catalog',
     d: { items: [{ id: 1, code: 'FD-001', name: '鸡胸肉沙拉', category: '轻食', calories_low: 300, calories_high: 500, base_price: 28.0, min_price: 20.0, max_price: 40.0, unit: '份' }] },
+  },
+  {
+    m: 'POST', p: '/api/admin/sku-catalog',
+    d: { id: 6, code: 'FD-006', name: '藜麦轻食碗', category: '轻食', calories_low: 320, calories_high: 480, base_price: 30.0, min_price: 24.0, max_price: 40.0, unit: '份' },
+  },
+  {
+    m: 'PUT', p: '/api/admin/sku-catalog/{id}',
+    d: { id: 1, code: 'FD-001', name: '鸡胸肉沙拉', category: '轻食', calories_low: 300, calories_high: 500, base_price: 28.0, min_price: 20.0, max_price: 40.0, unit: '份' },
   },
   {
     m: 'GET', p: '/api/admin/dashboard',

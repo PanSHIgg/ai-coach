@@ -101,7 +101,7 @@
  * 依据：docs/split/01 §3.1 #12（步数、AI 建议、运动记录、标准项目、场馆）
  *      docs/split/03 §5.3（原型图 + 交互）、§5.6（周期管理 → 挑战赛页）
  * 【假设】聚合现有能力最简实现：
- *   - 步数/消耗/同步复用 account store + syncSteps（手环硬件 SDK 未接，沿用「同步步数」）；
+ *   - 步数/消耗复用 account store；同步调 syncStepsFromWeRun（优先真实微信运动，取不到按 PAL 估算）；
  *   - AI 建议仅超标时展示（§5.3「吃多后运动强提醒」），一键写入走 createSport；
  *   - 运动列表仅今日，历史日期切换见 /pages/record/sport；
  *   - 标准运动项目在添加运动页（sport-add）内选择，此处给入口；
@@ -113,7 +113,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
 import { useAccountStore } from '@/stores/account'
-import { createSport, listSports, syncSteps } from '@/api/records'
+import { createSport, listSports, syncStepsFromWeRun } from '@/api/records'
 import { useToast } from '@/composables/useToast'
 import type { SportRecordOut } from '@/types/api'
 
@@ -184,14 +184,20 @@ async function reload() {
   }
 }
 
-/** 同步当日步数（无真实微信运动数据时用 mock 兜底，{假设} 首期值 8000，与运动记录页口径一致） */
+/**
+ * 同步当日步数（F-09）：优先真实微信运动数据，取不到则报 0 → 后端按 PAL 估算。
+ * 严禁伪造步数常量（原 8000 mock 兜底已移除）。
+ */
 async function onSync() {
   if (syncing.value) return
   syncing.value = true
   try {
-    const steps = accountStore.today && accountStore.today.steps > 0 ? accountStore.today.steps : 8000
-    const res = await syncSteps({ date: todayStr(), steps })
-    toast.success({ title: `同步成功，校准 +${Math.round(res.delta_calories)} kcal` })
+    const { data, gotWeRunData } = await syncStepsFromWeRun(todayStr())
+    if (gotWeRunData) {
+      toast.success({ title: `同步成功，校准 +${Math.round(data.delta_calories)} kcal` })
+    } else {
+      toast.info({ title: '未获取到步数，已按活动水平估算' })
+    }
     await loadAccount()
   } catch (e) {
     // 错误信息已由 request 封装 toast

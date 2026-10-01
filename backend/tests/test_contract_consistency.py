@@ -29,8 +29,11 @@ TS_COPY = REPO_ROOT / "miniapp" / "src" / "types" / "api.d.ts"
 MOCK_ROUTES = REPO_ROOT / "contracts" / "mock" / "routes.mjs"
 
 # 冻结基线（Phase 5 F2；变更契约须由主 Agent 显式更新此值并同步三处）
-FROZEN_PATH_COUNT = 72
-FROZEN_OP_COUNT = 78
+# F-05：新增 POST /api/admin/sku-catalog 与 PUT /api/admin/sku-catalog/{id} -> 路径 73 / ops 80
+# F-02：新增 POST /api/food/custom -> 路径 74 / ops 81
+# F-01：新增 POST /api/account/today-status -> 路径 75 / ops 82
+FROZEN_PATH_COUNT = 75
+FROZEN_OP_COUNT = 82
 
 _METHODS = ("get", "post", "put", "delete", "patch", "options", "head")
 

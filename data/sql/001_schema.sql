@@ -154,16 +154,22 @@ CREATE TABLE food (
     gi            SMALLINT,                       -- 血糖生成指数
     is_standard   BOOLEAN DEFAULT FALSE,          -- 是否标准减脂餐
     status        SMALLINT DEFAULT 1,             -- 1启用 0停用
+    owner_user_id BIGINT REFERENCES "user"(id),   -- 自定义食物创建者；平台食物为 NULL（F-02）
+    audit_status  SMALLINT DEFAULT 0,             -- 0待审 1通过 2驳回（F-02，仅自定义食物有业务含义）
     search_vec    tsvector GENERATED ALWAYS AS (to_tsvector('simple', coalesce(name, ''))) STORED,
     created_at    TIMESTAMPTZ DEFAULT NOW(),
     CHECK (calories_100g >= 0),
     CHECK (gi IS NULL OR (gi BETWEEN 0 AND 100)),
-    CHECK (status IN (0, 1))
+    CHECK (status IN (0, 1)),
+    CHECK (audit_status IN (0, 1, 2))
 );
 CREATE INDEX idx_food_name ON food USING gin(search_vec);
 CREATE INDEX idx_food_category ON food(category);
+CREATE INDEX idx_food_owner ON food(owner_user_id);
 COMMENT ON TABLE food IS '食物库：正式数据 DATA1（W3 交付，1700+ 条）；搜索走 tsvector + food_alias';
 COMMENT ON COLUMN food.search_vec IS '全文检索列：to_tsvector(simple, name)，生成列自动维护';
+COMMENT ON COLUMN food.owner_user_id IS '自定义食物创建者；平台食物为 NULL（仅本人可见，F-02）';
+COMMENT ON COLUMN food.audit_status IS '审核状态：0待审 1通过 2驳回（F-02）';
 
 -- 食物别名（§7.2）
 CREATE TABLE food_alias (
@@ -253,12 +259,15 @@ CREATE TABLE daily_snapshot (
     steps            INTEGER DEFAULT 0,
     calories_burnt   NUMERIC(8,1) DEFAULT 0,
     calibration_used BOOLEAN DEFAULT FALSE,
+    activity_level   SMALLINT,                    -- 当日所选状态 1卧床/2久坐/3轻度/4中度/5高度（NULL=未选，F-01）
     created_at       TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (user_id, snapshot_date)
+    UNIQUE (user_id, snapshot_date),
+    CHECK (activity_level IS NULL OR activity_level IN (1, 2, 3, 4, 5))
 );
 CREATE INDEX idx_snap_user_date ON daily_snapshot(user_id, snapshot_date DESC);
 COMMENT ON TABLE daily_snapshot IS '每日热量快照：(user_id, snapshot_date) 唯一，0 点生成+幂等写入（BE2）';
 COMMENT ON COLUMN daily_snapshot.deficit IS '缺口 = 摄入 - TEE，负值为热量缺口（有利减重）';
+COMMENT ON COLUMN daily_snapshot.activity_level IS '当日所选状态（1~5）；NULL=未选，回退建档 activity_level（§2.3.1/§6.3.3，F-01）';
 
 -- 提醒订阅（§7.1 清单未列，按最简结构补齐【假设】）
 CREATE TABLE subscription (
@@ -332,6 +341,8 @@ CREATE TABLE merchant (
     audit_status SMALLINT DEFAULT 0,              -- 0待审 1通过 2驳回
     owner_user_id BIGINT REFERENCES "user"(id),
     contribution_points INTEGER NOT NULL DEFAULT 0, -- 贡献分：核销成功累计（每单 +1，0003 迁移加列）
+    partner_level SMALLINT NOT NULL DEFAULT 0,    -- 合作层级：0普通 1优选合作 2战略合作（R-01，0005 迁移加列）
+    last_contribution_at TIMESTAMPTZ,             -- 最近一次贡献（成功核销）时间；零贡献清退判定（R-01）
     created_at   TIMESTAMPTZ DEFAULT NOW(),
     CHECK (rating >= 0 AND rating <= 5),
     CHECK (audit_status IN (0, 1, 2))
@@ -340,6 +351,8 @@ CREATE INDEX idx_merchant_geo ON merchant(lat, lng);
 CREATE INDEX idx_merchant_category ON merchant(category);
 COMMENT ON TABLE merchant IS '商家：LBS 用 lat/lng（【假设】不装 PostGIS）；入驻走审核（ADM3/审核队列）';
 COMMENT ON COLUMN merchant.contribution_points IS '贡献分：核销成功累计（每单 +1）';
+COMMENT ON COLUMN merchant.partner_level IS '合作层级：0普通 1优选合作 2战略合作（§6.3.4 权重保护，R-01）';
+COMMENT ON COLUMN merchant.last_contribution_at IS '最近一次贡献（成功核销）时间；连续零贡献清退判定（R-01）';
 
 -- 标准目录（§7.2）
 CREATE TABLE sku_catalog (

@@ -59,6 +59,21 @@ async def test_body_profile_create_calculates_bmr_and_target(
     assert await _count(db_session, authed["user_id"]) == 1
 
 
+async def test_body_profile_defaults_when_activity_and_target_omitted(
+    db_client: AsyncClient, authed: dict
+):
+    """文档 §13.3：未填 activity_level/target_type → 默认 2（久坐，PAL 1.4）/ 1（减脂）。"""
+    payload = {k: v for k, v in _BASE.items() if k not in {"activity_level", "target_type"}}
+    resp = await db_client.post("/api/body-profile", json=payload, headers=authed["headers"])
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["activity_level"] == 2
+    assert data["target_type"] == 1
+    bmr, target = _expected_bmr(70, 2)
+    assert data["bmr"] == bmr
+    assert data["target_calories"] == target  # PAL 1.4 口径
+
+
 async def test_body_profile_upsert_same_row(
     db_session: AsyncSession, db_client: AsyncClient, authed: dict
 ):

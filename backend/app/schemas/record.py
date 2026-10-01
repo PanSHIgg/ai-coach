@@ -35,6 +35,41 @@ class FoodSearchData(BaseModel):
     total: int
 
 
+# ---- 用户自定义食物（F-02）----
+
+
+class FoodCustomIn(BaseModel):
+    """新建自定义食物入参（名称必填，热量等数值合理）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str = Field(min_length=1, max_length=128)
+    calories_100g: float = Field(gt=0, le=1000)  # 每 100g 热量 kcal（食用油约 900 为上限）
+    protein_100g: float | None = Field(default=None, ge=0, le=100)
+    fat_100g: float | None = Field(default=None, ge=0, le=100)
+    carb_100g: float | None = Field(default=None, ge=0, le=100)
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, value: str) -> str:
+        """名称去空白后不得为空（防「   」绕过 min_length）。"""
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("食物名称不能为空")
+        return stripped
+
+
+class FoodCustomData(BaseModel):
+    """新建自定义食物返回（audit_status 恒为 0 待审，仅本人可见）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    calories_100g: float
+    audit_status: int
+
+
 # ---- 拍照识别 ----
 
 

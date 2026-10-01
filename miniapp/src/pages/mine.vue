@@ -47,6 +47,16 @@
         </view>
       </CCard>
 
+      <!-- 提醒订阅（§2.3.1 餐前/深夜推送；§2.4 未授权引导设置页，不阻断核心流程） -->
+      <CCard title="提醒" class="me__card">
+        <view class="me__item" @tap="onSubscribe">
+          <text class="me__item-label">提醒订阅</text>
+          <text class="me__item-status" :class="{ 'me__item-status--on': subscribedTypes.size > 0 }">
+            {{ subscribeStatusText }}
+          </text>
+        </view>
+      </CCard>
+
       <!-- 账号 -->
       <CCard title="账号" class="me__card">
         <view class="me__item" @tap="onLogout">
@@ -59,12 +69,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
+import { getSubscriptions } from '@/api/notification'
+import { useSubscribe } from '@/composables/useSubscribe'
 
 const userStore = useUserStore()
+const { requestSubscribe } = useSubscribe()
 
 // 权益档位文案（§5.5：0基础 1进阶 2高级 3终身）
 const TIER_LABEL: Record<number, string> = {
@@ -75,9 +88,34 @@ const TIER_LABEL: Record<number, string> = {
 }
 const tierLabel = computed(() => TIER_LABEL[userStore.tier] || '基础版（免费）')
 
+// 已订阅提醒的模板类型（status=1）
+const subscribedTypes = ref<Set<number>>(new Set())
+const subscribeStatusText = computed(() => (subscribedTypes.value.size > 0 ? '已开启' : '未开启'))
+
 onShow(() => {
-  if (userStore.isLogined) userStore.fetchMe()
+  if (userStore.isLogined) {
+    userStore.fetchMe()
+    loadSubscriptions()
+  }
 })
+
+/** 静默拉取订阅状态（失败不阻断、不弹 toast） */
+async function loadSubscriptions() {
+  try {
+    const data = await getSubscriptions(true)
+    subscribedTypes.value = new Set(
+      data.items.filter((i) => i.status === 1).map((i) => i.template_type),
+    )
+  } catch {
+    // 忽略：状态展示非核心，失败不影响入口可用
+  }
+}
+
+/** 点击入口：申请订阅授权（未授权则引导设置页）+ 刷新状态；均不阻断核心流程 */
+async function onSubscribe() {
+  await requestSubscribe()
+  loadSubscriptions()
+}
 
 function goLogin() {
   redirectToLogin()
@@ -180,6 +218,15 @@ function onLogout() {
   &__item-arrow {
     font-size: $t-24;
     color: $text-3;
+  }
+
+  &__item-status {
+    font-size: $t-24;
+    color: $text-3;
+
+    &--on {
+      color: $brand;
+    }
   }
 }
 </style>

@@ -2,7 +2,8 @@
 
 覆盖：0/3000/8000/12000/20000 步的分档行为（0 步=状态法未校准、>0 走校准且
 met/delta 合理并随档递增）；逐时 MET 映射；重复 sync 同一天幂等（step_record 唯一、
-daily_snapshot 不重复）。
+daily_snapshot 不重复）；F-09 微信运动解密骨架（无加密按原样、加密无凭证明确降级不伪造、
+步数 0 走 PAL 估算）。
 """
 
 from datetime import date
@@ -152,3 +153,86 @@ async def test_steps_sync_same_day_idempotent(db_client, db_session, authed):
     )
     assert row.steps == 12000
     assert float(row.calibrated_met) == second["met"]
+
+
+# ---------------------------------------------------------------------------
+# F-09：真实步数接入（微信运动解密骨架 / 明确降级）
+# ---------------------------------------------------------------------------
+
+
+async def test_steps_sync_without_encrypted_as_is(db_client, db_session, authed):
+    """无加密数据：按传入 steps 原样同步，走既有校准路径。"""
+    uid = authed["user_id"]
+    await _make_profile(db_session, uid)
+    day = date(2026, 9, 3)
+
+    data = await _sync(db_client, authed["headers"], day, 6000)
+
+    row = await db_session.scalar(
+        select(StepRecord).where(StepRecord.user_id == uid, StepRecord.record_date == day)
+    )
+    snap = await db_session.scalar(
+        select(DailySnapshot).where(
+            DailySnapshot.user_id == uid, DailySnapshot.snapshot_date == day
+        )
+    )
+    assert row.steps == 6000
+    assert snap.steps == 6000
+    assert snap.calibration_used is True
+    assert data["delta_calories"] >= 0
+
+
+async def test_steps_encrypted_without_credentials_degrades(db_client, db_session, authed):
+    """加密字段存在但无微信凭证：明确降级按传入 steps（0）计，不伪造、不报错。"""
+    uid = authed["user_id"]
+    await _make_profile(db_session, uid)
+    day = date(2026, 9, 4)
+
+    resp = await db_client.post(
+        "/api/steps/sync",
+        json={
+            "date": day.isoformat(),
+            "steps": 0,
+            "encrypted_data": "ZmFrZS1lbmNyeXB0ZWQ=",
+            "iv": "ZmFrZS1pdg==",
+        },
+        headers=authed["headers"],
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0
+    # 无凭证 → 不伪造，delta 为 0（等价 0 步的状态法）
+    assert body["data"]["delta_calories"] == 0.0
+
+    row = await db_session.scalar(
+        select(StepRecord).where(StepRecord.user_id == uid, StepRecord.record_date == day)
+    )
+    snap = await db_session.scalar(
+        select(DailySnapshot).where(
+            DailySnapshot.user_id == uid, DailySnapshot.snapshot_date == day
+        )
+    )
+    assert row.steps == 0  # 未伪造成任何步数常量
+    assert snap.steps == 0
+    assert snap.calibration_used is False
+
+
+async def test_steps_zero_uses_pal_estimate(db_client, db_session, authed):
+    """步数 0（未取到/降级）→ 走 PAL（状态法）估算 NEAT，不报错。"""
+    uid = authed["user_id"]
+    await _make_profile(db_session, uid)
+    day = date(2026, 9, 7)
+
+    data = await _sync(db_client, authed["headers"], day, 0)
+
+    state = calorie.state_neat(weight_kg=WEIGHT, activity_level=LEVEL)
+    assert data["neat_calibrated"] == state
+    assert data["delta_calories"] == 0.0
+
+    snap = await db_session.scalar(
+        select(DailySnapshot).where(
+            DailySnapshot.user_id == uid, DailySnapshot.snapshot_date == day
+        )
+    )
+    assert snap.steps == 0
+    assert snap.calibration_used is False

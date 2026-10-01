@@ -286,6 +286,24 @@
     <view class="fab" @tap="goCamera">
       <image class="fab__icon" src="/static/icons/ic-camera-white.png" mode="aspectFit" />
     </view>
+
+    <!-- 当日状态选择弹窗（§2.3.1「今天什么状态」五选一；用户不选不阻断，回退默认 PAL） -->
+    <view v-if="statusVisible" class="mask" @tap="closeStatus">
+      <view class="status" @tap.stop>
+        <text class="status__title">今天什么状态？</text>
+        <text class="status__desc">选一个当前状态，更准地估算今日消耗（NEAT 粗调）</text>
+        <view
+          v-for="opt in STATUS_OPTIONS"
+          :key="opt.level"
+          class="status__opt"
+          @tap="onChooseStatus(opt.level)"
+        >
+          <text class="status__opt-name">{{ opt.name }}</text>
+          <text class="status__opt-desc">{{ opt.desc }}</text>
+        </view>
+        <text class="status__skip" @tap="closeStatus">暂不选择，按档案默认 PAL 估算 ›</text>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -348,6 +366,53 @@ const activityText = computed(() => {
   const level = userStore.profile?.activity_level
   return level ? ACTIVITY_LABEL[level] || '久坐' : '久坐'
 })
+
+/* ---------- 当日状态选择（§2.3.1「今天什么状态」/ §6.3.3 NEAT 第一层，F-01） ---------- */
+/** 五选一：1卧床 2久坐 3轻度 4中度 5高度（与建档 activity_level 同档） */
+const STATUS_OPTIONS: { level: 1 | 2 | 3 | 4 | 5; name: string; desc: string }[] = [
+  { level: 1, name: '卧床', desc: '几乎不下床 / 生病休养' },
+  { level: 2, name: '久坐', desc: '办公室久坐，很少走动' },
+  { level: 3, name: '轻度', desc: '日常走动，少量运动' },
+  { level: 4, name: '中度', desc: '经常走动或规律运动' },
+  { level: 5, name: '高度', desc: '体力劳动或高强度训练' },
+]
+const statusVisible = ref(false)
+/**
+ * 【假设】当日仅弹一次：以「日期」去重，用户不选也不在当天重复打扰
+ * （§2.3.1「用户不点则用默认 PAL」，故不选即静默回退建档值）。
+ */
+const STATUS_PROMPT_KEY = 'today_status_prompt_date'
+
+function todayKey(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+}
+
+/** 当日首次进入、已建档且未选状态时弹窗；已选或今日已弹过则跳过（不阻断） */
+function maybePromptStatus() {
+  if (userStore.needProfile) return
+  const t = accountStore.today
+  if (!t || t.activity_level != null) return
+  const key = todayKey()
+  if (uni.getStorageSync(STATUS_PROMPT_KEY) === key) return
+  uni.setStorageSync(STATUS_PROMPT_KEY, key)
+  statusVisible.value = true
+}
+
+function closeStatus() {
+  statusVisible.value = false
+}
+
+/** 选择后写入当日状态并刷新账户；失败仅 toast，不阻断首页 */
+async function onChooseStatus(level: 1 | 2 | 3 | 4 | 5) {
+  statusVisible.value = false
+  try {
+    await accountStore.setTodayStatus(level)
+    toast.success({ title: '已记录今天的状态' })
+  } catch (e) {
+    void e // 失败信息已由 request 封装 toast
+  }
+}
 
 /* ---------- 健康评分卡（§5.1-2）：由 BMI 派生评分与状态 ---------- */
 const bmi = computed(() => {
@@ -631,8 +696,9 @@ onShow(() => {
   track('app_open', { from: firstShow ? 'cold_start' : 'back' })
   firstShow = false
   if (!userStore.detail) userStore.fetchMe()
-  accountStore.refresh() // 拍照 / 记录返回后刷新账户
   if (!userStore.profileLoaded) userStore.fetchProfile()
+  // 刷新账户后按需弹「今天什么状态」（未建档 / 已选 / 今日已弹过则跳过）
+  accountStore.refresh().then(maybePromptStatus)
   loadAiTimes()
   loadCoupons()
   loadRecentMeal()
@@ -1237,6 +1303,73 @@ function onBmrTest() {
   &__icon {
     width: 56rpx;
     height: 56rpx;
+  }
+}
+
+/* 当日状态选择弹窗（mask + 对话框，沿用既有弹层风格） */
+.mask {
+  @include flex-center;
+
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: $z-mask;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.status {
+  z-index: $z-dialog;
+  width: 620rpx;
+  padding: $space-lg;
+  background: $card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-lg;
+
+  &__title {
+    display: block;
+    font-size: $t-32;
+    font-weight: 500;
+    color: $text-1;
+  }
+
+  &__desc {
+    display: block;
+    margin-top: $space-xs;
+    font-size: $t-22;
+    color: $text-3;
+  }
+
+  &__opt {
+    display: flex;
+    align-items: baseline;
+    margin-top: $space-sm;
+    padding: $space-sm $space-md;
+    background: $bg;
+    border: 1rpx solid $border;
+    border-radius: $radius;
+
+    &-name {
+      width: 120rpx;
+      font-size: $t-28;
+      font-weight: 500;
+      color: $text-1;
+    }
+
+    &-desc {
+      flex: 1;
+      font-size: $t-22;
+      color: $text-3;
+    }
+  }
+
+  &__skip {
+    display: block;
+    margin-top: $space-md;
+    font-size: $t-22;
+    color: $brand;
+    text-align: center;
   }
 }
 </style>

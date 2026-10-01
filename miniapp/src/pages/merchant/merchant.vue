@@ -89,12 +89,12 @@ const PAGE_SIZE = 10
 /* ---------- Mock 兜底数据（结构对齐 MerchantBrief） ---------- */
 
 const MOCK_MERCHANTS: MerchantBrief[] = [
-  { id: 101, name: '轻食盒子（科技园店）', category: '轻食', distance_m: 450, rating: 4.8, cover_url: null, status: 1 },
-  { id: 102, name: '能量沙拉 LAB', category: '轻食', distance_m: 900, rating: 4.6, cover_url: null, status: 1 },
-  { id: 103, name: '超级猩猩健身（南山店）', category: '健身房', distance_m: 1200, rating: 4.7, cover_url: null, status: 1 },
-  { id: 104, name: '乐刻运动 SPACE', category: '健身房', distance_m: 1600, rating: 4.5, cover_url: null, status: 1 },
-  { id: 105, name: '谷雨轻食简餐', category: '轻食', distance_m: 2100, rating: 4.4, cover_url: null, status: 1 },
-  { id: 106, name: '中田健身工作室', category: '健身房', distance_m: 2600, rating: 4.9, cover_url: null, status: 0 },
+  { id: 101, name: '轻食盒子（科技园店）', category: '轻食', distance_m: 450, rating: 4.8, cover_url: null, status: 1, partner_level: 2 },
+  { id: 102, name: '能量沙拉 LAB', category: '轻食', distance_m: 900, rating: 4.6, cover_url: null, status: 1, partner_level: 1 },
+  { id: 103, name: '超级猩猩健身（南山店）', category: '健身房', distance_m: 1200, rating: 4.7, cover_url: null, status: 1, partner_level: 1 },
+  { id: 104, name: '乐刻运动 SPACE', category: '健身房', distance_m: 1600, rating: 4.5, cover_url: null, status: 1, partner_level: 0 },
+  { id: 105, name: '谷雨轻食简餐', category: '轻食', distance_m: 2100, rating: 4.4, cover_url: null, status: 1, partner_level: 0 },
+  { id: 106, name: '中田健身工作室', category: '健身房', distance_m: 2600, rating: 4.9, cover_url: null, status: 0, partner_level: 0 },
 ]
 
 /* ---------- 状态 ---------- */

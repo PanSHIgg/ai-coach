@@ -136,6 +136,39 @@ async def test_account_today_aggregate_over_limit_422(db_client, db_session, aut
     assert resp.json()["code"] == 2001
 
 
+async def test_today_status_persists_and_pal_follows(db_client, db_session, authed):
+    """F-01：POST /api/account/today-status 写入当日状态 → 当日 PAL/NEAT 取该状态并落库回读。"""
+    uid = authed["user_id"]
+    await _make_profile(db_session, uid, age=BMI_AGE)
+
+    resp = await db_client.post(
+        "/api/account/today-status", json={"activity_level": 5}, headers=authed["headers"]
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["activity_level"] == 5
+    assert data["pal"] == calorie.pal_for_level(5) == 2.0
+    assert data["neat"] == calorie.state_neat(weight_kg=BMI_WEIGHT, activity_level=5)
+
+    # GET today 回读：状态已落库，PAL 仍按当日状态（5），不受建档 activity_level=2 影响
+    resp2 = await db_client.get("/api/account/today", headers=authed["headers"])
+    data2 = resp2.json()["data"]
+    assert data2["activity_level"] == 5
+    assert data2["pal"] == 2.0
+    assert data2["neat"] == calorie.state_neat(weight_kg=BMI_WEIGHT, activity_level=5)
+
+
+async def test_today_status_unset_falls_back_to_profile(db_client, db_session, authed):
+    """F-01：未选当日状态 → activity_level=null，PAL 回退建档 activity_level（不点用默认 PAL）。"""
+    uid = authed["user_id"]
+    await _make_profile(db_session, uid, age=BMI_AGE)
+
+    resp = await db_client.get("/api/account/today", headers=authed["headers"])
+    data = resp.json()["data"]
+    assert data["activity_level"] is None
+    assert data["pal"] == calorie.pal_for_level(LEVEL) == 1.4
+
+
 async def test_account_trend_returns_snapshot_series(db_client, db_session, authed):
     uid = authed["user_id"]
     await _make_profile(db_session, uid, age=BMI_AGE)

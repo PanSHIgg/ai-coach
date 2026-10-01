@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, get_current_user, get_request_id
 from app.db.session import get_db
 from app.schemas import Envelope
-from app.schemas.account import AccountTrendData, DailyAccount
+from app.schemas.account import AccountTrendData, DailyAccount, TodayStatusIn
 from app.schemas.common import ok
 from app.services import account as account_service
 
@@ -23,6 +23,23 @@ async def get_account_today(
 ) -> Envelope[DailyAccount]:
     # 先确保当日快照最新（幂等重算），再返回账户；未建档由 account 服务抛 3001。
     data = await account_service.get_today(session, user.id)
+    return ok(data, request_id=request_id)
+
+
+@router.post(
+    "/account/today-status",
+    response_model=Envelope[DailyAccount],
+    summary="写入当日状态（卧床/久坐/轻度/中度/高度五选一）",
+)
+async def set_account_today_status(
+    payload: TodayStatusIn,
+    user: CurrentUser = Depends(get_current_user),
+    request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
+) -> Envelope[DailyAccount]:
+    # 当日状态写入 daily_snapshot.activity_level，当日 PAL/NEAT 即时按该状态取值；
+    # 未选回退建档 activity_level（§2.3.1「不点则用默认 PAL」）。未建档抛 3001。
+    data = await account_service.set_today_status(session, user.id, payload.activity_level)
     return ok(data, request_id=request_id)
 
 

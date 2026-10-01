@@ -38,17 +38,31 @@
         </view>
         <view class="o-card__foot">
           <text class="o-card__time">{{ fmtTime(o.created_at) }}</text>
-          <!-- 待支付：继续支付（重走 payOrder） -->
-          <CButton
-            v-if="o.status === 1"
-            size="sm"
-            :loading="payingId === o.id"
-            @click.stop="repay(o)"
-          >
-            继续支付
-          </CButton>
-          <!-- 已完成：实付金额 -->
-          <text v-else-if="o.discount_amount > 0" class="o-card__save">已优惠 ¥{{ o.discount_amount.toFixed(2) }}</text>
+          <view class="o-card__ops">
+            <!-- 已完成：实付金额 -->
+            <text v-if="o.status !== 1 && o.discount_amount > 0" class="o-card__save">
+              已优惠 ¥{{ o.discount_amount.toFixed(2) }}
+            </text>
+            <!-- 待支付：继续支付（重走 payOrder） -->
+            <CButton
+              v-if="o.status === 1"
+              size="sm"
+              :loading="payingId === o.id"
+              @click.stop="repay(o)"
+            >
+              继续支付
+            </CButton>
+            <!-- 待核销：申请退款（2 已支付待核销 → 5 已退款，§12.1 退款入口） -->
+            <CButton
+              v-else-if="o.status === 2"
+              size="sm"
+              type="ghost"
+              :loading="refundingId === o.id"
+              @click.stop="refund(o)"
+            >
+              申请退款
+            </CButton>
+          </view>
         </view>
 
         <!-- 待核销：点击展开核销码大字号 -->
@@ -75,7 +89,7 @@
  */
 import { ref } from 'vue'
 import { onLoad, onReachBottom } from '@dcloudio/uni-app'
-import { getOrders, payOrder } from '@/api/order'
+import { getOrders, payOrder, refundOrder } from '@/api/order'
 import { useToast } from '@/composables/useToast'
 import { track } from '@/utils/track'
 import type { OrderBrief } from '@/types/api'
@@ -119,6 +133,8 @@ const isMock = ref(false)
 const expandedId = ref<number | null>(null)
 /** 「继续支付」进行中的订单 id */
 const payingId = ref(-1)
+/** 「申请退款」进行中的订单 id */
+const refundingId = ref(-1)
 
 /* ---------- 工具 ---------- */
 
@@ -189,6 +205,35 @@ async function repay(o: OrderBrief) {
   } finally {
     payingId.value = -1
   }
+}
+
+/**
+ * 申请退款：二次确认 → refundOrder → 刷新（§12.1 订单交易退款入口）。
+ * 仅「2 已支付待核销」可退（后端 order_service.refund_order：2→5，1/3/4 返回 2001）；
+ * 【假设】§2.4「已核销」退款走客服工单，非本接口，故不在已完成单展示此入口。
+ */
+function refund(o: OrderBrief) {
+  if (refundingId.value !== -1) return
+  uni.showModal({
+    title: '申请退款',
+    content: `确认对订单 ${o.order_no} 申请退款吗？退款后该券将作废。`,
+    confirmText: '确认退款',
+    confirmColor: '#ef4444',
+    success: async (res) => {
+      if (!res.confirm) return
+      refundingId.value = o.id
+      try {
+        await refundOrder(o.id)
+        toast.success({ title: '退款申请成功' })
+        expandedId.value = null
+        await loadPage(true)
+      } catch (e) {
+        // request 层已统一 toast（含 2001 订单状态不可退款）
+      } finally {
+        refundingId.value = -1
+      }
+    },
+  })
 }
 
 /* ---------- 生命周期 ---------- */
@@ -326,6 +371,14 @@ onReachBottom(() => {
     @include flex-between;
 
     gap: $space-sm;
+  }
+
+  // 右操作区：已优惠文案 + 继续支付 / 申请退款
+  &__ops {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: $space-xs;
   }
 
   &__time {

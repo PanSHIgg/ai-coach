@@ -34,9 +34,12 @@ class AppException(Exception):
         code: int,
         message: str | None = None,
         errors: dict | None = None,
+        http_status: int | None = None,
     ) -> None:
         self.code = int(code)
         self.message = message or ErrorCode.message(self.code)
         self.errors = errors
-        self.http_status = http_status_for(self.code)
+        # http_status 为 None 时维持 code→HTTP 的既有映射；显式传入则覆盖
+        # （如「商家定价越界」业务规则拒绝，文档要求 400，但 code 仍为 2001）。
+        self.http_status = http_status if http_status is not None else http_status_for(self.code)
         super().__init__(self.message)

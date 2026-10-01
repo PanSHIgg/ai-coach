@@ -71,6 +71,7 @@ const allMenus: MenuItem[] = [
   { path: '/dashboard', label: '运营看板', icon: 'Odometer', roles: [1, 2, 3] },
   { path: '/merchants', label: '商家审核', icon: 'Shop', roles: [1, 2] },
   { path: '/merchant-skus', label: '选品定价', icon: 'Goods', roles: [1, 2] },
+  { path: '/sku-catalog', label: '标准目录', icon: 'Menu', roles: [1, 2] },
   { path: '/coupon-pools', label: '券池管理', icon: 'Ticket', roles: [1, 2] },
   { path: '/orders', label: '订单监控', icon: 'List', roles: [1, 2, 3] },
   { path: '/content-audit', label: '内容审核', icon: 'Checked', roles: [1, 2] },

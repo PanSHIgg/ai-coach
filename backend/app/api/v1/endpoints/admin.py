@@ -34,10 +34,11 @@ from app.schemas.admin import (
     AdminMerchantSkuIn,
     AdminReviewData,
     AdminReviewIn,
+    AdminSkuCatalogIn,
     AdminSkuStatusIn,
 )
 from app.schemas.common import ErrorCode, ok
-from app.schemas.merchant import CatalogData
+from app.schemas.merchant import CatalogData, CatalogItem
 from app.schemas.order import OrderPageData
 from app.services import admin_service, merchant_service
 from app.services.admin_service import AdminPrincipal
@@ -169,6 +170,37 @@ async def admin_list_sku_catalog(
     request_id: str | None = Depends(get_request_id),
 ) -> Envelope[CatalogData]:
     data = await merchant_service.list_catalog(session, category)
+    return ok(data, request_id=request_id)
+
+
+@router.post(
+    "/admin/sku-catalog",
+    response_model=Envelope[CatalogItem],
+    summary="新建标准目录项（平台运营维护，商家只选不建；重名 2001/422）",
+)
+async def admin_create_sku_catalog(
+    payload: AdminSkuCatalogIn,
+    admin: AdminPrincipal = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[CatalogItem]:
+    data = await admin_service.create_sku_catalog(session, admin, payload)
+    return ok(data, request_id=request_id)
+
+
+@router.put(
+    "/admin/sku-catalog/{id}",
+    response_model=Envelope[CatalogItem],
+    summary="编辑标准目录项（平台运营维护；不存在 3001/404，重名 2001/422）",
+)
+async def admin_update_sku_catalog(
+    id: int,
+    payload: AdminSkuCatalogIn,
+    admin: AdminPrincipal = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[CatalogItem]:
+    data = await admin_service.update_sku_catalog(session, admin, id, payload)
     return ok(data, request_id=request_id)
 
 

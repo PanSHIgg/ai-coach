@@ -49,7 +49,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
 import { useAccountStore } from '@/stores/account'
-import { syncSteps } from '@/api/records'
+import { syncStepsFromWeRun } from '@/api/records'
 import { useToast } from '@/composables/useToast'
 
 const userStore = useUserStore()
@@ -100,14 +100,20 @@ async function reload() {
   }
 }
 
-/** 同步当日步数（无真实微信运动数据时用 mock 兜底，{假设} 首期值 8000） */
+/**
+ * 同步当日步数（F-09）：优先真实微信运动数据，取不到则报 0 → 后端按 PAL 估算。
+ * 严禁伪造步数常量（原 8000 mock 兜底已移除）。
+ */
 async function onSyncSteps() {
   if (syncing.value) return
   syncing.value = true
   try {
-    const steps = accountStore.today && accountStore.today.steps > 0 ? accountStore.today.steps : 8000
-    const res = await syncSteps({ date: todayStr(), steps })
-    toast.success({ title: `同步成功，校准 +${Math.round(res.delta_calories)} kcal` })
+    const { data, gotWeRunData } = await syncStepsFromWeRun(todayStr())
+    if (gotWeRunData) {
+      toast.success({ title: `同步成功，校准 +${Math.round(data.delta_calories)} kcal` })
+    } else {
+      toast.info({ title: '未获取到步数，已按活动水平估算' })
+    }
     await reload()
   } catch (e) {
     // 错误信息已由 request 封装 toast

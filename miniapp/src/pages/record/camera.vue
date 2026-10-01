@@ -11,6 +11,36 @@
           <text class="camera__empty-text">拍下这一餐，AI 帮你识别热量</text>
           <CButton block @click="choosePic">选择 / 拍摄照片</CButton>
           <CButton class="camera__manual" type="ghost" block @click="goManual">手动搜索录入</CButton>
+          <CButton class="camera__manual" type="ghost" block @click="customVisible = !customVisible">
+            {{ customVisible ? '收起自定义食物' : '食物库查不到？新建自定义食物' }}
+          </CButton>
+
+          <!-- 食物库查不到 → 手动填名称 + 热量，新建自定义食物（仅本人可见，待审核） -->
+          <view v-if="customVisible" class="custom">
+            <CField label="食物名称" required>
+              <CInput v-model="cName" placeholder="如：自制牛油果沙拉" :maxlength="128" />
+            </CField>
+            <CField label="热量 (kcal/100g)" required>
+              <CInput v-model="cCalories" type="digit" placeholder="如：88" />
+            </CField>
+            <CField label="本次分量 (g)" required>
+              <CInput v-model="cAmount" type="digit" placeholder="如：150" />
+            </CField>
+            <CField label="记到哪一餐" required>
+              <view class="seg">
+                <CButton
+                  v-for="t in MEAL_TYPES"
+                  :key="t.value"
+                  size="sm"
+                  :type="mealType === t.value ? 'primary' : 'secondary'"
+                  @click="mealType = t.value"
+                >
+                  {{ t.label }}
+                </CButton>
+              </view>
+            </CField>
+            <CButton block :loading="savingCustom" @click="onCreateCustom">保存并记录</CButton>
+          </view>
         </view>
 
         <template v-else>
@@ -76,7 +106,7 @@
 import { ref } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
-import { createMeal } from '@/api/records'
+import { createMeal, createCustomFood } from '@/api/records'
 import { BASE_URL, getToken } from '@/api/request'
 import { useToast } from '@/composables/useToast'
 import { track } from '@/utils/track'
@@ -100,6 +130,9 @@ const LOW_CONFIDENCE = 0.7
 /** 分量上界（对齐后端 MealCreateIn：amount_g > 0 且 ≤ 10000） */
 const AMOUNT_MAX = 10000
 
+/** 自定义食物每 100g 热量上界（对齐后端 FoodCustomIn：0 < calories_100g ≤ 1000） */
+const KCAL_MAX = 1000
+
 const userStore = useUserStore()
 const toast = useToast()
 
@@ -109,6 +142,13 @@ const failed = ref(false)
 const needConfirm = ref(false)
 const items = ref<EditableItem[]>([])
 const saving = ref(false)
+
+// 自定义食物表单（食物库查不到 → 手动填名称 + 热量）
+const customVisible = ref(false)
+const cName = ref('')
+const cCalories = ref('')
+const cAmount = ref('')
+const savingCustom = ref(false)
 
 // 默认餐次按当前时段推断
 const hour = new Date().getHours()
@@ -245,6 +285,48 @@ async function onSave() {
   }
 }
 
+/** 新建自定义食物并直接记入（source=3 手动）；食物仅本人可见、标记待审核 */
+async function onCreateCustom() {
+  const name = cName.value.trim()
+  const kcal = Number(cCalories.value)
+  const g = Number(cAmount.value)
+  if (!name) {
+    toast.error({ title: '请填写食物名称' })
+    return
+  }
+  if (!kcal || kcal <= 0 || kcal > KCAL_MAX) {
+    toast.error({ title: `热量需在 0~${KCAL_MAX} kcal/100g` })
+    return
+  }
+  if (!g || g <= 0) {
+    toast.error({ title: '请填写正确的分量' })
+    return
+  }
+  if (g > AMOUNT_MAX) {
+    toast.error({ title: `分量需在 0~${AMOUNT_MAX}g` })
+    return
+  }
+  savingCustom.value = true
+  try {
+    const food = await createCustomFood({ name, calories_100g: kcal })
+    await createMeal({
+      meal_type: mealType.value,
+      food_id: food.id,
+      amount_g: g,
+      source: 3,
+      image_url: null,
+    })
+    toast.success({ title: '已新建并记下来' })
+    // 广播：吃什么页 uni.$on('eat:recognized') 接收（见 pages/eat.vue）
+    uni.$emit('eat:recognized', { foods: [food.name] })
+    setTimeout(() => uni.navigateBack(), 600)
+  } catch (e) {
+    // 错误信息已由 request 封装 toast
+  } finally {
+    savingCustom.value = false
+  }
+}
+
 function goManual() {
   uni.redirectTo({ url: '/pages/record/food-list' })
 }
@@ -306,6 +388,15 @@ function goLogin() {
   &__manual {
     margin-top: $space-sm;
   }
+}
+
+.custom {
+  width: 100%;
+  margin-top: $space-md;
+  padding-top: $space-md;
+  text-align: left;
+
+  @include hairline(top);
 }
 
 .item {

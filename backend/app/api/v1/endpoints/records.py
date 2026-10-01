@@ -1,4 +1,4 @@
-"""记录域接口（openapi: /api/food/search、/api/meal/*、/api/sport*，共 8 接口）。
+"""记录域接口（openapi: /api/food/search、/api/food/custom、/api/meal/*、/api/sport*，共 9 接口）。
 
 BE3 真实实现：食物 tsvector 检索、饮食记录 CRUD（写后重算当日）、运动记录。
 /api/meal/recognize（拍照识别）为 Phase 2 BE4a 实现，识别逻辑在 services/recognize_service.py。
@@ -15,6 +15,8 @@ from app.db.session import get_db
 from app.schemas import Envelope
 from app.schemas.common import ErrorCode, ok
 from app.schemas.record import (
+    FoodCustomData,
+    FoodCustomIn,
     FoodSearchData,
     FoodSearchIn,
     MealCreatedData,
@@ -53,7 +55,22 @@ async def search_food(
     request_id: str | None = Depends(get_request_id),
     session: AsyncSession = Depends(get_db),
 ) -> Envelope[FoodSearchData]:
-    data = await record_service.search_food(session, payload.keyword, payload.limit)
+    data = await record_service.search_food(session, user.id, payload.keyword, payload.limit)
+    return ok(data, request_id=request_id)
+
+
+@router.post(
+    "/food/custom",
+    response_model=Envelope[FoodCustomData],
+    summary="新建用户自定义食物（仅本人可见，待审核）",
+)
+async def create_custom_food(
+    payload: FoodCustomIn,
+    user: CurrentUser = Depends(get_current_user),
+    request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
+) -> Envelope[FoodCustomData]:
+    data = await record_service.create_custom_food(session, user.id, payload)
     return ok(data, request_id=request_id)
 
 

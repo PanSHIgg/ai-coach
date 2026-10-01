@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .common import PageMeta
 from .coupon import CouponOut
@@ -108,6 +108,28 @@ class AdminSkuStatusIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     status: Literal[0, 1]  # 1上架 0下架
+
+
+class AdminSkuCatalogIn(BaseModel):
+    """标准目录维护入参（F-05：平台运营维护，商家只选不建）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str = Field(min_length=1, max_length=32)  # FD-001
+    name: str = Field(min_length=1, max_length=128)
+    category: str | None = Field(default=None, max_length=64)
+    calories_low: int | None = Field(default=None, ge=0)
+    calories_high: int | None = Field(default=None, ge=0)
+    base_price: float = Field(ge=0)  # 元，基准价
+    min_price: float = Field(ge=0)  # 元，限价下限
+    max_price: float = Field(ge=0)  # 元，限价上限
+    unit: str | None = Field(default=None, max_length=32)  # 份/盒
+
+    @model_validator(mode="after")
+    def _check_price_range(self) -> "AdminSkuCatalogIn":
+        if not (self.min_price <= self.base_price <= self.max_price):
+            raise ValueError("价格区间需满足 min_price <= base_price <= max_price")
+        return self
 
 
 class AdminCouponPoolIn(BaseModel):

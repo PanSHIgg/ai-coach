@@ -32,6 +32,25 @@ export interface RequestOptions {
   _retried?: boolean
 }
 
+/* ---------- 离线入队钩子（F-03，由 utils/offline 注册，解耦避免循环依赖） ---------- */
+
+/**
+ * 网络类失败时的入队钩子签名：命中关键写操作白名单且新入队返回 true。
+ * 由 utils/offline 在模块加载时注册；未注册时行为与改造前完全一致。
+ */
+type NetworkFailHook = (
+  path: string,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  data?: object,
+) => boolean
+
+let networkFailHook: NetworkFailHook | null = null
+
+/** 注册网络失败入队钩子（仅 utils/offline 调用） */
+export function setNetworkFailHook(hook: NetworkFailHook): void {
+  networkFailHook = hook
+}
+
 /* ---------- 登录态存取 ---------- */
 
 export function getToken(): string {
@@ -156,7 +175,10 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
       },
       fail: (err) => {
         const msg = err.errMsg || '网络开小差了，请稍后重试'
-        if (!silent) useToast().error({ title: msg })
+        // F-03：关键写操作网络失败 → 走离线入队钩子（仅网络类失败；4xx/业务错走 success 分支，不受影响）
+        // 新入队时由 offline 弹出「离线暂存」提示，此处不再重复弹通用网络错 toast
+        const queued = networkFailHook ? networkFailHook(path, method, data) : false
+        if (!silent && !queued) useToast().error({ title: msg })
         reject(new Error(msg))
       },
     })
