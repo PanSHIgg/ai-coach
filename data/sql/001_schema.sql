@@ -74,13 +74,17 @@ CREATE TABLE user_benefit (
     tier              SMALLINT DEFAULT 0,         -- 0基础 1进阶 2高级 3终身
     ai_times_left     INTEGER DEFAULT 10,         -- AI 对话剩余次数（tier3 不限次，扣减链路跳过）
     ai_times_reset_at TIMESTAMPTZ,                -- 次数重置时间
+    valid_to          TIMESTAMPTZ,                -- 付费有效期：NULL=不限期；包月档 paid_at+30d（G2）
+    coach_times_left  SMALLINT DEFAULT 0,         -- 真人教练剩余次数（提问消耗，G1）
     invite_count      INTEGER DEFAULT 0,          -- 有效邀请数
     created_at        TIMESTAMPTZ DEFAULT NOW(),
     CHECK (ai_times_left >= 0)
 );
-COMMENT ON TABLE user_benefit IS '用户权益：AI 次数、权益档位、邀请数（一人一条）；权益无期限不回收';
-COMMENT ON COLUMN user_benefit.tier IS '权益档位：0基础 1进阶 2高级 3终身（邀请 1/3/10 人达档）';
+COMMENT ON TABLE user_benefit IS '用户权益：AI 次数、权益档位、邀请数（一人一条）；付费档另有 valid_to/coach_times_left';
+COMMENT ON COLUMN user_benefit.tier IS '权益档位：0基础 1进阶 2高级 3终身（邀请 1/3/10 人达档或付费订阅）';
 COMMENT ON COLUMN user_benefit.ai_times_left IS 'AI 对话剩余次数，用尽提示邀请好友解锁（BE4b）';
+COMMENT ON COLUMN user_benefit.valid_to IS '付费有效期截止：NULL=不限期/基础档；进阶/高级包月 = paid_at + 30d（G2 0009）';
+COMMENT ON COLUMN user_benefit.coach_times_left IS '真人教练剩余次数（提问消耗，G1 0009；耗尽回 4001）';
 
 -- 邀请关系（docs/changes/2026-10-01：注册即有效，status 恒为 1 保留为扩展位）
 CREATE TABLE invite (
@@ -671,12 +675,12 @@ CREATE TABLE admin_user (
     id            BIGSERIAL PRIMARY KEY,
     username      VARCHAR(64) UNIQUE NOT NULL,
     password_hash VARCHAR(256) NOT NULL,
-    role          SMALLINT DEFAULT 2,             -- 1超管 2运营 3商家
+    role          SMALLINT DEFAULT 2,             -- 1超管 2运营 3商家 4教练（G1，0009）
     merchant_id   BIGINT REFERENCES merchant(id),
     created_at    TIMESTAMPTZ DEFAULT NOW(),
-    CHECK (role IN (1, 2, 3))
+    CHECK (role IN (1, 2, 3, 4))
 );
-COMMENT ON TABLE admin_user IS '管理后台账号（ADM1）：账号密码登录';
+COMMENT ON TABLE admin_user IS '管理后台账号（ADM1）：账号密码登录；role=4 为真人教练（G1 0009，登录走 /api/coach/login）';
 
 -- 全局配置（§7.2）
 CREATE TABLE config (
@@ -703,6 +707,68 @@ CREATE INDEX idx_track_event_user ON track_event(user_id);
 COMMENT ON TABLE track_event IS '埋点事件：6 项核心指标数据源（留存/K因子/扫码转化/识别成功率/AI满意度/获客成本）';
 
 -- -----------------------------------------------------------------------------
+-- 9. 真人教练工单域 + 平台自营付费订阅域（current.md §2.1 G1/G2，0009 迁移）
+-- -----------------------------------------------------------------------------
+
+-- 真人教练名册（G1）【假设】登录凭据复用 admin_user(role=4)，两者以 username 唯一关联
+CREATE TABLE coach (
+    id            BIGSERIAL PRIMARY KEY,
+    username      VARCHAR(64) UNIQUE NOT NULL,
+    password_hash VARCHAR(256),
+    name          VARCHAR(64),
+    status        SMALLINT DEFAULT 1,              -- 1在职 0停用
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+COMMENT ON TABLE coach IS '真人健身教练名册（G1）；登录凭据复用 admin_user(role=4)，两者以 username 唯一关联【假设】';
+COMMENT ON COLUMN coach.status IS '1在职 0停用';
+
+-- 工单（G1）：coach_id 为空=待分配；教练端查询必须带 coach_id 做行级隔离（越权/未分配 3001）
+CREATE TABLE coach_ticket (
+    id         BIGSERIAL PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    coach_id   BIGINT REFERENCES coach(id),
+    title      VARCHAR(128),
+    status     SMALLINT DEFAULT 1,                 -- 1待回复 2已回复 3关闭
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_coach_ticket_user ON coach_ticket(user_id, created_at DESC);
+CREATE INDEX idx_coach_ticket_coach ON coach_ticket(coach_id, status);
+COMMENT ON TABLE coach_ticket IS '真人教练工单/专家问诊（G1）：coach_id 为空=待分配；教练端查询须带 coach_id 做行级隔离';
+COMMENT ON COLUMN coach_ticket.status IS '1待回复 2已回复 3关闭';
+
+-- 工单消息
+CREATE TABLE coach_ticket_message (
+    id          BIGSERIAL PRIMARY KEY,
+    ticket_id   BIGINT NOT NULL REFERENCES coach_ticket(id) ON DELETE CASCADE,
+    sender_role SMALLINT NOT NULL,                 -- 1用户 2教练
+    user_id     BIGINT REFERENCES "user"(id),
+    coach_id    BIGINT REFERENCES coach(id),
+    content     TEXT NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_coach_msg_ticket ON coach_ticket_message(ticket_id, created_at);
+COMMENT ON TABLE coach_ticket_message IS '工单对话流水（G1）：sender_role 1用户 2教练';
+
+-- 平台自营会员订阅订单（G2）：不复用 order（order 绑定 merchant_id 与核销语义，平台自营无商家）
+CREATE TABLE plan_order (
+    id         BIGSERIAL PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    tier       SMALLINT NOT NULL,                  -- 1进阶 2高级 3终身
+    pay_amount NUMERIC(10, 2) NOT NULL,            -- 服务端按 tier 重算，单位元
+    status     SMALLINT DEFAULT 1,                 -- 1待支付 2已支付 3已取消
+    order_no   VARCHAR(64) UNIQUE NOT NULL,
+    expire_at  TIMESTAMPTZ,                        -- 15 分钟未支付过期
+    paid_at    TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CHECK (pay_amount >= 0)
+);
+CREATE INDEX idx_plan_order_user ON plan_order(user_id, created_at DESC);
+COMMENT ON TABLE plan_order IS '平台自营会员订阅订单（G2）：金额服务端按 tier 重算，15 分钟未支付过期；付款成功后写 user_benefit';
+COMMENT ON COLUMN plan_order.tier IS '档位：1进阶 29 元 2高级 59 元 3终身（价格常量集中管理，见 endpoints/plan.py）';
+COMMENT ON COLUMN plan_order.status IS '1待支付 2已支付 3已取消';
+
+-- -----------------------------------------------------------------------------
 -- updated_at 自动维护触发器
 -- -----------------------------------------------------------------------------
 CREATE TRIGGER trg_user_updated_at BEFORE UPDATE ON "user"
@@ -714,4 +780,6 @@ CREATE TRIGGER trg_subscription_updated_at BEFORE UPDATE ON subscription
 CREATE TRIGGER trg_order_updated_at BEFORE UPDATE ON "order"
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_config_updated_at BEFORE UPDATE ON config
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER trg_coach_ticket_updated_at BEFORE UPDATE ON coach_ticket
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();

@@ -278,7 +278,7 @@ onLoad((query) => {
     margin-bottom: $space-md;
     font-size: $t-28;
     font-weight: 500;
-    color: #ffffff;
+    color: var(--card);
     background: $brand;
     border-radius: $radius;
 
@@ -288,7 +288,7 @@ onLoad((query) => {
     }
 
     &[disabled] {
-      color: #ffffff;
+      color: var(--card);
       background: $disabled;
     }
   }

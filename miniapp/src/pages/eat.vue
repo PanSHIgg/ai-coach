@@ -380,9 +380,9 @@ function goMerchants() {
   uni.navigateTo({ url: '/pages/merchant/merchant' })
 }
 
-/** 专家问诊占位（P1 权益功能，本期仅 UI） */
+/** 专家问诊（G1）：跳真人教练工单对话页 */
 function onConsult() {
-  toast.info({ title: '专家问诊即将上线' })
+  uni.navigateTo({ url: '/pages/coach/chat' })
 }
 
 function clearRecognized() {

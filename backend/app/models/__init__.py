@@ -89,6 +89,10 @@ class UserBenefit(Base):
     ai_times_left: Mapped[int] = mapped_column(Integer, server_default="10", default=10)
     ai_times_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # 权益无期限（docs/changes/2026-10-01-邀请规则变更记录.md）：valid_from/valid_to 已删列
+    # 0009 迁移因付费订阅（G2）恢复 valid_to：NULL=不限期；包月档 now+30d
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 真人教练剩余次数（G1 工单消耗；0009 迁移加列）
+    coach_times_left: Mapped[int] = mapped_column(SmallInteger, server_default="0", default=0)
     invite_count: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
     created_at: Mapped[datetime] = _ts()
 
@@ -758,6 +762,84 @@ class TrackEvent(Base):
     created_at: Mapped[datetime] = _ts()
 
 
+# ---------------------------------------------------------------------------
+# 真人教练工单域 + 平台自营付费订阅域（0009 迁移，current.md §2.1 G1/G2）
+# ---------------------------------------------------------------------------
+
+
+class Coach(Base):
+    """真人健身教练（coach）：名册FK 锚点；登录凭据复用 admin_user（role=4）。
+
+    【假设】admin_user(role=4) 与 coach 以 username 唯一关联（首期不做 RBAC）。
+    """
+
+    __tablename__ = "coach"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    # 与 admin_user.password_hash 同格式占位（实际认证走 admin_user）
+    password_hash: Mapped[str | None] = mapped_column(String(256))
+    name: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)  # 1在职 0停用
+    created_at: Mapped[datetime] = _ts()
+
+
+class CoachTicket(Base):
+    """真人教练工单（coach_ticket）：用户提问 → 教练回复。
+
+    status：1待回复 2已回复 3关闭；coach_id 为空表示尚未分配。
+    """
+
+    __tablename__ = "coach_ticket"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    coach_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("coach.id"), index=True)
+    title: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    created_at: Mapped[datetime] = _ts()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class CoachTicketMessage(Base):
+    """工单消息（coach_ticket_message）：sender_role 1用户 2教练。"""
+
+    __tablename__ = "coach_ticket_message"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("coach_ticket.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sender_role: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    coach_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("coach.id"))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _ts()
+
+
+class PlanOrder(Base):
+    """平台自营会员订阅订单（plan_order）：不复用 order（order 绑定 merchant_id 与核销语义）。"""
+
+    __tablename__ = "plan_order"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tier: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # 1进阶 2高级 3终身
+    pay_amount: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False), nullable=False)
+    # 1待支付 2已支付 3已取消
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    order_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _ts()
+
+
 __all__ = [
     "AdminUser",
     "AiDialog",
@@ -767,6 +849,9 @@ __all__ = [
     "BodyProfile",
     "Challenge",
     "ChallengeJoin",
+    "Coach",
+    "CoachTicket",
+    "CoachTicketMessage",
     "CommunityComment",
     "CommunityGroup",
     "CommunityLike",
@@ -783,6 +868,7 @@ __all__ = [
     "MerchantSku",
     "Order",
     "OrderItem",
+    "PlanOrder",
     "RedeemLog",
     "Review",
     "SportRecord",

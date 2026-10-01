@@ -18,6 +18,8 @@ from app.api.v1.endpoints import (
     track,
     users,
     weight,
+    coach,  # G1 真人教练工单
+    plan,  # G2 平台自营会员订阅付费
 )
 
 api_router = APIRouter()
@@ -37,5 +39,7 @@ for module in (
     community,
     admin,
     track,
+    coach,  # G1 真人教练工单（current.md §2.1）
+    plan,  # G2 平台自营会员订阅付费（路径族 /api/plan，不复用 order/subscription）
 ):
     api_router.include_router(module.router)

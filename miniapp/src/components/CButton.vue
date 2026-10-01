@@ -72,7 +72,7 @@ function handleTap(ev: Event) {
 
   &--primary {
     background: $brand;
-    color: #ffffff;
+    color: var(--card);
   }
 
   &--secondary {
@@ -88,18 +88,20 @@ function handleTap(ev: Event) {
 
   &--danger {
     background: $danger;
-    color: #ffffff;
+    color: var(--card);
   }
 
   // 禁用（§4.6：底 #D1D5DB、字白、不可点）；置于类型类之后保证覆盖
   &--disabled {
     background: $disabled;
-    color: #ffffff;
+    color: var(--card);
     border-color: transparent;
   }
 
   &__spinner {
-    @include spin(28rpx, 3rpx, #ffffff);
+    // 用 SCSS 令牌 $card：此处不能写 CSS 变量形式，mixin 内部会做
+    // rgba($color, .3)，而 CSS rgba() 不接受 var() 解析出的 hex，会整条声明失效。
+    @include spin(28rpx, 3rpx, $card);
 
     margin-right: $space-xs;
   }

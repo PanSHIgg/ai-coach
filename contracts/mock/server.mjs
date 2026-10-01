@@ -38,7 +38,13 @@ const server = http.createServer(async (req, res) => {
   const rid = requestId();
   // 收集请求体（供动态 canned 按入参回显，如 /api/track 的 accepted）
   let raw = '';
-  for await (const chunk of req) raw += chunk;
+  // 客户端在请求体收完前断开（页面关闭/导航打断在途请求）会抛 'aborted'，
+  // 未捕获会导致 unhandledRejection 打死整个 mock server，后续请求全部 ERR_CONNECTION_REFUSED。
+  try {
+    for await (const chunk of req) raw += chunk;
+  } catch {
+    return; // 连接已断，无需响应
+  }
   let body = null;
   try { body = raw ? JSON.parse(raw) : null; } catch { body = null; }
 

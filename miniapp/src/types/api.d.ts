@@ -818,3 +818,164 @@ export interface RefundData {
   status: 1 | 2 | 3 | 4 | 5; // 5已退款
   refunded: boolean;
 }
+
+/* ---------- G1 真人教练工单 / 专家问诊（/api/coach/*） ---------- */
+
+export type CoachTicketStatus = 1 | 2 | 3; // 1待回复 2已回复 3关闭
+export type CoachSenderRole = 1 | 2; // 1用户 2教练
+
+export interface CoachLoginIn {
+  username: string;
+  password: string;
+}
+
+export interface CoachLoginData {
+  access_token: string; // admin 域 JWT（role=4 教练）
+  refresh_token: string;
+}
+
+export interface CoachTicketIn {
+  question: string; // 1-500 字；同时作为首条消息落库
+  attach?: Record<string, unknown> | null; // 【假设】附件 JSONB，结构由前端自定
+}
+
+export interface CoachTicketCreatedData {
+  ticket_id: number;
+  status: CoachTicketStatus;
+  created_at: string;
+}
+
+export interface CoachTicketItem {
+  id: number;
+  user_id: number;
+  coach_id?: number | null; // NULL=未分配
+  title?: string | null;
+  status: CoachTicketStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CoachTicketPageData = PageData<CoachTicketItem>;
+
+export interface CoachTicketMessageItem {
+  id: number;
+  ticket_id: number;
+  sender_role: CoachSenderRole;
+  user_id?: number | null;
+  coach_id?: number | null;
+  content: string;
+  created_at: string;
+}
+
+export interface CoachTicketDetailData {
+  ticket: CoachTicketItem;
+  messages: CoachTicketMessageItem[];
+}
+
+export interface CoachMessageIn {
+  content: string; // 1-2000 字
+}
+
+export interface CoachMessageData {
+  message_id: number;
+}
+
+export interface CoachReplyData {
+  message_id: number;
+  status: CoachTicketStatus; // 回复后为 2 已回复
+}
+
+export interface CoachUserProfile {
+  gender?: number | null;
+  height_cm?: number | null;
+  current_weight?: number | null;
+  target_weight?: number | null;
+  target_calories?: number | null;
+}
+
+export interface CoachUserRecordItem {
+  date: string; // YYYY-MM-DD
+  intake?: number | null;
+  deficit?: number | null;
+  steps?: number | null;
+}
+
+export interface CoachAssignedUserItem {
+  user: UserBrief;
+  profile?: CoachUserProfile | null;
+  recent_records: CoachUserRecordItem[]; // 近 7 日
+}
+
+export type CoachAssignedUserPageData = PageData<CoachAssignedUserItem>;
+
+export interface CoachAssignedTicketListData {
+  items: CoachTicketItem[]; // 仅本人被分配（created_at DESC，上限 100 条）
+}
+
+/* ---------- G2 平台自营会员订阅付费（/api/plan/*；不复用 /api/subscription） ---------- */
+
+export type PlanTier = 1 | 2 | 3; // 1进阶 2高级 3终身
+export type PlanOrderStatus = 1 | 2 | 3; // 1待支付 2已支付 3已取消
+
+export interface PlanTierItem {
+  tier: PlanTier;
+  name: string;
+  price: number; // 元，服务端唯一真源
+  valid_days?: number | null; // NULL=终身不限期；30=包月 30 天
+  ai_times: number;
+  coach_times: number;
+  description?: string | null;
+}
+
+export interface PlanListData {
+  items: PlanTierItem[];
+}
+
+export interface PlanBenefitData {
+  tier: 0 | PlanTier; // 0基础
+  ai_times_left: number;
+  coach_times_left: number;
+  valid_to?: string | null; // NULL=不限期/基础档
+  expired: boolean;
+}
+
+export interface PlanOrderIn {
+  tier: PlanTier; // 只传档位，金额服务端重算
+}
+
+export interface PlanOrderData {
+  order_id: number;
+  order_no: string;
+  tier: PlanTier;
+  pay_amount: number;
+  expire_at: string; // 15 分钟后过期
+}
+
+export interface PlanPayData {
+  order_id: number;
+  status: PlanOrderStatus;
+  pay_params: Record<string, unknown>; // mock 模式下为空对象 {}
+}
+
+export interface PlanNotifyIn {
+  order_no: string;
+  amount: number;
+  sign: string; // HMAC-SHA256(JWT_SECRET, "{order_no}|{amount:.2f}")
+}
+
+export interface PlanNotifyData {
+  result: 'ok';
+}
+
+export interface PlanOrderItem {
+  id: number;
+  order_no: string;
+  tier: PlanTier;
+  pay_amount: number;
+  status: PlanOrderStatus;
+  expire_at?: string | null;
+  paid_at?: string | null;
+  created_at: string;
+}
+
+export type PlanOrderPageData = PageData<PlanOrderItem>;

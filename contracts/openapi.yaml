@@ -49,6 +49,10 @@ tags:
     description: 运营看板
   - name: 埋点
     description: 【假设】预留分组，暂无接口
+  - name: 教练工单
+    description: 真人健身教练工单 / 专家问诊（G1：用户提问、教练回复、被分配用户）
+  - name: 会员套餐
+    description: 平台自营 AI+真人教练订阅付费（G2：档位/下单/支付/回调；路径族 /api/plan）
   - name: 体重
     description: 体重记录与趋势（Phase 1 / BE-w 新增）
   - name: 订阅
@@ -2596,6 +2600,442 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
+  # ---- G1 真人教练工单 / 专家问诊（current.md §2.1）----
+  # 【路径冲突裁定】教练端工单列表不用 GET /api/coach/tickets（与用户端「我的工单」撞路径），
+  # 改用 /api/coach/assigned-tickets；行级隔离：教练端查询强制带 coach_id=当前教练。
+  /api/coach/login:
+    post:
+      tags: [教练工单]
+      summary: 教练登录（账号密码→admin 域 JWT，role=4）
+      operationId: coachLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoachLoginIn'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CoachLoginData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/coach/ticket:
+    post:
+      tags: [教练工单]
+      summary: 提问/专家问诊下单（消耗真人教练次数，耗尽 4001）
+      operationId: createCoachTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoachTicketIn'
+      responses:
+        '200':
+          description: 工单已创建（status=1 待回复）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CoachTicketCreatedData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/QuotaExceeded'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/coach/tickets:
+    get:
+      tags: [教练工单]
+      summary: 我的工单列表（仅本人，created_at DESC）
+      operationId: listMyCoachTickets
+      parameters:
+        - name: status
+          in: query
+          description: 工单状态过滤 1待回复 2已回复 3关闭
+          schema: { $ref: '#/components/schemas/CoachTicketStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页工单列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CoachTicketPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/coach/ticket/{id}:
+    get:
+      tags: [教练工单]
+      summary: 工单详情（含对话流水；非本人工单 3001）
+      operationId: getCoachTicket
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 工单 + 消息列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CoachTicketDetailData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/coach/ticket/{id}/message:
+    post:
+      tags: [教练工单]
+      summary: 用户追加描述/追问
+      operationId: addCoachTicketMessage
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoachMessageIn'
+      responses:
+        '200':
+          description: 消息已记录
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CoachMessageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/QuotaExceeded'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/coach/assigned-users:
+    get:
+      tags: [教练工单]
+      summary: 教练查看被分配用户档案 + 近期记录（行级隔离：仅本人被分配）
+      operationId: listCoachAssignedUsers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页「用户档案 + 近 7 日记录」
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CoachAssignedUserPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/coach/assigned-tickets:
+    get:
+      tags: [教练工单]
+      summary: 教练域工单列表（仅本人被分配的工单，created_at DESC）
+      operationId: listCoachAssignedTickets
+      parameters:
+        - name: status
+          in: query
+          description: 工单状态过滤 1待回复 2已回复 3关闭
+          schema: { $ref: '#/components/schemas/CoachTicketStatus' }
+      responses:
+        '200':
+          description: 教练可见工单（契约未分页，服务端上限 100 条）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CoachAssignedTicketListData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/coach/ticket/{id}/reply:
+    post:
+      tags: [教练工单]
+      summary: 教练回复工单（非本人工单 3001；回复后 status=2 已回复）
+      operationId: replyCoachTicket
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoachMessageIn'
+      responses:
+        '200':
+          description: 回复已记录
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CoachReplyData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  # ---- G2 平台自营 AI+真人教练订阅付费（current.md §2.1）----
+  # 路径族用 /api/plan，绝不复用 /api/subscription（已被「提醒订阅」占用）与 /api/order
+  #（order 绑定 merchant_id 与核销语义，平台自营无商家）。
+  /api/plan/list:
+    get:
+      tags: [会员套餐]
+      summary: 会员档位与价格（1进阶 29 / 2高级 59 / 3终身【假设】199）
+      operationId: listPlans
+      responses:
+        '200':
+          description: 在售档位列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlanListData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/plan/benefit:
+    get:
+      tags: [会员套餐]
+      summary: 当前用户会员权益（含 valid_to 与是否过期）
+      operationId: getPlanBenefit
+      responses:
+        '200':
+          description: 当前权益；无权益行时按基础档返回
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlanBenefitData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/plan/order:
+    post:
+      tags: [会员套餐]
+      summary: 创建会员订阅订单（金额服务端重算，15 分钟过期）
+      operationId: createPlanOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanOrderIn'
+      responses:
+        '200':
+          description: 订单已创建（待支付）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlanOrderData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/QuotaExceeded'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/plan/order/{id}/pay:
+    post:
+      tags: [会员套餐]
+      summary: 会员订单支付（PAY_MOCK_MODE 或微信支付预下单）
+      operationId: payPlanOrder
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 拉起支付所需参数；mock 模式下 pay_params 为空对象且订单直接置已支付
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlanPayData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/OrderTimeout'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/plan/notify:
+    post:
+      tags: [会员套餐]
+      summary: 会员支付回调（验签 + 幂等；重复回调应答 ok）
+      operationId: planPayNotify
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanNotifyIn'
+      responses:
+        '200':
+          description: 【假设】按内部 envelope 应答，微信协议转换在网关层处理
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlanNotifyData'
+        '404':
+          description: 订单不存在（3001）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '409':
+          description: 迟到回调：订单已超时取消（5003）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '422':
+          description: 验签失败 / 回调金额与订单应付金额不符（2001）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/plan/orders:
+    get:
+      tags: [会员套餐]
+      summary: 我的会员订阅订单
+      operationId: listPlanOrders
+      parameters:
+        - name: status
+          in: query
+          description: 1待支付 2已支付 3已取消
+          schema: { $ref: '#/components/schemas/PlanOrderStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 分页订单列表（created_at DESC）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PlanOrderPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -4040,3 +4480,257 @@ components:
         order_id: { type: integer }
         status: { $ref: '#/components/schemas/OrderStatus' }
         refunded: { type: boolean }
+    # ---- G1 真人教练工单 / 专家问诊 ----
+    CoachTicketStatus:
+      type: integer
+      description: 1待回复 2已回复 3关闭
+      enum: [1, 2, 3]
+    CoachSenderRole:
+      type: integer
+      description: 1用户 2教练
+      enum: [1, 2]
+    CoachLoginIn:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 64 }
+        password: { type: string, minLength: 6, maxLength: 128 }
+    CoachLoginData:
+      type: object
+      required: [access_token, refresh_token]
+      properties:
+        access_token:
+          type: string
+          description: 'admin 域 JWT（role=4 教练）'
+        refresh_token: { type: string }
+    CoachTicketIn:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: 提问内容（同时作为首条消息落库，title 取其前 64 字）
+        attach:
+          type: object
+          description: '【假设】附件（图片/食物记录的 JSONB 结构，由前端自定）'
+          additionalProperties: true
+    CoachTicketCreatedData:
+      type: object
+      required: [ticket_id, status, created_at]
+      properties:
+        ticket_id: { type: integer }
+        status: { $ref: '#/components/schemas/CoachTicketStatus' }
+        created_at: { type: string, format: date-time }
+    CoachTicketItem:
+      type: object
+      required: [id, user_id, status, created_at, updated_at]
+      properties:
+        id: { type: integer }
+        user_id: { type: integer }
+        coach_id: { type: integer, nullable: true, description: 'NULL=未分配' }
+        title: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/CoachTicketStatus' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CoachTicketPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CoachTicketItem'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    CoachTicketMessageItem:
+      type: object
+      required: [id, ticket_id, sender_role, content, created_at]
+      properties:
+        id: { type: integer }
+        ticket_id: { type: integer }
+        sender_role: { $ref: '#/components/schemas/CoachSenderRole' }
+        user_id: { type: integer, nullable: true }
+        coach_id: { type: integer, nullable: true }
+        content: { type: string }
+        created_at: { type: string, format: date-time }
+    CoachTicketDetailData:
+      type: object
+      required: [ticket, messages]
+      properties:
+        ticket:
+          $ref: '#/components/schemas/CoachTicketItem'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CoachTicketMessageItem'
+    CoachMessageIn:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: 追加描述/教练回复正文
+    CoachMessageData:
+      type: object
+      required: [message_id]
+      properties:
+        message_id: { type: integer }
+    CoachReplyData:
+      type: object
+      required: [message_id, status]
+      properties:
+        message_id: { type: integer }
+        status: { $ref: '#/components/schemas/CoachTicketStatus' }
+    CoachUserProfile:
+      type: object
+      description: 教练可见的用户档案摘要（不暴露全部建档字段）
+      properties:
+        gender: { type: integer, nullable: true }
+        height_cm: { type: number, nullable: true }
+        current_weight: { type: number, nullable: true }
+        target_weight: { type: number, nullable: true }
+        target_calories: { type: integer, nullable: true }
+    CoachUserRecordItem:
+      type: object
+      required: [date]
+      properties:
+        date: { type: string, format: date }
+        intake: { type: number, nullable: true }
+        deficit: { type: number, nullable: true }
+        steps: { type: integer, nullable: true }
+    CoachAssignedUserItem:
+      type: object
+      required: [user, recent_records]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserBrief'
+        profile:
+          oneOf:
+            - $ref: '#/components/schemas/CoachUserProfile'
+            - type: 'null'
+        recent_records:
+          type: array
+          description: 近 7 日日粒度记录
+          items:
+            $ref: '#/components/schemas/CoachUserRecordItem'
+    CoachAssignedUserPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CoachAssignedUserItem'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    CoachAssignedTicketListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          description: 仅本人被分配的工单（created_at DESC，服务端上限 100 条）
+          items:
+            $ref: '#/components/schemas/CoachTicketItem'
+    # ---- G2 平台自营会员订阅付费 ----
+    PlanTierItem:
+      type: object
+      required: [tier, name, price, ai_times, coach_times]
+      properties:
+        tier: { type: integer, description: 1进阶 2高级 3终身, enum: [1, 2, 3] }
+        name: { type: string, example: '进阶会员' }
+        price: { type: number, format: double, description: 元，服务端唯一真源 }
+        valid_days: { type: integer, nullable: true, description: 'NULL=终身不限期；30=包月 30 天' }
+        ai_times: { type: integer, description: 购买后 AI 次数额度 }
+        coach_times: { type: integer, description: 购买后真人教练次数额度 }
+        description: { type: string, nullable: true }
+    PlanListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanTierItem'
+    PlanBenefitData:
+      type: object
+      required: [tier, ai_times_left, coach_times_left, expired]
+      properties:
+        tier: { type: integer, description: 0基础 1进阶 2高级 3终身 }
+        ai_times_left: { type: integer }
+        coach_times_left: { type: integer }
+        valid_to: { type: string, format: date-time, nullable: true, description: 'NULL=不限期/基础档' }
+        expired:
+          type: boolean
+          description: valid_to 已过期（是否降级回收由业务层决定）
+    PlanOrderIn:
+      type: object
+      required: [tier]
+      properties:
+        tier:
+          type: integer
+          enum: [1, 2, 3]
+          description: 只传档位，金额由服务端重算（不信任前端）
+    PlanOrderData:
+      type: object
+      required: [order_id, order_no, tier, pay_amount, expire_at]
+      properties:
+        order_id: { type: integer }
+        order_no: { type: string }
+        tier: { type: integer }
+        pay_amount: { type: number, format: double }
+        expire_at: { type: string, format: date-time, description: 15 分钟后过期 }
+    PlanPayData:
+      type: object
+      required: [order_id, status, pay_params]
+      properties:
+        order_id: { type: integer }
+        status: { $ref: '#/components/schemas/PlanOrderStatus' }
+        pay_params:
+          type: object
+          additionalProperties: true
+          description: '微信小程序拉起支付参数；PAY_MOCK_MODE 下为空对象 {}'
+    PlanNotifyIn:
+      type: object
+      required: [order_no, amount, sign]
+      properties:
+        order_no: { type: string }
+        amount: { type: number, format: double }
+        sign:
+          type: string
+          description: 'HMAC-SHA256(JWT_SECRET, "{order_no}|{amount:.2f}")，与 /api/order/notify 同一口径'
+    PlanNotifyData:
+      type: object
+      required: [result]
+      properties:
+        result: { type: string, const: ok }
+    PlanOrderItem:
+      type: object
+      required: [id, order_no, tier, pay_amount, status, created_at]
+      properties:
+        id: { type: integer }
+        order_no: { type: string }
+        tier: { type: integer }
+        pay_amount: { type: number, format: double }
+        status: { $ref: '#/components/schemas/PlanOrderStatus' }
+        expire_at: { type: string, format: date-time, nullable: true }
+        paid_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+    PlanOrderStatus:
+      type: integer
+      description: 1待支付 2已支付 3已取消
+      enum: [1, 2, 3]
+    PlanOrderPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanOrderItem'
+        page:
+          $ref: '#/components/schemas/PageMeta'

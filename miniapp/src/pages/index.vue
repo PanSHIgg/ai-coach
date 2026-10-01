@@ -681,7 +681,7 @@ const services = [
   { icon: 'ic-doc', label: '记录', action: goRecord },
   { icon: 'ic-calendar', label: '一键预约', action: () => onPlaceholder('一键预约即将上线') },
   { icon: 'ic-store', label: '商家比价', action: goMerchant },
-  { icon: 'ic-gym', label: '教练问诊', action: () => onPlaceholder('教练问诊即将上线') },
+  { icon: 'ic-gym', label: '教练问诊', action: goCoach },
 ]
 
 /* ---------- 生命周期 ---------- */
@@ -756,6 +756,10 @@ function goChat() {
 }
 function onCoach() {
   goChat()
+}
+/** 教练问诊（G1）：真人教练工单对话页（未订阅时页内灰显引导开通） */
+function goCoach() {
+  uni.navigateTo({ url: '/pages/coach/chat' })
 }
 function onHunger() {
   uni.navigateTo({ url: '/pages/ai/chat?hunger=1' })

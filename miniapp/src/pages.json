@@ -161,6 +161,30 @@
       "style": {
         "navigationBarTitleText": "邀请好友"
       }
+    },
+    {
+      "path": "pages/coach/chat",
+      "style": {
+        "navigationBarTitleText": "专家问诊"
+      }
+    },
+    {
+      "path": "pages/coach/tickets",
+      "style": {
+        "navigationBarTitleText": "我的问诊"
+      }
+    },
+    {
+      "path": "pages/plan/index",
+      "style": {
+        "navigationBarTitleText": "会员订阅"
+      }
+    },
+    {
+      "path": "pages/plan/orders",
+      "style": {
+        "navigationBarTitleText": "订阅订单"
+      }
     }
   ],
   "tabBar": {

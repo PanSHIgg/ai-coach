@@ -1,4 +1,4 @@
-// 路由表：method + 路径模板 → canned envelope data（覆盖 openapi.yaml 全部 82 接口）。
+// 路由表：method + 路径模板 → canned envelope data（覆盖 openapi.yaml 全部 96 接口）。
 // 匹配规则（宽松）：/api 前缀可有可无、结尾斜杠与多斜杠忽略、{param} 匹配任意单段。
 // 零依赖：仅用标准 JS，供 server.mjs 消费。
 
@@ -426,6 +426,113 @@ export const routes = [
   {
     m: 'POST', p: '/api/admin/audit/{id}/review',
     d: { id: 1, target_type: 1, target_id: 2, status: 2, reject_reason: '内容不合规', reviewed_at: now() },
+  },
+
+  // ---- G1 真人教练工单 / 专家问诊 ----
+  {
+    m: 'POST', p: '/api/coach/login',
+    d: { access_token: 'mock-coach-jwt-token', refresh_token: 'mock-coach-refresh-token' },
+  },
+  {
+    m: 'POST', p: '/api/coach/ticket',
+    d: { ticket_id: 99001, status: 1, created_at: now() },
+  },
+  {
+    m: 'GET', p: '/api/coach/tickets',
+    d: {
+      items: [{
+        id: 99001, user_id: 1001, coach_id: 7001, title: '减脂期晚餐怎么配？',
+        status: 1, created_at: now(), updated_at: now(),
+      }],
+      page,
+    },
+  },
+  {
+    m: 'GET', p: '/api/coach/ticket/{id}',
+    d: {
+      ticket: {
+        id: 99001, user_id: 1001, coach_id: 7001, title: '减脂期晚餐怎么配？',
+        status: 2, created_at: now(), updated_at: now(),
+      },
+      messages: [
+        { id: 1, ticket_id: 99001, sender_role: 1, user_id: 1001, coach_id: null, content: '减脂期晚餐怎么配？', created_at: now() },
+        { id: 2, ticket_id: 99001, sender_role: 2, user_id: null, coach_id: 7001, content: '晚餐蛋白质 30g + 蔬菜 300g，主食减半。', created_at: now() },
+      ],
+    },
+  },
+  {
+    m: 'POST', p: '/api/coach/ticket/{id}/message',
+    d: { message_id: 2 },
+  },
+  {
+    m: 'GET', p: '/api/coach/assigned-users',
+    d: {
+      items: [{
+        user,
+        profile: { gender: 1, height_cm: 175.0, current_weight: 75.5, target_weight: 70.0, target_calories: 2300 },
+        recent_records: [
+          { date: today(), intake: 1418, deficit: -966, steps: 12000 },
+          { date: '2026-09-30', intake: 1720, deficit: -664, steps: 9000 },
+        ],
+      }],
+      page,
+    },
+  },
+  {
+    m: 'GET', p: '/api/coach/assigned-tickets',
+    d: {
+      items: [{
+        id: 99001, user_id: 1001, coach_id: 7001, title: '减脂期晚餐怎么配？',
+        status: 1, created_at: now(), updated_at: now(),
+      }],
+    },
+  },
+  {
+    m: 'POST', p: '/api/coach/ticket/{id}/reply',
+    d: { message_id: 2, status: 2 },
+  },
+
+  // ---- G2 平台自营会员订阅付费（/api/plan） ----
+  {
+    m: 'GET', p: '/api/plan/list',
+    d: {
+      items: [
+        { tier: 1, name: '进阶会员', price: 29.0, valid_days: 30, ai_times: 30, coach_times: 5, description: '扩容 AI 次数 + 每月真人教练问诊额度' },
+        { tier: 2, name: '高级会员', price: 59.0, valid_days: 30, ai_times: 60, coach_times: 15, description: '更高 AI 次数 + 更多真人教练问诊额度' },
+        // 【假设】终身档价格文档未给，先取 199.00
+        { tier: 3, name: '终身会员', price: 199.0, valid_days: null, ai_times: 200, coach_times: 60, description: '终身不限期' },
+      ],
+    },
+  },
+  {
+    m: 'GET', p: '/api/plan/benefit',
+    d: { tier: 0, ai_times_left: 9, coach_times_left: 0, valid_to: null, expired: false },
+  },
+  {
+    m: 'POST', p: '/api/plan/order',
+    d: (ctx) => {
+      const tier = Number(ctx?.body?.tier) || 1;
+      const price = { 1: 29.0, 2: 59.0, 3: 199.0 }[tier] ?? 29.0;
+      return {
+        order_id: 77001, order_no: 'PL2026100200001', tier, pay_amount: price,
+        expire_at: '2026-10-02T15:30:00+08:00',
+      };
+    },
+  },
+  {
+    m: 'POST', p: '/api/plan/order/{id}/pay',
+    d: { order_id: 77001, status: 2, pay_params: {} },
+  },
+  { m: 'POST', p: '/api/plan/notify', d: { result: 'ok' } },
+  {
+    m: 'GET', p: '/api/plan/orders',
+    d: {
+      items: [{
+        id: 77001, order_no: 'PL2026100200001', tier: 1, pay_amount: 29.0, status: 2,
+        expire_at: '2026-10-02T15:30:00+08:00', paid_at: now(), created_at: now(),
+      }],
+      page,
+    },
   },
 
   // ---- 埋点（F3，允许匿名） ----

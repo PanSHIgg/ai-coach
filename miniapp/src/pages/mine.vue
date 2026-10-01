@@ -45,6 +45,11 @@
           <text class="me__item-label">立即邀请</text>
           <text class="me__item-arrow">›</text>
         </view>
+        <!-- 会员订阅入口（G2：/api/plan/* 档位/权益/订单） -->
+        <view class="me__item" @tap="goPlan">
+          <text class="me__item-label">我的订阅</text>
+          <text class="me__item-arrow">›</text>
+        </view>
       </CCard>
 
       <!-- 提醒订阅（§2.3.1 餐前/深夜推送；§2.4 未授权引导设置页，不阻断核心流程） -->
@@ -138,6 +143,10 @@ function goRecord() {
 }
 function goInvite() {
   uni.navigateTo({ url: '/pages/invite' })
+}
+/** 我的订阅（G2）：会员档位 / 权益 / 订阅订单 */
+function goPlan() {
+  uni.navigateTo({ url: '/pages/plan/index' })
 }
 function onLogout() {
   uni.showModal({

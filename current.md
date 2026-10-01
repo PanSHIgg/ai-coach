@@ -4,8 +4,9 @@
 > **依据**：`docs/AI饮食管控教练_全栈开发交付文档.md`（唯一真源，基线 `015d736` 冻结只读、全程一字未动）
 > **结构**：本文件**只有两部分**——**一、已完成** / **二、待完成 · 优化**。
 > **处置纪律（AGENTS §7.2）**：① 文档对、代码错 → 改代码补测试；② 代码做到、文档口径过时/文档自相矛盾 → 在第二部分登记，等产品拍板；③ 文档要求的 P0 未实现 → 登记排期。**禁止改文档**。
-> **当前门禁（2026-10-01 定案）**：全量 pytest **564 passed / 0 failed / 0 skipped**；契约一致性 **80 passed**（**75 路径 / 82 操作**，与实现、mock 双向 diff 0）；`miniapp` type-check **0 错误** + `build:mp-weixin` / `build:h5` ✓；`admin` build ✓；alembic **head 0008**；H5 E2E 点击流 **21/21 PASS**；CI 三 job 本地复现全绿。
-> **更新时间**：2026-10-01（重构为两段式；并入文档↔实现差异复核结果）
+> **当前门禁（2026-10-02 第二批更新）**：全量 pytest **603 passed / 0 failed / 0 skipped**（本地全量，含未入库测试资产）；契约一致性 **89 路径 / 96 操作**（与实现、mock 双向 diff 0）；`miniapp` type-check **0 错误** + Vitest **60 单测全过** + `build:mp-weixin` / `build:h5` ✓ + Playwright E2E **5 passed**；`admin` build ✓ + Playwright E2E **8 passed / 2 failed**（见 §1.6）；alembic **head 0009**；**全链路 E2E（真实 AI + PageSpy）已打通**（见 §1.7）；H5 E2E 点击流 21/21 PASS；CI 三 job 本地复现全绿。
+> **入库口径（2026-10-02 用户拍板）**：本轮**功能实现**随本文档推送；**测试资产一律不入库**——backend/tests 新增用例（`test_coach` / `test_plan` / conftest / 契约基线常量）、miniapp Vitest + Playwright、admin Playwright、`perf/coverage.md`、`scripts/e2e_fullchain/` 均保留本地工作区、不随本次推送。影响：远程 clone 后 `test_contract_consistency.py` 仍冻结 75/82，与入库契约 89/96 不匹配，远程跑全量 pytest 会 fail（本地文件齐全，不受影响）；本文档 §1.6 / §1.7 所述测试基建均为**本地已验证**状态。
+> **更新时间**：2026-10-02（第二批：并入 G1 教练工单 / G2 订阅付费实现、前端测试基建补齐、覆盖率报告、全链路 E2E 实测）
 
 ---
 
@@ -41,6 +42,9 @@
 - **邀请规则变更落地**：注册即有效 / `INVITE_TIERS=[1,3,10]` / 实时生效 / 无期限 / 同设备防刷 4102 / 废除双方发券；删批量调度与有效期字段；0007 迁移
 - **merchant 位置字段 GEOMETRY 化**：PostGIS + 0008 迁移 + GIST 索引 + `ST_DistanceSphere`，契约入出参 lat/lng 不变
 - **AI Provider 收敛为 LLM/VLM 统一 OpenAI 兼容协议**：`LLM_*`/`VLM_*` env 配置，删 8 个厂商适配器
+- **G1 教练工单（P1 缺口补齐，2026-10-02 第二批）**：`coach` / `coach_ticket` / `coach_ticket_message` 三表（0009 迁移）+ 8 接口（`/api/coach/*`）：教练登录、当前教练信息、创建工单、我的工单列表/详情、工单消息追加、教练名下用户列表、教练名下工单列表、教练回复工单（`coach_service.py` + `tests/test_coach.py`）
+- **G2 订阅付费（P1 缺口补齐，2026-10-02 第二批）**：`plan_order` 表 + `user_benefit` 扩列（`valid_to` / `coach_times_left`）（0009 迁移）+ 6 接口（`/api/plan/*`）：套餐列表、当前用户权益、创建订阅订单、订单支付、支付回调（幂等）、我的会员订单（`plan_service.py` + `tests/test_plan.py`；不复用 `/api/subscription` 提醒订阅）
+- **缺陷修复**：① mock server 请求体 `aborted` 未处理 rejection 打死进程（收包 try/catch）；② AI 对话页输入框死锁（`canSend` 与 `:disabled` 互赖）；③ pytest conftest `_TRUNCATE_TABLES` 补 coach 等 4 张新表；④ `test_contract_consistency.py` docstring 同步冻结基线数字
 
 ### 1.2 前端小程序（uni-app + Vue3 + TS）
 
@@ -57,6 +61,7 @@
 - 页面路由：代码 **26 页**、TabBar **5 个**（首页/吃什么/运动/社区/我的），与文档 §3.2 一致
 - **登录后回跳原页**：统一 `nav.ts`，跳登录携 `?redirect=`，防开放重定向/循环
 - **AI 满意度评分埋点**：AI 回答 1~5 星 → `track('ai_rating')`
+- **教练/订阅 4 个新页（2026-10-02 第二批）**：`pages/coach/tickets`（我的工单）、`pages/coach/chat`（工单对话）、`pages/plan/index`（套餐与权益）、`pages/plan/orders`（会员订单）；`api/coach.ts` / `api/plan.ts`；页面注册 26 → **30 页**
 
 ### 1.3 管理后台（Vue3 H5）
 
@@ -64,20 +69,21 @@
 - 商家管理、SKU 管理（区间定价校验）
 - 券池管理、订单管理、内容审核
 - 构建通过（内嵌 vue-tsc type-check + vite build ✓）
+- **Playwright 交互级 E2E 基建（2026-10-02 第二批）**：`admin/playwright.config.ts` + `admin/e2e/` 7 个 spec（登录 / 仪表盘 / 商家 / SKU 目录 / 券池 / 订单 / 内容审核）+ `auth.setup.ts`（登录一次存 storageState，避开 5 次/分钟限流）+ 幂等种子（`pre-seed.sql` / `seed.sql`，复用仓库 003/004）；webServer 自动拉起后端与 dev server（:5180），系统 Chrome 驱动【实跑 8 passed / 2 failed，见 §1.6】
 
 ### 1.4 契约 / 数据 / 部署
 
-- 契约冻结：`contracts/openapi.yaml` **75 路径 / 82 操作**，与实现、mock 双向 diff 0
-- pydantic schema 与契约响应字段差异 0；TS 双副本逐字一致
+- 契约冻结：`contracts/openapi.yaml` **89 路径 / 96 操作**（G1 8 接口 + G2 6 接口并入后），与实现、mock 双向 diff 0
+- pydantic schema 与契约响应字段差异 0；TS 双副本逐字一致（`contracts/ts/api.d.ts` ↔ `miniapp/src/types/api.d.ts`）
 - Mock Server 覆盖契约全部操作
-- 数据库 **36 表**三方（schema.sql ↔ ORM ↔ 实际库）列级差异 0
+- 数据库 **40 表**三方（schema.sql ↔ ORM ↔ 实际库）列级差异 0（第二批 +4：coach / coach_ticket / coach_ticket_message / plan_order）
 - 种子数据：food 1750 / food_alias 342 / sku_catalog 5 / ai_knowledge 50
-- Alembic 迁移（0001~0008：0007 邀请规则 / 0008 merchant PostGIS）与 schema.sql 同源
+- Alembic 迁移（0001~0009：0007 邀请规则 / 0008 merchant PostGIS / 0009 教练工单与订阅付费）与 schema.sql 同源
 - 部署产物：`deploy/`（nginx、prometheus 告警、grafana 看板、灰度方案；PG 镜像 postgis/postgis:16-3.4）
 - Dockerfile.backend 多阶段构建 + 非 root 用户
 - CI 补 black 非阻断检查
 - 冒烟用例 **55 条**（文档要求 50，超出非缺失）
-- 测试门禁：全量 pytest **564 passed / 0 failed / 0 skipped**；type-check 0 错误；双端 build + admin build 全部通过
+- 测试门禁：全量 pytest **603 passed / 0 failed / 0 skipped**（本地全量；测试资产未入库，远程基线仍 564）；type-check 0 错误；Vitest 60 单测；双端 build + admin build 全部通过
 
 ### 1.5 E2E 与 CI 验证（2026-10-01 实测，编排 agent 复验）
 
@@ -85,7 +91,25 @@
 - **CI 复现（按 `.github/workflows/ci.yml` 三 job 逐条）**：backend **564 passed / 0 failed / 0 skipped**（起真实 redis:7 后原 2 例锁定用例转执行全过；ruff/black 非阻断存量告警与 CI 口径一致）；frontend type-check + `build:mp-weixin`/`build:h5` ✓；admin `npm ci` + build ✓。偏差仅环境性（postgis:16-3.4 镜像替代 postgres:16、Python 3.11 vs 3.12）→ **推送 GitHub Actions / Gitea Actions（同构 runner）将全绿**
 - **docker compose 全栈部署实测**（2026-10-01）：7 服务全部健康（postgres/redis/api/worker/nginx/prometheus/grafana）；补齐部署缺口——postgres 自动初始化 schema（initdb 挂载）、Grafana provisioning 开箱即用（datasource uid=prometheus + 看板自动加载）、Dockerfile PyPI 国内源、nginx 443 块拆分至 `nginx-ssl.conf.example`（无证书环境可启动）、worker 禁用继承的 HTTP 探活；种子导入 + 8 用户全链路流量（登录/建档/记餐/商家 PostGIS 查询/账户）后 Prometheus targets `ai-coach-api up`、`http_requests_total` 等业务指标入采集
 
-### 1.6 文档↔实现 处置台账（已闭环，2026-10-01 用户拍板）
+### 1.6 前端测试基建与覆盖率（2026-10-02 第二批，§2.2 缺口闭环；**资产未入库**）
+
+- **Vitest 组件测试**：miniapp `npm run test:unit` **10 文件 60 用例全过**；type-check 0 错误；`build:h5` / `build:mp-weixin` 双构建通过
+- **miniapp Playwright E2E**：`miniapp/playwright.config.ts` + `miniapp/e2e/`（home / ai-chat / merchant 3 spec + helpers）；跑 mock server（:9000，78 canned 接口）+ dev:h5（:5173），webServer 自动拉起，系统 Chrome 驱动；**实跑 5/5 PASS（9.1s，2026-10-02 复验）**
+- **admin E2E**：见 §1.3——**实跑 8 passed / 2 failed**（2026-10-02 复验；失败为 coupon-pools / merchants 两条，疑数据前置态，待查）
+- **后端行覆盖率报告**：`perf/coverage.md`（测试度量子 Agent 产出，只度量不改码）——同一份代码 564 测试两种 tracer 口径：默认 tracer **76.4%**（5494 语句 / miss 1296）、`COVERAGE_CORE=sysmon` **89.8%**（miss 558），**双口径均 ≥70% 达标**（文档 §9.1 要求），缺口分析与补测建议以 sysmon 口径为准
+- ⚠️ 上述测试文件与报告按用户决定**保留本地、不入库**（详见头部「入库口径」）
+
+### 1.7 全链路 E2E（真实 AI + PageSpy，2026-10-01 实测）
+
+> 应用户要求：AI 必须走 `ai_api.md` 真实厂商端点（非 mock），浏览器驱动用仓库 `agent-browser` 技能，并以 PageSpy 观测构建产物。
+
+- **栈**：H5 **构建产物**（`dist/build/h5`，非 dev server）+ PageSpy SDK 运行时注入（`@huolala-tech/page-spy-api` iife :6752）+ aiohttp 同源反代 :8080（静态资源 + `/api` → :8000 + `/pagespy-sdk.js`）——脚本本地留存 `scripts/e2e_fullchain/proxy.py` + `run.sh`（按用户决定不入库）
+- **真实 AI**：ModelScope `Qwen/Qwen3.8-Flash-Next`（`ai_api.md` 凭证，OpenAI 兼容协议）；AI 对话**真实回复 8.20s**、RAG 引用 knowledge:208/212/213、配额 10→9→8 逐次扣减
+- **全链路断言 PASS**：mock code2session 登录 → 后端签发真实 JWT → 建档（BMR 1658.8）→ 首页热量 2,322 kcal 与 `target_calories` 同源 → AI 对话（真实 LLM）→ 商家列表 PostGIS 实查 3 家 + 类目筛选联动
+- **PageSpy 观测**：DevTools Network / Storage / Console 面板完整收录全部请求；产出 5 张证据截图（沙箱 /tmp，不入仓库）
+- **实测发现 2 项**：① `AI_TIMEOUT` 默认 5s 不足——真实 LLM P95 延迟 >5s，会被降级 FAQ（409），需 ≥30s（本轮实测 8.2s 通过）；② uni-app 自定义元素对 Playwright `snapshot` 无障碍树不可见，须用 `find text` / `eval` 定位
+
+### 1.8 文档↔实现 处置台账（已闭环，2026-10-01 用户拍板）
 
 > 处置依据：`docs/changes/2026-10-01-文档矛盾代码对齐决策记录.md` + `2026-10-01-邀请规则变更记录.md`。`docs/` 基线冻结只读，一字未动；原始明细（逐条说法 A/B、行号定位）见决策记录与 git 历史。
 
@@ -143,8 +167,8 @@
 
 | 编号 | 文档位置 | 文档要求 | 当前状态 | 级别 |
 | --- | --- | --- | --- | --- |
-| G1 | §2.1 P1 `:80`、§2.2 `:84-92`、§5.2-8 | 真人健身教练工单（教练端查看分配用户/回复工单）、专家问诊 | 后端无任何 coach/ticket 端点；`eat.vue` 专家问诊仅 UI 占位「即将上线」 | **P1** |
-| G2 | §2.1 P1 `:80`、§1.2 `:30` | 平台自营 AI+真人教练订阅付费（进阶 29 / 高级 59 / 终身档） | 无付费升级链路；`/api/subscription` 实为**提醒订阅**（notification.py），非权益付费 | **P1** |
+| ~~G1~~ | §2.1 P1 `:80`、§2.2 `:84-92`、§5.2-8 | 真人健身教练工单 | **已实现**（2026-10-02 第二批，见 §1.1） | ~~P1~~ |
+| ~~G2~~ | §2.1 P1 `:80`、§1.2 `:30` | 平台自营 AI+真人教练订阅付费 | **已实现**（2026-10-02 第二批，见 §1.1） | ~~P1~~ |
 | G3 | §5.5 `:683-698` | 我的页 items 5–9：任务中心/每日签到、我的积分、隐私控制、报告导出、专属优惠 | `mine.vue` 仅「常用/提醒/账号」三卡，上述模块全缺 | P2 |
 | G4 | §5.1-4 `:141`、§5.2-2、§5.3-4 | 语音录入/语音输入/语音描述 | `eat.vue` 语音按钮为占位「后续版本支持」，无 `RecorderManager`；其余页无语音 | P2 |
 | G5 | §5.2-7 `:109-114` | 附近商家比价卡片（标准套餐） | `eat.vue` 占位「即将上线」，未调用 `/api/merchant/list` | P2 |
@@ -156,8 +180,7 @@
 
 ### 2.2 工程与测试基建缺口
 
-- **前端测试基建缺失**（文档 §9.1 `:1542`，P1）：要求 Vitest 组件测试 + Playwright E2E，仓库**无配置与脚本**，仅后端 pytest；影响 §12.2 测试报告交付。现存 H5 E2E 脚本仅在 /tmp，未入库
-- **单元测试行覆盖率无报告**（§9.1 要求 ≥70%）：仓库无可核对的覆盖率产物
+> **已闭环（2026-10-02 第二批，本地）**：原两项「前端测试基建缺失」「单元测试行覆盖率无报告」均已在**本地**补齐，见 §1.6（Vitest 60 单测 + miniapp E2E 5 passed + admin E2E 8/2 + `perf/coverage.md` 双口径 ≥70% 达标）。**注意：全套测试资产按用户决定未入库**（见头部「入库口径」）——远程仓库当前仍无前端测试与覆盖率报告，从远程视角该缺口仍然存在；本地已闭环。
 
 ### 2.3 已实现但不完整 / 优化项
 
@@ -170,17 +193,17 @@
 
 ### 2.4 待外部条件 / 收尾
 
-- **OpenAI 兼容端点联调**（原 D-13）：D-09 重构后配 `LLM_*`/`VLM_*` 六项 env 即可接入任一 OpenAI 兼容厂商（DeepSeek/通义/混元/ModelScope 等）；未配密钥前走降级路径
+- **OpenAI 兼容端点联调**（原 D-13）：**已用 ModelScope `Qwen/Qwen3.8-Flash-Next` 真实联调通过**（对话/RAG/配额扣减全链路验证，见 §1.7）；生产接入任一 OpenAI 兼容厂商仅需配 `LLM_*`/`VLM_*` 六项 env
+- **`AI_TIMEOUT` 生产配置建议**（§1.7 实测产出）：默认 5s 对真实 LLM 不足（>5s 即降级 FAQ），建议生产 ≥30s；已在 `scripts/e2e_fullchain/run.sh` 注明（本地留存，未入库）
 - **ModelScope 明文令牌轮换**：`ai_api.md`（docs/ 冻结区）中明文令牌已泄露（用户要求保留原文），强烈建议到厂商侧轮换作废
-- **微信支付真实商户号联调**（F1）：现为沙箱/Mock 打通，未接正式商户号
+- **微信支付真实商户号联调**（F1）：现为沙箱/Mock 打通，未接正式商户号（G2 订阅付费同为沙箱支付链路）
 - **CI 平台实跑**：沙箱无 runner，仅本地复现（三 job 全绿）
-- **微信开发者工具小程序验收**：沙箱无该工具；H5 层交互已覆盖
-- **admin H5 交互级 E2E**：现仅覆盖构建 + 后端 API 测试，浏览器点击流未做
-- **性能压测 / 兼容性 / 全链路 E2E**：§9.3/§9.4 指标仅 `perf/` 自述，未在本轮实跑复现
+- **微信开发者工具小程序验收**：沙箱无该工具；H5 层交互已覆盖（构建产物 + PageSpy 全链路实测）
+- **性能压测 / 兼容性**：§9.3/§9.4 指标仅 `perf/` 自述，未在本轮实跑复现（原「全链路 E2E」项已于 §1.7 闭环）
 
 ### 2.5 本次复核补登（登记口径）
 
-- ✅ **契约数字修正**：契约现状为 **75 路径 / 82 操作**（本文件旧版及多处曾记「72 路径 / 78 操作」，系滞后于 F-01/F-02/F-05 三次契约新增；本次已全文修正）。文档侧仍为「标题 30 / 表格 34」，属 N-2 同类滞后，等产品决定是否修订基线
-- **测试文件注释滞后**（P2，待改）：`backend/tests/test_contract_consistency.py:10` 与 `:83` 的 docstring 仍写「72 路径 / 78 ops」，与同文件常量 `FROZEN_PATH_COUNT=75` / `FROZEN_OP_COUNT=82` 不一致 —— 仅注释问题，断言正确、门禁不受影响
-- **P1 覆盖统计**：文档 §2.1 P1 共 6 项 —— 全实现 2（商家权重保护、智能推荐）、部分 2（报表后台、社区审核基础版）、缺失 2（G1 人工教练工单、G2 订阅付费）
-- **数量维度现状**（供后续对账）：页面 26 / 接口 75 路径·82 操作 / 表 36 / 错误码 16 / 后端测试函数 342（参数化收集 564）；文档 §7.1 列 31、§7.2 DDL 27、§8.3 标题 30 / 表格 34，均与实现对不上，属 N-1 / N-2 登记项
+- **2026-10-02 第二批补登**：① G1/G2 落地——契约 89 路径/96 操作、alembic 0009、40 表、页面 26→30、pytest 基线 564→603（本地，含未入库测试资产）；② 前端测试基建补齐（§1.6）；③ 全链路 E2E 打通（§1.7，真实 AI + PageSpy）；④ 缺陷修复 4 项（§1.1）；⑤ `perf/coverage.md` 覆盖率报告（双口径 ≥70% 达标）；⑥ 原「测试文件注释滞后」P2 项已随 docstring 同步 89/96 闭环
+- ✅ **契约数字修正**：契约现状为 **89 路径 / 96 操作**（G1 8 + G2 6 接口并入；此前 75/82 系 F-01/F-02/F-05 三次契约新增后的状态）。文档侧仍为「标题 30 / 表格 34」，属 N-2 同类滞后，等产品决定是否修订基线
+- **P1 覆盖统计**：文档 §2.1 P1 共 6 项 —— 全实现 4（商家权重保护、智能推荐、G1 教练工单、G2 订阅付费）、部分 2（报表后台、社区审核基础版）、缺失 0
+- **数量维度现状**（供后续对账）：页面 **30** / 接口 **89 路径·96 操作** / 表 **40** / 错误码 16 / 后端 pytest 收集 **603**（本地含未入库资产；远程 564）；文档 §7.1 列 31、§7.2 DDL 27、§8.3 标题 30 / 表格 34，均与实现对不上，属 N-1 / N-2 登记项

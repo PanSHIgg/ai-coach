@@ -429,7 +429,7 @@ onLoad((options) => {
     width: 44rpx;
     height: 44rpx;
     font-size: $t-24;
-    color: #ffffff;
+    color: var(--card);
     background: $border;
     border-radius: 50%;
 

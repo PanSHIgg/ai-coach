@@ -77,7 +77,7 @@
         <CInput
           v-model="draft"
           class="chat__input-box"
-          :disabled="!canSend"
+          :disabled="timesLeft === 0"
           :placeholder="timesLeft === 0 ? '今日次数已用完' : '问问 AI 教练…'"
           @confirm="onSend"
         />
@@ -103,7 +103,7 @@
         </view>
         <text class="rescue__disclaimer">AI 输出仅供参考，具体请遵医嘱</text>
         <CButton block @click="closeRescue">知道了</CButton>
-        <CButton v-if="canSend" class="rescue__more" type="ghost" block @click="askCoachFromRescue">
+        <CButton v-if="timesLeft !== 0" class="rescue__more" type="ghost" block @click="askCoachFromRescue">
           还要问教练 ›
         </CButton>
       </view>
@@ -432,7 +432,7 @@ onShow(() => {
     }
 
     .msg__text {
-      color: #ffffff;
+      color: var(--card);
     }
   }
 }
@@ -553,7 +553,7 @@ onShow(() => {
     margin-right: $space-sm;
     margin-top: 4rpx;
     font-size: $t-22;
-    color: #ffffff;
+    color: var(--card);
     background: $brand;
     border-radius: 50%;
   }
