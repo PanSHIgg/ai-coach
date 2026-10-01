@@ -24,6 +24,11 @@ yarn-error.log*
 pnpm-debug.log*
 package-lock.json.bak
 
+# ---- Playwright 测试产物 ----
+test-results/
+playwright-report/
+.playwright/
+
 # ---- uni-app / 前端构建 ----
 dist/
 unpackage/

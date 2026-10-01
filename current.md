@@ -4,7 +4,7 @@
 > **依据**：`docs/AI饮食管控教练_全栈开发交付文档.md`（唯一真源，基线 `015d736` 冻结只读、全程一字未动）
 > **结构**：本文件**只有两部分**——**一、已完成** / **二、待完成 · 优化**。
 > **处置纪律（AGENTS §7.2）**：① 文档对、代码错 → 改代码补测试；② 代码做到、文档口径过时/文档自相矛盾 → 在第二部分登记，等产品拍板；③ 文档要求的 P0 未实现 → 登记排期。**禁止改文档**。
-> **当前门禁（2026-10-02 第二批更新）**：全量 pytest **603 passed / 0 failed / 0 skipped**（本地全量，含未入库测试资产）；契约一致性 **89 路径 / 96 操作**（与实现、mock 双向 diff 0）；`miniapp` type-check **0 错误** + Vitest **60 单测全过** + `build:mp-weixin` / `build:h5` ✓ + Playwright E2E **5 passed**；`admin` build ✓ + Playwright E2E **8 passed / 2 failed**（见 §1.6）；alembic **head 0009**；**全链路 E2E（真实 AI + PageSpy）已打通**（见 §1.7）；H5 E2E 点击流 21/21 PASS；CI 三 job 本地复现全绿。
+> **当前门禁（2026-10-02 第二批更新）**：全量 pytest **603 passed / 0 failed / 0 skipped**（本地全量，含未入库测试资产）；契约一致性 **89 路径 / 96 操作**（与实现、mock 双向 diff 0）；`miniapp` type-check **0 错误** + Vitest **60 单测全过** + `build:mp-weixin` / `build:h5` ✓ + Playwright E2E **5 passed**；`admin` build ✓ + Playwright E2E **10 passed**（见 §1.6）；alembic **head 0009**；**全链路 E2E（真实 AI + PageSpy）已打通**（见 §1.7）；H5 E2E 点击流 21/21 PASS；CI 三 job 本地复现全绿。
 > **入库口径（2026-10-02 用户拍板）**：本轮**功能实现**随本文档推送；**测试资产一律不入库**——backend/tests 新增用例（`test_coach` / `test_plan` / conftest / 契约基线常量）、miniapp Vitest + Playwright、admin Playwright、`perf/coverage.md`、`scripts/e2e_fullchain/` 均保留本地工作区、不随本次推送。影响：远程 clone 后 `test_contract_consistency.py` 仍冻结 75/82，与入库契约 89/96 不匹配，远程跑全量 pytest 会 fail（本地文件齐全，不受影响）；本文档 §1.6 / §1.7 所述测试基建均为**本地已验证**状态。
 > **更新时间**：2026-10-02（第二批：并入 G1 教练工单 / G2 订阅付费实现、前端测试基建补齐、覆盖率报告、全链路 E2E 实测）
 
@@ -95,7 +95,7 @@
 
 - **Vitest 组件测试**：miniapp `npm run test:unit` **10 文件 60 用例全过**；type-check 0 错误；`build:h5` / `build:mp-weixin` 双构建通过
 - **miniapp Playwright E2E**：`miniapp/playwright.config.ts` + `miniapp/e2e/`（home / ai-chat / merchant 3 spec + helpers）；跑 mock server（:9000，78 canned 接口）+ dev:h5（:5173），webServer 自动拉起，系统 Chrome 驱动；**实跑 5/5 PASS（9.1s，2026-10-02 复验）**
-- **admin E2E**：见 §1.3——**实跑 8 passed / 2 failed**（2026-10-02 复验；失败为 coupon-pools / merchants 两条，疑数据前置态，待查）
+- **admin E2E**：见 §1.3——**实跑 10/10 PASS**（16.6s 含 setup，2026-10-02 终验）：首跑 9/1，券池用例盲取表格首行定位脆弱（实际排序 9902 券在前），已改为按券名定位目标行后全绿；pre-seed 幂等重置经重跑验证有效
 - **后端行覆盖率报告**：`perf/coverage.md`（测试度量子 Agent 产出，只度量不改码）——同一份代码 564 测试两种 tracer 口径：默认 tracer **76.4%**（5494 语句 / miss 1296）、`COVERAGE_CORE=sysmon` **89.8%**（miss 558），**双口径均 ≥70% 达标**（文档 §9.1 要求），缺口分析与补测建议以 sysmon 口径为准
 - ⚠️ 上述测试文件与报告按用户决定**保留本地、不入库**（详见头部「入库口径」）
 
