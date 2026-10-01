@@ -35,13 +35,13 @@ agent-browser --version                      # 缺失见 §6；能力/用法见 
 
 | 工具 | 版本要求 | 本机实测 | 校验命令 | 说明 |
 | --- | --- | --- | --- | --- |
-| Python | ≥ 3.12 | 3.12.13（本沙箱 `backend/.venv`；示例路径见 §1.1） | `"$PY" --version` | **不限定虚拟环境或目录**：venv/conda/pyenv/系统均可，只要 ≥3.12；探测见 §1.1 |
-| Node.js | ≥ 20 | v22.23.2 | `node --version` | 前端 uni-app 构建 |
-| npm | ≥ 10 | 10.9.8 | `npm --version` | |
-| PostgreSQL | 16.x | 16.15 | `psql --version` / `pg_isready` | `127.0.0.1:5432`，user/pass = `postgres/postgres`，db = `ai_coach`。**apt 自带只有 14，须加 pgdg 源装 postgresql-16 并 `pg_createcluster 16 main`** |
+| Python | ≥ 3.12 | 3.12.3（本沙箱 `backend/.venv`；示例路径见 §1.1） | `"$PY" --version` | **不限定虚拟环境或目录**：venv/conda/pyenv/系统均可，只要 ≥3.12；探测见 §1.1 |
+| Node.js | ≥ 20 | v22.13.1 | `node --version` | 前端 uni-app 构建 |
+| npm | ≥ 10 | 11.9.0 | `npm --version` | |
+| PostgreSQL | 16.x | 16.15 | `psql --version` / `pg_isready` | `127.0.0.1:5432`，user/pass = `postgres/postgres`，db = `ai_coach`。**Ubuntu 24.04(noble) 官方源即提供 16.15，直接 `apt-get install postgresql-16` 即可；若发行版只有 14 再加 pgdg 源装 postgresql-16 并 `pg_createcluster 16 main`** |
 | Redis | 7.x | 7.4.11 | `redis-cli ping` | `127.0.0.1:6379`（2026-09-30 复验；packages.redis.io 官方源，勿用 apt 自带的 6.0） |
 | agent-browser | 最新 | 0.27.0（系统 Chrome 可用，H5 验收已实测跑通） | `agent-browser --version` | H5 浏览器自动化验收；能力/用法见 `.agents/skills/agent-browser/SKILL.md`（§6）。0.27.0 非最新但功能完整，升级非必需 |
-| Docker | 需要 | **不可用** | `docker --version` | 沙箱无 docker，且缺 `CAP_SYS_ADMIN`、子命名空间挂载 /proc 被拒 → 容器无法运行；**测试一律用原生 PG/Redis + uvicorn**（见 §9） |
+| Docker | 需要 | **可用**（27.5.1，daemon 在线，`docker run --rm hello-world` 实测跑通） | `docker --version` | 2026-10-01 复测：`/usr/local/bin/docker` 存在且 daemon 正常、`CAP_SYS_ADMIN` 具备、镜像可拉取。**本次交付仍按原生 PG/Redis + uvicorn 搭建**（见 §9），容器仅作备选 |
 | 压测工具 | 任选 | **未安装**（k6/locust/hey/wrk/ab/jmeter 均无） | `command -v k6` | Phase 5 性能用 `httpx`+asyncio 自研 harness（httpx 0.28.1 已装，见 §9） |
 
 > 代码要求 `python >= 3.12`（见 `backend/pyproject.toml`）。使用错误解释器是最常见的“依赖装不上”根因。
@@ -60,7 +60,7 @@ command -v python3.12 || command -v python3 || command -v python
 python3 -m venv .venv && . .venv/bin/activate && pip install -r backend/requirements.txt
 ```
 
-> **示例**（**勿照抄**）：解释器以 `PY=/path/to/your/python3.12` 形式指定即可，不要假设任何固定路径。本沙箱当前实测解释器为 `backend/.venv/bin/python`（Python 3.12.13）。下文所有 `$PY` 均指你选定的解释器。
+> **示例**（**勿照抄**）：解释器以 `PY=/path/to/your/python3.12` 形式指定即可，不要假设任何固定路径。本沙箱当前实测解释器为 `backend/.venv/bin/python`（Python 3.12.3）。下文所有 `$PY` 均指你选定的解释器。
 
 ---
 
@@ -194,18 +194,19 @@ agent-browser screenshot --path /tmp/h5-index.png     # 截图留证
 
 ---
 
-## 9. Phase 5 环境事实（本沙箱实测，2026-09-29 记录 / 2026-09-30 复验刷新）
+## 9. Phase 5 环境事实（本沙箱实测，2026-09-29 记录 / 2026-09-30 复验 / 2026-10-01 再次复验刷新）
 
-> 结论：**测试不用容器**，一律原生 PG/Redis + `uvicorn`。以下为实测事实，子 Agent 任务书可直接引用，勿重新探测。
+> 结论：**测试不用容器**，一律原生 PG/Redis + `uvicorn`（容器虽已可用，见下表，但本次交付走原生路径）。以下为实测事实，子 Agent 任务书可直接引用，勿重新探测。
 
 | 能力 | 实测结论 | 影响 |
 | --- | --- | --- |
-| Docker / podman / containerd | **全无**；`CapEff/CapBnd=0xa80425fb` 缺 `CAP_SYS_ADMIN`；`unshare -rmpf --mount-proc` 报 `Operation not permitted` | `deploy/docker-compose.yml` **不可实跑**，F9 只做静态校验 + 产物 |
+| Docker / podman / containerd | **Docker 可用**（2026-10-01 复测）：`27.5.1`，daemon 在线，`CapEff=000001ffffffffff`（含 `CAP_SYS_ADMIN`），`docker run --rm hello-world` 实测跑通、镜像可拉取；`docker compose v2.33.0` 插件齐备 | 与旧记录相反：`deploy/docker-compose.yml` **可实跑**。本次交付仍用原生 PG/Redis（`psql`/`redis-cli` 需落在指定版本），容器仅作备选路径 |
 | 压测工具 | k6/locust/hey/wrk/ab/jmeter/vegeta 全部**未安装**；`promtool` 未安装 | F5 用 `httpx`(0.28.1, 已装) + asyncio 写 harness；⚠️ 容量上限见下 |
+| Python | **3.12.3**（2026-10-01 复测，`backend/.venv`；系统 `python3` 为 3.11.1 **不满足**，须显式用 `/usr/bin/python3.12` 建 venv）；测试依赖 `pytest 8.4.2` / `pytest-asyncio` 在 `pyproject.toml` 的 `[dev]` extra 里，`requirements.txt` **不含** | 建 venv 需先 `apt-get install python3.12-venv`；跑测试须额外装 dev extra（`pip install "pytest>=8.2,<9.0" "pytest-asyncio>=0.23,<1.0"`），否则 `pytest` 缺失 |
 | `prometheus_client` | **已安装**：`backend/requirements.txt:16` = `prometheus-client==0.26.0`，`backend/.venv` 实测可 import，`/metrics` 返回 200 | F9 `/metrics` 无需再手工补装；若新建 venv，按 §4 `pip install -r requirements.txt` 即得 |
 | agent-browser | 0.27.0；系统 Chrome 可用（`/usr/bin/google-chrome`、`/usr/bin/chromium`） | F7/F3/F4 可做 H5 真实渲染；mp-weixin 仍不可（见 §6）。注：§9 与 §1 曾写 0.38.1，实为本沙箱版本漂移，已统一为实测值 |
-| Node / npm | v22.23.2 / 10.9.8（2026-09-30 复验）；`miniapp/node_modules` 与 `admin/node_modules` **均已装** | 两端可直接 `type-check`/`build`；换沙箱后需各自 `npm install` |
-| 内存 / CPU | 2026-09-30 复测：`/proc/meminfo` MemTotal ≈ **7.8 GiB**、`nproc` = **4**（2026-09-29 记录为 4 GiB / 3 核）。沙箱配额随会话漂移，**以当次探测为准** | **压测必须串行**，勿与其他重活并行；起服务前先 `awk '/MemTotal|MemAvailable/' /proc/meminfo` 确认，否则 OOM/假失败 |
+| Node / npm | v22.13.1 / 11.9.0（2026-10-01 复验）；`miniapp/node_modules` 与 `admin/node_modules` **均已装** | 两端可直接 `type-check`/`build`；换沙箱后需各自 `npm install` |
+| 内存 / CPU | 2026-10-01 复测：`/proc/meminfo` MemTotal ≈ **123.3 GiB**、`nproc` = **32**（2026-09-30 记录为 7.8 GiB / 4 核，2026-09-29 为 4 GiB / 3 核）。沙箱配额随会话漂移，**以当次探测为准** | 配额充裕，压测仍建议串行以免相互干扰；起服务前先 `awk '/MemTotal\|MemAvailable/' /proc/meminfo` 确认 |
 | 微信支付商户号 / 微信开发者工具 / AI Key | 均无 | F1 真机联调、F7 小程序真机、F3 识别准确率不可真跑 → 产出产物 + 替代验证 |
 
 **F5 压测约定**：本机起 `uvicorn`（`127.0.0.1:8000`，单 worker 可控）后串行压测；百万行分页用 `EXPLAIN ANALYZE` + 实测耗时（真实可做）；100 并发 5 分钟 soak 需按上表**当次实测内存配额**降低并发或缩短时长，并在报告中标注实际参数与偏差。
