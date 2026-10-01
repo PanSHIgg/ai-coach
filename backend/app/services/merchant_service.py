@@ -2,7 +2,9 @@
 
 口径与默认决策：
 - 列表只出 audit_status=1（审核通过）且 status=1（营业）商家；category 为精确匹配。
-- 距离 haversine（Python 侧算，数据量小），distance_m > radius 的商家不返回。
+- 距离 PostGIS `ST_DistanceSphere(geo, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326))`（米，
+  /1000 即 km；N-7 对齐 §7.2 GEOMETRY 主口径），distance_m > radius 的商家不返回。
+  商家 geo 为 NULL 时距离为 NULL（distance_m=None）。
 - 权重分排序【假设】（docs/split 01/03 仅提"商家权重排名/距离评分券排序"，无公式定义）：
     总分(0-100) = 40×拉新分 + 40×券分 + 20×过程分
     拉新分 = created_at 新→旧线性归一化到 0-1（最新=1、最旧=0；无差异时全 1）
@@ -38,7 +40,6 @@ from app.schemas.merchant import (
 )
 
 _TZ = timezone(timedelta(hours=8))
-_EARTH_R_M = 6371000.0
 
 # 权重分系数：拉新 40% + 券 40% + 过程 20%（总分 0-100）
 _W_FRESH = 40.0
@@ -53,13 +54,9 @@ _ZERO_CONTRIB_DAYS = 14  # 连续 N 天零贡献 → 清退
 _EVICTED_STATUS = 0  # 清退动作：status=0（停业）+ partner_level=0
 
 
-def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
-    """两经纬度球面距离（米，四舍五入取整）。"""
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lng2 - lng1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return int(round(_EARTH_R_M * 2 * math.asin(math.sqrt(a))))
+def _point_wgs84(lng: float, lat: float):
+    """查询坐标 → PostGIS 点（注意 ST_MakePoint 参数顺序：lng 在前、lat 在后）。"""
+    return func.ST_SetSRID(func.ST_MakePoint(lng, lat), 4326)
 
 
 def _norm_freshness(created: list[datetime]) -> dict[int, float]:
@@ -117,19 +114,26 @@ async def list_merchants(
     page_size: int,
 ) -> MerchantPageData:
     has_geo = lat is not None and lng is not None
-    stmt = select(Merchant).where(Merchant.audit_status == 1, Merchant.status == 1)
+    stmt = select(Merchant)
+    if has_geo:
+        # 球面距离（米）；geo 为 NULL 的商家结果为 NULL（distance_m=None，与 detail 同口径）
+        stmt = stmt.add_columns(func.ST_DistanceSphere(Merchant.geo, _point_wgs84(lng, lat)))
+    stmt = stmt.where(Merchant.audit_status == 1, Merchant.status == 1)
     if category:
         stmt = stmt.where(Merchant.category == category)
     stmt = stmt.order_by(Merchant.id)
-    rows = (await db.scalars(stmt)).all()
+    if has_geo:
+        rows: list[tuple[Merchant, float | None]] = [
+            (m, dist) for m, dist in (await db.execute(stmt)).all()
+        ]
+    else:
+        rows = [(m, None) for m in (await db.scalars(stmt)).all()]
 
-    scores = await _weight_scores(db, list(rows))
+    scores = await _weight_scores(db, [m for m, _ in rows])
 
     items: list[tuple[MerchantBrief, float, int]] = []  # (brief, 总分, distance)
-    for m in rows:
-        # 与 detail 路径同口径：商家坐标缺失时不算距离（distance_m=None）
-        geo_ok = has_geo and m.lat is not None and m.lng is not None
-        distance = haversine_m(lat, lng, float(m.lat), float(m.lng)) if geo_ok else None
+    for m, dist_m in rows:
+        distance = int(round(dist_m)) if dist_m is not None else None
         if distance is not None and distance > radius:
             continue
         brief = MerchantBrief(
@@ -174,17 +178,21 @@ async def get_merchant_detail(
         )
     ).all()
 
-    distance = None
-    if lat is not None and lng is not None and m.lat is not None and m.lng is not None:
-        distance = haversine_m(lat, lng, float(m.lat), float(m.lng))
+    # 坐标反解（ST_Y=纬度 / ST_X=经度）+ 球面距离（米）；geo 为 NULL 时均为 NULL
+    cols = [func.ST_Y(Merchant.geo), func.ST_X(Merchant.geo)]
+    if lat is not None and lng is not None:
+        cols.append(func.ST_DistanceSphere(Merchant.geo, _point_wgs84(lng, lat)))
+    geo_row = (await db.execute(select(*cols).where(Merchant.id == merchant_id))).one()
+    db_lat, db_lng = geo_row[0], geo_row[1]
+    distance = int(round(geo_row[2])) if len(geo_row) > 2 and geo_row[2] is not None else None
 
     return MerchantDetail(
         id=m.id,
         name=m.name,
         category=m.category,
         address=m.address,
-        lat=float(m.lat) if m.lat is not None else None,
-        lng=float(m.lng) if m.lng is not None else None,
+        lat=db_lat,
+        lng=db_lng,
         phone=m.phone,
         rating=round(float(m.rating), 1),
         status=m.status,

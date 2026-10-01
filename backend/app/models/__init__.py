@@ -30,6 +30,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from geoalchemy2 import Geometry, WKTElement
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -357,7 +358,7 @@ class AiKnowledge(Base):
 
 
 class Merchant(Base):
-    """商家（merchant）：LBS 用 lat/lng（不装 PostGIS），入驻走审核。"""
+    """商家（merchant）：LBS 用 PostGIS geo（§7.2 主口径 GEOMETRY(Point,4326)），入驻走审核。"""
 
     __tablename__ = "merchant"
 
@@ -365,8 +366,11 @@ class Merchant(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     address: Mapped[str | None] = mapped_column(Text)
-    lat: Mapped[float | None] = mapped_column(Numeric(10, 7, asdecimal=False))
-    lng: Mapped[float | None] = mapped_column(Numeric(10, 7, asdecimal=False))
+    # 位置（N-7 对齐 §7.2 DDL）：PostGIS 空间列 + GIST 索引（迁移/schema.sql 建）；
+    # spatial_index=False 防止 ORM create_all 重复建索引；API 出入参仍 lat/lng 数值
+    geo: Mapped[WKTElement | None] = mapped_column(
+        Geometry(geometry_type="POINT", srid=4326, spatial_index=False)
+    )
     phone: Mapped[str | None] = mapped_column(String(32))
     rating: Mapped[float] = mapped_column(
         Numeric(3, 1, asdecimal=False), server_default="5.0", default=5.0

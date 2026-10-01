@@ -1,12 +1,14 @@
 """商家域测试（BE5 Phase 3）：LBS 列表、详情、标准目录。
 
 真实 DB（db_client + db_session + authed）；sku_catalog 为参照数据（5 行种子：
-FD-001/002/003、SP-001/002）不被清空。
+FD-001/002/003、SP-001/002）不被清空。商家位置已 PostGIS 化（N-7）：种子写
+geo 空间列，API 出入参仍 lat/lng。
 """
 
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from geoalchemy2 import WKTElement
 
 from app.models import Merchant, MerchantSku, RedeemLog
 from app.services import merchant_service
@@ -30,12 +32,15 @@ async def _seed_merchant(
     rating=4.8,
     created_at=None,
 ) -> Merchant:
+    # 入参保持 lat/lng 语义；存储层转 geo 空间列（ST_MakePoint 参数顺序 lng 在前）
+    geo = (
+        WKTElement(f"POINT({lng} {lat})", srid=4326) if lat is not None and lng is not None else None
+    )
     m = Merchant(
         name=name,
         category=category,
         address="XX路1号",
-        lat=lat,
-        lng=lng,
+        geo=geo,
         rating=rating,
         status=status,
         audit_status=audit_status,

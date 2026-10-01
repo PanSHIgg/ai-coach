@@ -198,15 +198,35 @@ async def login(session: AsyncSession, payload: AdminLoginIn) -> AdminLoginData:
 # ---- 商家审核 ----
 
 
-def _merchant_out(m: Merchant, audit_reason: str | None = None) -> AdminMerchantOut:
+async def _geo_coords(session: AsyncSession, merchant_ids: list[int]) -> dict[int, tuple]:
+    """批量反解商家坐标（ST_Y=纬度 / ST_X=经度，N-7：geo 空间列存储，出参仍 lat/lng）。"""
+    if not merchant_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(Merchant.id, func.ST_Y(Merchant.geo), func.ST_X(Merchant.geo)).where(
+                Merchant.id.in_(merchant_ids)
+            )
+        )
+    ).all()
+    return {mid: (glat, glng) for mid, glat, glng in rows}
+
+
+def _merchant_out(
+    m: Merchant,
+    audit_reason: str | None = None,
+    *,
+    lat: float | None = None,
+    lng: float | None = None,
+) -> AdminMerchantOut:
     return AdminMerchantOut(
         id=m.id,
         name=m.name,
         category=m.category,
         address=m.address or "",  # 契约 required，模型可空 -> 空串
         phone=m.phone,
-        lat=m.lat,
-        lng=m.lng,
+        lat=lat,
+        lng=lng,
         rating=float(m.rating),
         cover_url=None,
         status=m.status,
@@ -244,8 +264,13 @@ async def list_merchants(
         .scalars()
         .all()
     )
+    geo_map = await _geo_coords(session, [m.id for m in rows])
+    items = []
+    for m in rows:
+        lat, lng = geo_map.get(m.id, (None, None))
+        items.append(_merchant_out(m, lat=lat, lng=lng))
     return AdminMerchantPageData(
-        items=[_merchant_out(m) for m in rows],
+        items=items,
         page=PageMeta(page=page, page_size=page_size, total=int(total or 0)),
     )
 
@@ -263,7 +288,9 @@ async def audit_merchant(
     merchant.audit_status = payload.audit_status
     reason = payload.reason if payload.audit_status == 2 else None
     await session.commit()
-    return _merchant_out(merchant, audit_reason=reason)
+    geo_map = await _geo_coords(session, [merchant.id])
+    lat, lng = geo_map.get(merchant.id, (None, None))
+    return _merchant_out(merchant, audit_reason=reason, lat=lat, lng=lng)
 
 
 # ---- 商家选品定价 ----

@@ -18,6 +18,7 @@ import uuid
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
+from geoalchemy2 import WKTElement
 from sqlalchemy import select
 
 from app.core.security import create_access_token
@@ -110,14 +111,17 @@ async def _seed_merchant(
     lat: float | None = None,
     lng: float | None = None,
 ) -> Merchant:
+    # 位置已 PostGIS 化（N-7）：入参仍 lat/lng，存储写 geo 空间列
+    geo = (
+        WKTElement(f"POINT({lng} {lat})", srid=4326) if lat is not None and lng is not None else None
+    )
     m = Merchant(
         name=name,
         category=category,
         address="XX路1号",
         status=status,
         audit_status=audit_status,
-        lat=lat,
-        lng=lng,
+        geo=geo,
     )
     db_session.add(m)
     await db_session.commit()

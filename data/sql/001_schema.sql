@@ -6,7 +6,8 @@
 --   金额=元 NUMERIC(10,2)；克重 NUMERIC(7,1)；热量 NUMERIC(8,1)；
 --   时间 TIMESTAMPTZ；多状态用 SMALLINT；动态结构用 JSONB
 -- 默认决策：
---   1.【假设】不启用 PostGIS，商家经纬度存 lat/lng NUMERIC（§7.2 注释允许）
+--   1. 商家位置用 PostGIS geo GEOMETRY(Point,4326)（§7.2 DDL 主口径，N-7 对齐；
+--      API 出入参仍 lat/lng 数值，仅存储层改造；docker 用 postgis/postgis:16 镜像）
 --   2.【假设】ai_knowledge.embedding 用 JSONB 占位（plan.md 决策 3：首期不引 pgvector），
 --     另加全文检索列 search_vec 兜底
 --   3.【假设】§7.1 列出但 §7.2 未给 DDL 的 user_auth/coupon_pool/order_item/review，
@@ -18,6 +19,7 @@
 -- 扩展
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- updated_at 自动维护函数
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
@@ -327,14 +329,13 @@ COMMENT ON COLUMN ai_knowledge.embedding IS '向量占位 JSONB（首期），�
 -- 4. 商家与交易域
 -- -----------------------------------------------------------------------------
 
--- 商家（§7.2，去掉 PostGIS 依赖【假设1】）
+-- 商家（§7.2，PostGIS geo GEOMETRY(Point,4326) 主口径，N-7 对齐）
 CREATE TABLE merchant (
     id           BIGSERIAL PRIMARY KEY,
     name         VARCHAR(128) NOT NULL,
     category     VARCHAR(64) NOT NULL,            -- 轻食店/便利店/健身房/场馆等
     address      TEXT,
-    lat          NUMERIC(10,7),                   -- 纬度
-    lng          NUMERIC(10,7),                   -- 经度
+    geo          GEOMETRY(Point, 4326),           -- 位置（§7.2 主口径；出参经 ST_Y/ST_X 反解 lat/lng）
     phone        VARCHAR(32),
     rating       NUMERIC(3,1) DEFAULT 5.0,
     status       SMALLINT DEFAULT 1,              -- 1营业 0停业
@@ -347,9 +348,9 @@ CREATE TABLE merchant (
     CHECK (rating >= 0 AND rating <= 5),
     CHECK (audit_status IN (0, 1, 2))
 );
-CREATE INDEX idx_merchant_geo ON merchant(lat, lng);
+CREATE INDEX idx_merchant_geo ON merchant USING GIST(geo);
 CREATE INDEX idx_merchant_category ON merchant(category);
-COMMENT ON TABLE merchant IS '商家：LBS 用 lat/lng（【假设】不装 PostGIS）；入驻走审核（ADM3/审核队列）';
+COMMENT ON TABLE merchant IS '商家：LBS 用 PostGIS geo（GEOMETRY(Point,4326)+GIST，§7.2 主口径）；API 出入参仍 lat/lng；入驻走审核（ADM3/审核队列）';
 COMMENT ON COLUMN merchant.contribution_points IS '贡献分：核销成功累计（每单 +1）';
 COMMENT ON COLUMN merchant.partner_level IS '合作层级：0普通 1优选合作 2战略合作（§6.3.4 权重保护，R-01）';
 COMMENT ON COLUMN merchant.last_contribution_at IS '最近一次贡献（成功核销）时间；连续零贡献清退判定（R-01）';

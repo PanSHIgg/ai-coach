@@ -13,10 +13,10 @@ DELETE FROM merchant_sku  WHERE id BETWEEN 99001 AND 99999;
 UPDATE admin_user SET merchant_id = NULL WHERE merchant_id BETWEEN 9901 AND 9999;
 DELETE FROM merchant      WHERE id BETWEEN 9901 AND 9999;
 
--- 演示商家（上海人民广场一带坐标）
-INSERT INTO merchant (id, name, category, address, lat, lng, phone, rating, status, audit_status, created_at) VALUES
-  (9901, '轻食巴士·人民广场店', '轻食',   '上海市黄浦区南京西路100号', 31.2304000, 121.4737000, '021-63000001', 4.8, 1, 1, now()),
-  (9902, '活力健身·私教工作室', '健身房', '上海市黄浦区西藏中路50号',   31.2350000, 121.4790000, '021-63000002', 4.6, 1, 1, now());
+-- 演示商家（上海人民广场一带坐标；geo 用 ST_MakePoint(lng, lat) 写入，N-7 PostGIS 口径）
+INSERT INTO merchant (id, name, category, address, geo, phone, rating, status, audit_status, created_at) VALUES
+  (9901, '轻食巴士·人民广场店', '轻食',   '上海市黄浦区南京西路100号', ST_SetSRID(ST_MakePoint(121.4737000, 31.2304000), 4326), '021-63000001', 4.8, 1, 1, now()),
+  (9902, '活力健身·私教工作室', '健身房', '上海市黄浦区西藏中路50号',   ST_SetSRID(ST_MakePoint(121.4790000, 31.2350000), 4326), '021-63000002', 4.6, 1, 1, now());
 
 -- 商家选品定价（区间内）
 INSERT INTO merchant_sku (id, merchant_id, catalog_id, price, stock, status)

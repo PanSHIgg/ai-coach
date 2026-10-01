@@ -1,6 +1,6 @@
 """商家域接口（openapi: /api/merchant/list、/api/merchant/{id}、/api/sku/catalog）。
 
-BE5 Phase 3 真实实现：LBS 商家列表（haversine 距离 + 权重分排序）、商家详情（含在售 SKU）、
+BE5 Phase 3 真实实现：LBS 商家列表（PostGIS 球面距离 + 权重分排序）、商家详情（含在售 SKU）、
 标准 SKU 目录。逻辑在 services/merchant_service.py。
 """
 
