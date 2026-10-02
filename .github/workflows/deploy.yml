@@ -1,0 +1,219 @@
+# ============================================================
+# CI/CD 闭环：push main → 部署（重建镜像 + compose 重新部署 + 探活）→ pytest 门禁
+#
+# 位置 .github/workflows/：Gitea Actions 与 GitHub Actions **同一份文件通用**
+# （Gitea Actions 兼容 .github/workflows，已实测触发）。
+#
+# 与 GitHub Actions 写法保持一致：用官方 `uses: actions/checkout@v4`。
+# 本地 Gitea 侧的做法（模拟 GitHub 的 actions 组织）：
+#   1. 把 github.com/actions/* 官方 action 仓库镜像到本实例 actions/* 组织下；
+#   2. Gitea 配 [actions] DEFAULT_ACTIONS_URL=self，uses: 即解析到本实例而非 github.com；
+#      → 无需访问 github.com，写法与 GitHub 完全一致。
+#   3. runner 为 host 模式（等价 self-hosted runner），job 直接在宿主机执行，可直接调 docker/compose。
+#   4. 沙箱 9090 已被占用 → Prometheus 端口改映射 9091（compose 支持环境变量覆盖）。
+# 注：actions/setup-python 之类需要联网下载运行时（python 发行版）的 action 本环境仍不可用，
+#     故测试改为复用后端镜像自带的 python3.12 跑 pytest（效果等价）。
+# ============================================================
+name: Deploy (compose rebuild)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # 镜像 tag：与 compose 中 image: ai-coach-api:${GIT_SHA} 对应，便于按 sha 回滚
+  GIT_SHA: ${{ github.sha }}
+  PROMETHEUS_PORT: "9091"
+  COMPOSE_FILE: deploy/docker-compose.yml
+
+jobs:
+  deploy:
+    name: Build & deploy full stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Runner context
+        run: |
+          echo "date      = $(date -Is)"
+          echo "pwd       = $(pwd)"
+          echo "ref       = ${GITHUB_REF}"
+          echo "sha       = ${GITHUB_SHA}"
+          echo "workspace = ${GITHUB_WORKSPACE}"
+          echo "server    = ${GITHUB_SERVER_URL}"
+          echo "repo      = ${GITHUB_REPOSITORY}"
+          echo "docker    = $(docker --version)"
+          echo "compose   = $(docker compose version)"
+          ls -la
+
+      # 与 GitHub 一致的标准写法：actions/checkout
+      # （本地 Gitea 已把 actions/* 官方仓库镜像到 actions 组织，并设 DEFAULT_ACTIONS_URL=self）
+      - uses: actions/checkout@v4
+
+      - name: Locate source
+        run: |
+          SRC="${GITHUB_WORKSPACE:-$(pwd)}"
+          [ -f "$SRC/deploy/docker-compose.yml" ] || SRC="$(pwd)"
+          echo "$SRC" > /tmp/ai-coach-src
+          echo "SRC = $SRC"
+          cd "$SRC" && git log --oneline -3
+
+      - name: Build images
+        # compose up 无法透传 --build-arg，故先 build 再 up。
+        # PIP_INDEX_URL 必须覆盖：Dockerfile 默认的 mirrors.tencent.com 在 buildkit 内
+        # 会出现 SSL UNEXPECTED_EOF（实测清华源在 buildkit 内可用）。
+        run: |
+          set -e
+          cd "$(cat /tmp/ai-coach-src)"
+          export GIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+          echo "GIT_SHA = $GIT_SHA"
+          docker compose -f "$COMPOSE_FILE" build \
+            --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
+          docker images --format "{{.Repository}}:{{.Tag}}" | grep ai-coach-api
+
+      - name: Deploy (recreate containers)
+        run: |
+          set -e
+          cd "$(cat /tmp/ai-coach-src)"
+          export GIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+          docker compose -f "$COMPOSE_FILE" up -d --force-recreate
+          docker compose -f "$COMPOSE_FILE" ps
+
+      - name: Wait for API healthy
+        run: |
+          set -e
+          cd "$(cat /tmp/ai-coach-src)"
+          for i in $(seq 1 60); do
+            s=$(docker inspect -f '{{.State.Health.Status}}' ai-coach-api 2>/dev/null || echo "missing")
+            echo "ai-coach-api health=$s (try $i/60)"
+            [ "$s" = "healthy" ] && exit 0
+            sleep 5
+          done
+          echo "::error::API 未在 5 分钟内进入 healthy"
+          docker compose -f "$COMPOSE_FILE" ps
+          docker compose -f "$COMPOSE_FILE" logs --tail=120
+          exit 1
+
+      - name: Smoke check (nginx → api → pg/redis → 监控)
+        run: |
+          set -e
+          echo "--- 1) nginx /healthz ---"
+          curl -fsS http://127.0.0.1/healthz; echo
+          echo "--- 2) mock 登录（WECHAT_SECRET 未配 → mock 分支）---"
+          curl -fsS -X POST http://127.0.0.1/api/auth/login \
+            -H 'Content-Type: application/json' -d '{"code":"ci-smoke"}' \
+            -o /tmp/login.json -w "http=%{http_code}\n"
+          head -c 300 /tmp/login.json; echo
+          grep -q '"code":0' /tmp/login.json
+          echo "--- 3) 食物检索（验证 migrate 导入种子）---"
+          TOKEN=$(python3 -c "import json;print(json.load(open('/tmp/login.json'))['data']['token'])")
+          curl -fsS -X POST http://127.0.0.1/api/food/search \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            -d '{"keyword":"鸡胸肉"}' | head -c 300; echo
+          echo "--- 4) postgis 扩展 ---"
+          docker exec ai-coach-postgres psql -U postgres -d ai_coach -tAc \
+            "SELECT extname FROM pg_extension WHERE extname='postgis'"
+          echo "--- 5) 监控栈 ---"
+          curl -fsS http://127.0.0.1:9091/-/ready; echo
+          curl -fsS http://127.0.0.1:3000/api/health; echo
+
+      - name: Deployed image
+        run: |
+          docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.CreatedAt}}" | grep ai-coach-api || true
+          docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep ai-coach || true
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          cd "$(cat /tmp/ai-coach-src)"
+          docker compose -f "$COMPOSE_FILE" ps || true
+          docker compose -f "$COMPOSE_FILE" logs --tail=200 || true
+
+  # ---- 后端回归测试：部署通过后跑 pytest（门禁）----
+  # 注意：conftest.db_session 会 TRUNCATE 大量业务表，因此**绝不能指向部署库**，
+  # 这里在 5433 起一个独立的 PostGIS 测试库跑完后即销毁。
+  test:
+    name: Backend pytest (isolated test DB)
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TEST_PG_PORT: "5433"
+      TEST_DB: ai_coach_test
+      TEST_DSN: postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/ai_coach_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Locate source
+        run: |
+          SRC="${GITHUB_WORKSPACE:-$(pwd)}"
+          [ -f "$SRC/deploy/docker-compose.yml" ] || SRC="$(pwd)"
+          echo "$SRC" > /tmp/ai-coach-src
+          echo "SRC = $SRC"
+          cd "$SRC" && git log --oneline -1
+
+      - name: Start isolated test database
+        # schema 走 /docker-entrypoint-initdb.d 在初始化阶段建表：
+        # 容器启动后 PG 会「初始化 → 重启」一次，此时 psql 导入会被掐断
+        # （FATAL: terminating connection due to administrator command）。
+        run: |
+          set -e
+          cd "$(cat /tmp/ai-coach-src)"
+          docker rm -f ai-coach-test-pg >/dev/null 2>&1 || true
+          docker run -d --name ai-coach-test-pg \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=ai_coach_test \
+            -v "$(pwd)/data/sql/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro" \
+            -p 5433:5432 postgis/postgis:16-3.4
+          # 就绪判定：连续两次查询成功（跨过初始化后的重启）
+          ok=0
+          for i in $(seq 1 60); do
+            if docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test -tAc "SELECT 1" >/dev/null 2>&1; then
+              sleep 3
+              if docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test -tAc "SELECT 1" >/dev/null 2>&1; then
+                echo "PG ready after ${i} tries"; ok=1; break
+              fi
+            fi
+            sleep 2
+          done
+          [ "$ok" = "1" ] || { docker logs --tail 30 ai-coach-test-pg; exit 1; }
+          docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test -tAc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
+
+      - name: Load reference seeds
+        run: |
+          set -e
+          cd "$(cat /tmp/ai-coach-src)"
+          export GIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+          echo "--- seeds（复用后端镜像，依赖齐全）---"
+          docker run --rm --network=host \
+            -v "$(pwd)/data:/app/data:ro" -w /app \
+            "ai-coach-api:${GIT_SHA}" \
+            python data/load_seeds.py \
+              --dsn "postgresql://postgres:postgres@127.0.0.1:5433/ai_coach_test" \
+              --file food:data/seeds/food_full.csv \
+              --file food_alias:data/seeds/food_alias_full.csv \
+              --file sku_catalog:data/seeds/standard_sku.sample.csv \
+              --file ai_knowledge:data/seeds/rag_knowledge.sample.jsonl
+
+      - name: Pytest
+        run: |
+          set -e
+          cd "$(cat /tmp/ai-coach-src)"
+          export GIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+          # 挂载仓库源码跑测试（镜像只提供依赖环境）：
+          # 部分用例（test_contract_consistency）按 __file__.parents[2] 定位仓库根的
+          # contracts/openapi.yaml、miniapp/src/types/api.d.ts，镜像内只有 backend/ 会 FileNotFoundError。
+          docker run --rm --network=host -w /repo/backend \
+            -v "$(pwd):/repo:ro" \
+            -e DATABASE_URL="$TEST_DSN" \
+            "ai-coach-api:${GIT_SHA}" \
+            sh -c "pip install -q pytest pytest-asyncio \
+                   -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
+                   && python -m pytest -q -p no:cacheprovider"
+
+      - name: Teardown test database
+        if: always()
+        run: docker rm -f ai-coach-test-pg >/dev/null 2>&1 || true
