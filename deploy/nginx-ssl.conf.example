@@ -66,17 +66,7 @@ server {
         return 200 "ok";
     }
 
-    # ---- 静态资源缓存 7 天 ----
-    location ~* \.(?:js|css|png|jpg|jpeg|gif|webp|ico|woff2?)$ {
-        expires 7d;
-        add_header Cache-Control "public, max-age=604800";
-    }
-
-    # ---- 站点根（HTML 不缓存）----
-    location / {
-        root /usr/share/nginx/html;
-        index index.html;
-        try_files $uri $uri/ /index.html;
-        add_header Cache-Control "no-cache";
-    }
+    # 刻意不设站点根 location / server 级 root（与 nginx.conf 保持一致）：本项目只交付微信小程序，
+    # H5 产物不部署。未命中 /api/ /admin/ /uploads/ /healthz 的路径按 nginx 默认 404 处理；
+    # 管理后台的 SPA 回退由上方 ^~ /admin/ 块自持（admin 走 hash 路由，不依赖根回退）。
 }

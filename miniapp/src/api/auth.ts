@@ -4,7 +4,7 @@
 import type { LoginData, LoginRequest, UserDetail } from '@/types/api'
 import { request } from './request'
 
-/** 微信登录（code2session → JWT；Mock 态 code 任意值） */
+/** 微信登录（uni.login 真 code → 后端 code2session → JWT；silent：错误由登录页处理） */
 export function login(data: LoginRequest) {
   return request<LoginData>('/api/auth/login', { method: 'POST', data, silent: true })
 }

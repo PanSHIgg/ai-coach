@@ -1,7 +1,7 @@
 {
   "name": "AI饮食管控教练",
   "appid": "touristappid",
-  "description": "AI 饮食管控教练 · 用户端（P0-f 脚手架，appid 留占位，联调时替换正式 AppID）",
+  "description": "AI 饮食管控教练 · 用户端（P0-f 脚手架）",
   "versionName": "0.1.0",
   "versionCode": "100",
   "transformPx": false,
@@ -13,7 +13,7 @@
     }
   },
   "mp-weixin": {
-    "appid": "touristappid",
+    "appid": "wxacdb882df9b56439",
     "setting": {
       "urlCheck": false,
       "es6": true,

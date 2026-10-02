@@ -46,11 +46,13 @@ ARCHIVE_PAIRS: tuple[tuple[str, str], ...] = (
 DEFAULT_ARCHIVE_YEARS = 2
 
 
-def _month_bounds(month: datetime) -> tuple[str, str]:
-    """月起始 datetime → (本月首日, 次月首日) 的 ISO 日期串（分区左闭右开）。"""
-    start = month.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    nxt = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    return start.date().isoformat(), nxt.date().isoformat()
+# 月界必须由 PG 侧计算：date_trunc 的返回值经驱动归一到 UTC，而在 Python 侧再
+# .replace(day=1) 会落到上一个 UTC 月（+08 会话下必然错月），建出的分区盖不住目标行。
+_MONTH_BOUNDS_SQL = """
+    SELECT DISTINCT
+        to_char(date_trunc('month', "created_at"), 'YYYY-MM-DD') AS month_start,
+        to_char(date_trunc('month', "created_at") + interval '1 month', 'YYYY-MM-DD') AS month_end
+"""
 
 
 async def _common_columns(session: AsyncSession, source: str, archive: str) -> list[str]:
@@ -91,15 +93,11 @@ async def _ensure_partitions(
     """为源表中早于 cutoff 的行所在月份，按需创建归档月分区（已存在则跳过）。"""
     months = (
         await session.execute(
-            text(
-                f'SELECT DISTINCT date_trunc(\'month\', "created_at") AS m '
-                f'FROM "{source}" WHERE "created_at" < :cutoff'
-            ),
+            text(f'{_MONTH_BOUNDS_SQL} FROM "{source}" WHERE "created_at" < :cutoff'),
             {"cutoff": cutoff},
         )
     ).all()
-    for (month,) in months:
-        start, end = _month_bounds(month)
+    for start, end in months:
         part = f"{archive}_{start[:4]}_{start[5:7]}"
         await session.execute(
             text(

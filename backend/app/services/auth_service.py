@@ -1,6 +1,4 @@
-"""微信登录服务：code2session（httpx）+ mock 分支 + 用户/身份/权益 upsert + JWT 签发。"""
-
-import hashlib
+"""微信登录服务：code2session（httpx）+ 用户/身份/权益 upsert + JWT 签发。"""
 
 import httpx
 from sqlalchemy import select
@@ -9,27 +7,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.errors import AppException
+from app.core.logging import get_logger
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.models import BodyProfile, User, UserAuth, UserBenefit
 from app.schemas.auth import LoginData, RefreshData, UserBrief
 from app.schemas.common import ErrorCode
+
+logger = get_logger(__name__)
 
 CODE2SESSION_URL = "https://api.weixin.qq.com/sns/jscode2session"
 
 PROVIDER_WECHAT_MP = "wechat_mp"  # 登录渠道（001_schema.sql user_auth.provider 约定）
 INIT_AI_TIMES = 10  # 新用户初始 AI 对话次数（user_benefit.ai_times_left 默认）
 
+# 无微信凭证属**部署缺陷**，不该把配置项名投给终端用户：该 message 经 envelope 直达
+# login.vue 的 toast.error(e.message)。故对外只给通用文案，缺哪个变量只写进日志。
+LOGIN_UNAVAILABLE_MSG = "登录服务未就绪，请稍后重试"
+
 
 async def code2session(code: str, settings: Settings | None = None) -> dict:
-    """wx.login code 换 openid/session_key。
+    """wx.login code 换 openid/session_key（真实调用微信 sns/jscode2session）。
 
-    WECHAT_APPID/SECRET 未配置时走 mock：openid 由 code 确定性派生，
-    本地与测试环境零依赖可跑（P0 默认决策，Phase1 联调后关闭）。
+    WECHAT_APPID/SECRET 任一为空即视为部署缺陷：**明确 1001 失败，不派生 openid**
+    （原 mock 分支会伪造身份，已删除；测试改由 conftest 打桩 code2session）。
+    缺哪个变量只记日志，对外给通用文案（见 LOGIN_UNAVAILABLE_MSG 注释）。
     """
     s = settings or get_settings()
     if not s.WECHAT_APPID or not s.WECHAT_SECRET:
-        openid = "mock-" + hashlib.md5(code.encode()).hexdigest()[:16]
-        return {"openid": openid, "session_key": "", "mock": True}
+        missing = [k for k in ("WECHAT_APPID", "WECHAT_SECRET") if not getattr(s, k)]
+        logger.warning("微信登录未配置，拒绝派生身份", extra={"missing_config": ",".join(missing)})
+        raise AppException(ErrorCode.UNAUTHORIZED, LOGIN_UNAVAILABLE_MSG)
 
     params = {
         "appid": s.WECHAT_APPID,
@@ -48,7 +55,6 @@ async def code2session(code: str, settings: Settings | None = None) -> dict:
         "openid": payload["openid"],
         "session_key": payload.get("session_key", ""),
         "unionid": payload.get("unionid"),
-        "mock": False,
     }
 
 

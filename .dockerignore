@@ -1,4 +1,4 @@
-# 构建上下文瘦身（Dockerfile.backend 仅 COPY backend/，Dockerfile.miniapp 仅需 miniapp/src 等）
+# 构建上下文瘦身（上下文为 monorepo 根，Dockerfile.backend 仅 COPY backend/，其余目录一律排除）
 .git
 .github
 **/node_modules

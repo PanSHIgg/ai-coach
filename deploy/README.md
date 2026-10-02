@@ -113,8 +113,7 @@ docker compose -f deploy/docker-compose.yml exec -T api \
 cd backend
 DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
   python -m pytest -q
-# 预期：Phase 1 时点为 95 passed（含 tests/test_boundaries.py 建档边界、tests/test_smoke_phase1.py M1 端到端闭环）；
-#       当前全量基线以 AGENTS.md §7.1 为准（最近实测 494 passed + 2 skipped，2026-09-30 UTC）
+# 预期：全量通过（基线以 AGENTS.md §7.1 为准，最近实测 664 passed + 0 failed，2026-10-02 UTC）
 ```
 
 ### 8. 服务器差异

@@ -37,8 +37,7 @@ export const useUserStore = defineStore('user', () => {
   }
 
   /**
-   * 微信登录。
-   * 【假设】P0 开发态 Mock 登录：code 由调用方传入（mock 固定值），联调后换 wx.login 真 code。
+   * 微信登录：code 由登录页的 uni.login（wx.login）现取，一次性使用，无 mock 兜底。
    */
   async function login(code: string) {
     const data = await authApi.login({ code })

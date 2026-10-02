@@ -1,6 +1,7 @@
 # AI 饮食管控教练 · 后端（P0-e 脚手架）
 
-FastAPI + pydantic v2 异步后端。当前为 P0 stub：openapi.yaml 全部 **34 接口**已挂载并可跑，返回 envelope + 罐头数据（对齐 `contracts/mock/routes.mjs`），业务逻辑标注 `TODO(Phase1)` 待落库。
+FastAPI + pydantic v2 异步后端。**已不是 P0 stub**：`contracts/openapi.yaml` 的全部接口都已挂载并接真实 PostgreSQL 落库，返回统一 envelope。
+~~罐头数据对齐 `contracts/mock/routes.mjs`~~ —— 该 mock 层（server.mjs + routes.mjs）已删除；契约一致性改由 **openapi ↔ FastAPI 实际路由 ↔ 两份 TS 类型** 三方校验承担（`tests/test_contract_consistency.py`）。接口数量各处文档口径不一，**以 openapi.yaml 当次实测为准**（见 `current.md §3.4`）。
 
 ## 本地启动
 
@@ -13,7 +14,7 @@ uvicorn app.main:app --reload --port 8000
 
 - 健康检查：`GET /healthz`（无前缀，`{"status":"ok"}`）
 - 接口文档：`/docs`、OpenAPI：`/openapi.json`
-- 无需 PG/Redis：P0 阶段接口为 stub，不连库；Redis 不可用时限流自动降级进程内窗口
+- **跑测试需要真实 PostgreSQL**（`db_client` / `db_session` 夹具走真库，先按 `dev_env.md §3` 建表 + 导种子；`conftest` 的函数级 `TRUNCATE` 含 `food`/`food_alias`，全量跑完后种子被清空需重导）。**不需要 Redis**——`conftest` 故意把 Redis 指向不可达端口，限流自动降级进程内窗口。
 
 ## 环境变量
 
@@ -25,7 +26,7 @@ uvicorn app.main:app --reload --port 8000
 | `REDIS_URL` | Redis DSN |
 | `JWT_SECRET` / `JWT_ALGORITHM` | JWT 密钥/算法（HS256） |
 | `JWT_ACCESS_EXPIRE_HOURS=2` / `JWT_REFRESH_EXPIRE_DAYS=7` | 双 token 有效期 |
-| `WECHAT_APPID` / `WECHAT_SECRET` | **为空时 code2session 走 mock**（openid 由 code 确定性派生，真 JWT） |
+| `WECHAT_APPID` / `WECHAT_SECRET` | 微信登录凭证；**任一为空 → `code2session` 明确 1001 失败**（曾有的"openid 由 code 派生"mock 分支已删除，测试改由 conftest 打桩） |
 | `RATE_LIMIT_ENABLED` / `RATE_LIMIT_GLOBAL_PER_MIN` / `RATE_LIMIT_AI_PER_MIN` / `RATE_LIMIT_AUTH_PER_MIN` | 限流开关与阈值（默认 全局 100/min/IP、AI 20/min/用户、登录 10/min/IP，见 04 文档 §6.3.6） |
 
 ## 数据库迁移
@@ -45,6 +46,10 @@ pytest tests -v          # pyproject 已配 asyncio_mode=auto、testpaths=tests
 ```
 
 测试为纯接口测试（httpx ASGITransport），不依赖 PostgreSQL/Redis。
+
+登录用例不访问 `api.weixin.qq.com`：`tests/conftest.py` 的 autouse fixture 打桩
+`auth_service.code2session`，openid = `"test-" + sha256(code)[:16]`（同 code 必得同 openid，
+重放/注入类用例依赖此确定性）。
 
 ## 目录说明
 
@@ -72,7 +77,7 @@ backend/
 │   │   └── request_id.py # X-Request-ID 透传/生成 + JSON 访问日志
 │   ├── schemas/        # pydantic v2 契约模型（P0-d 既有，只读未改动）
 │   ├── services/
-│   │   └── auth_service.py # code2session（httpx）+ mock 分支 + JWT 签发
+│   │   └── auth_service.py # code2session（httpx，无凭证即 1001）+ JWT 签发
 │   └── main.py         # create_app 工厂：CORS/RequestId/RateLimit/异常处理 + /healthz + /api 前缀
 └── tests/              # conftest + test_health/test_auth/test_rate_limit
 ```

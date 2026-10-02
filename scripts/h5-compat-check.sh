@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# F7 兼容性核对复现脚本（H5 产物 + 管理后台产物，浏览器真实渲染）
+# F7 兼容性核对复现脚本（管理后台产物，浏览器真实渲染）
 # 用法：bash scripts/h5-compat-check.sh
-# 前提：miniapp/node_modules、admin/node_modules 已装；PG/Redis 可用；agent-browser 已装。
-# 端口段：H5 5177 / admin 4177 / backend 9100。
+# 前提：admin/node_modules 已装；PG/Redis 可用；agent-browser 已装。
+# 端口段：admin 4177 / backend 9100。
 # 说明：仅做只读核对，不修改仓库源码与产物；临时文件写入 /tmp。
+# 范围：本项目只交付微信小程序，H5 产物不进部署面，故此处不再核对 H5 渲染；
+#       H5 构建能力（miniapp npm run build:h5）保留，需要临时视觉核对时自行起静态服务对照。
+# 文件名说明：脚本名保留 h5 是历史名，实际核对对象是**管理后台这个 H5 SPA**（admin/dist 多档
+#       viewport 浏览器渲染）；全仓无其他文件引用它，改名需自行同步本地书签/文档。
+#       小程序 H5 通道的核对不在此脚本，见 dev_env.md §6（npm run dev:h5 + agent-browser）。
+# 解释器：PY 需指向装了后端依赖的 ≥3.12 解释器；本机（Windows）实测用
+#       PY=backend/.venv/Scripts/python.exe（系统 python3.12 无后端依赖）。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PY="${PY:-$(command -v python3.12 || command -v python3 || true)}"
 : "${PY:?未找到 python3.12/python3，请用 PY=/path/to/your/python3.12 指定（需 >=3.12）}"
-H5_PORT=5177
 ADM_PORT=4177
 API_PORT=9100
 TMP="$(mktemp -d /tmp/f7-compat.XXXXXX)"
@@ -17,16 +23,14 @@ PIDS=()
 
 cleanup() {
   for p in "${PIDS[@]:-}"; do kill "$p" 2>/dev/null || true; done
-  agent-browser --session f7h5 close  >/dev/null 2>&1 || true
   agent-browser --session f7adm close >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-echo "== 1/5 构建产物 =="
-(cd "$ROOT/miniapp" && npm run build:h5)
+echo "== 1/4 构建产物 =="
 (cd "$ROOT/admin" && npm run build)
 
-echo "== 2/5 起后端 :$API_PORT =="
+echo "== 2/4 起后端 :$API_PORT =="
 (cd "$ROOT/backend" && DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
   REDIS_URL="redis://127.0.0.1:6379/0" "$PY" -m uvicorn app.main:app --port "$API_PORT" --host 127.0.0.1) &
 PIDS+=($!)
@@ -34,7 +38,7 @@ sleep 4
 export PGPASSWORD=postgres
 psql -h 127.0.0.1 -U postgres -d ai_coach -v ON_ERROR_STOP=1 -f "$ROOT/data/sql/003_phase3_admin_seed.sql" >/dev/null
 
-echo "== 3/5 临时静态服务（H5/admin 均补同源 /api 反代）=="
+echo "== 3/4 临时静态服务（admin 补同源 /api 反代）=="
 cat > "$TMP/serve.mjs" <<'JS'
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import { URL } from 'node:url'
 const [, , root, portArg, proxy] = process.argv; const rootP = path.resolve(root); const port = +portArg
@@ -46,25 +50,10 @@ const srv=http.createServer((req,res)=>{
 })
 srv.listen(port,'127.0.0.1',()=>console.log('serve',port,root,proxy||'no-proxy'))
 JS
-node "$TMP/serve.mjs" "$ROOT/miniapp/dist/build/h5" "$H5_PORT" "http://127.0.0.1:$API_PORT" & PIDS+=($!)
 node "$TMP/serve.mjs" "$ROOT/admin/dist" "$ADM_PORT" "http://127.0.0.1:$API_PORT" & PIDS+=($!)
 sleep 1
 
-echo "== 4/5 H5 三档 × 主要页面 =="
-OVL='(()=>{const d=document.documentElement;return JSON.stringify({sw:d.scrollWidth,cw:d.clientWidth})})()'
-agent-browser --session f7h5 open >/dev/null
-for W in 375 768 1440; do
-  agent-browser --session f7h5 set viewport "$W" 812 >/dev/null
-  for p in index/index record/record community/community merchant/merchant profile/profile order/list; do
-    agent-browser --session f7h5 errors --clear >/dev/null
-    agent-browser --session f7h5 open "http://127.0.0.1:$H5_PORT/#/pages/$p" >/dev/null; sleep 1
-    ov=$(printf '%s' "$OVL" | agent-browser --session f7h5 eval --stdin)
-    ec=$(agent-browser --session f7h5 errors | grep -c . || true)
-    echo "H5 W=$W $p overflow=$ov errors=$ec"
-  done
-done
-
-echo "== 5/5 后台三档 × 主要页面（含 1920）=="
+echo "== 4/4 后台三档 × 主要页面（含 1920）=="
 agent-browser --session f7adm set viewport 1440 900 >/dev/null
 agent-browser --session f7adm open "http://127.0.0.1:$ADM_PORT/#/login" >/dev/null; sleep 1
 agent-browser --session f7adm snapshot -i   # 用快照中的 textbox/button ref 完成登录（admin/Admin@123456）

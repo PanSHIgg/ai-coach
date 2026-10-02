@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # ---- 微信小程序/支付 ----
     WECHAT_APPID: str = ""
-    WECHAT_SECRET: str = ""  # 为空时 code2session 走 mock（P0）
+    WECHAT_SECRET: str = ""  # 与 APPID 任一为空 → code2session 明确 1001 失败（不再走 mock）
     WECHAT_MCH_ID: str = ""
     WECHAT_PAY_KEY: str = ""
     PAY_MOCK_MODE: bool = False  # 沙箱支付：pay 即推进支付成功（生产必须 false）

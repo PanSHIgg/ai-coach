@@ -52,7 +52,7 @@ def _future_iso(days: int = 2) -> str:
 
 
 async def _login(db_client, code: str = "smoke") -> dict:
-    """微信登录（mock code2session）→ 返回 {token, refresh_token, user_id, headers}。"""
+    """微信登录（code2session 由 conftest 打桩）→ 返回 {token, refresh_token, user_id, headers}。"""
     body = (await db_client.post("/api/auth/login", json={"code": code})).json()
     assert body["code"] == 0, body
     data = body["data"]
@@ -340,8 +340,11 @@ async def test_smoke_07_sport_write_account_list(db_client, db_session, authed):
 
 
 async def test_smoke_08_steps_sync_account(db_client, db_session, authed):
-    """同步步数 → 账户步数与 NEAT 校准生效。"""
+    """同步步数 → 账户步数与 NEAT 校准生效；校准不进入 today_left 公式。"""
     await _build_profile(db_client, authed["headers"])
+    before_left = (await db_client.get("/api/account/today", headers=authed["headers"])).json()[
+        "data"
+    ]["today_left"]
     synced = (
         await db_client.post(
             "/api/steps/sync", headers=authed["headers"], json={"date": _today(), "steps": 12000}
@@ -350,6 +353,8 @@ async def test_smoke_08_steps_sync_account(db_client, db_session, authed):
     assert synced["code"] == 0 and synced["data"]["neat_calibrated"] > 0
     today = (await db_client.get("/api/account/today", headers=authed["headers"])).json()["data"]
     assert today["steps"] == 12000 and today["calibration_used"] is True
+    # NEAT 校准只改写 neat 字段，不进入 today_left = BMR×PAL − 摄入 + 运动 − TEF
+    assert today["today_left"] == before_left
 
 
 async def test_smoke_09_account_trend_after_records(db_client, db_session, authed):

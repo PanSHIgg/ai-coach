@@ -11,8 +11,8 @@
 | `src/styles/mixins.scss` | 通用 mixin：flex-center / flex-between / ellipsis / ellipsis-multi / safe-area-bottom / hairline / press / fade-up / skeleton-pulse / spin |
 | `src/styles/base.scss` | 全局基础：page 级 CSS 变量输出（@include css-tokens）、极简 reset、全局 keyframes（fade-up / skeleton-pulse / spin）、少量工具类（.flex-center/.flex-between/.ellipsis/.ellipsis-2/.safe-bottom/.card） |
 | `src/uni.scss` | uni-app 约定入口：仅 @import tokens + mixins（自动注入每个组件，零 CSS 输出） |
-| `src/components/*.vue` | 基础组件 ×10（见 §3） |
-| `src/components/index.ts` | 统一导出 + easycom 配置说明 |
+| `src/components/*.vue` | 基础组件 ×10（见 §3）；由 `src/pages.json` 的 easycom 规则 `^C(.*) → @/components/C$1.vue` 自动解析，无需 barrel 导出 |
+| `src/pages.json` | 页面路由 + easycom 配置真源（见 §4.3） |
 | `src/composables/useToast.ts` | uni.showToast 轻封装（success/error/info/loading/hideLoading） |
 
 ## 2. 设计令牌对照表（文档值 → 变量名）

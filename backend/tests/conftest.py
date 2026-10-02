@@ -1,7 +1,7 @@
 """测试装配：httpx AsyncClient + app fixture（纯接口测试，不依赖 PG/Redis）。
 
 - Settings 显式构造（_env_file=None），不受本机环境变量/.env 影响
-- WECHAT_* 清空走 mock code2session
+- WECHAT_* 从环境清除 + code2session 打桩：用例永不访问 api.weixin.qq.com
 - 默认关闭限流；限流用例单独开低阈值 app
 
 Phase 1 增补（DB 基建，供全后端复用）：
@@ -13,6 +13,7 @@ Phase 1 增补（DB 基建，供全后端复用）：
 运行前置：`psql -f data/sql/001_schema.sql`（或 alembic upgrade head）已建表。
 """
 
+import hashlib
 import os
 
 import pytest
@@ -22,7 +23,10 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-# 防本机 env 干扰（pydantic-settings 会读 os.environ）
+# 防本机 env 干扰（pydantic-settings 会读 os.environ）。
+# WECHAT_APPID/SECRET 一并清除：凡以微信凭证为降级判据的路径（content_security 文本/图片审核、
+# 订阅消息发送、步数解密）在测试中一律走离线确定性分支；登录侧 code2session 由下方
+# _stub_code2session 打桩接管，auth_service 无凭证时是**明确 1001 失败**（不再有 mock 分支）。
 for _k in ("WECHAT_APPID", "WECHAT_SECRET", "JWT_SECRET", "JWT_ALGORITHM"):
     os.environ.pop(_k, None)
 
@@ -136,6 +140,28 @@ def _reset_rate_limit_memory():
     _memory_windows.clear()
     yield
     _memory_windows.clear()
+
+
+@pytest.fixture(autouse=True)
+def _stub_code2session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """打桩 auth_service.code2session：任何用例都不许真打 api.weixin.qq.com。
+
+    auth_service 已删除"无凭证 → openid=md5(code)"的 mock 分支（无凭证是明确 1001 失败），
+    登录侧的零依赖可跑性改由此处承担：openid = "test-" + sha256(code)[:16]，
+    **同 code 必得同 openid**——test_security_replay（同 code 提交 10 次只建 1 用户）与
+    test_security_sqli（8 条注入串当作不透明 code）都依赖该确定性，随机 openid 会假失败。
+    返回体不带 mock 标记：真实 code2session 已不返回该字段，桩与其同形。
+    """
+    from app.services import auth_service
+
+    async def _fake(code: str, settings=None) -> dict:
+        return {
+            "openid": "test-" + hashlib.sha256(code.encode("utf-8")).hexdigest()[:16],
+            "session_key": "",
+            "unionid": None,
+        }
+
+    monkeypatch.setattr(auth_service, "code2session", _fake)
 
 
 @pytest_asyncio.fixture

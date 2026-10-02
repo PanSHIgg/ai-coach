@@ -1,7 +1,7 @@
 /**
  * request.ts · uni.request 统一封装（P0-f）
  *
- * - baseURL 取 env.VITE_API_BASE（默认 http://localhost:9000，指向 contracts/mock/server.mjs）
+ * - baseURL 只取 env.VITE_API_BASE（无内置默认值：缺省=空串=H5 同源；小程序端空串启动即抛错）
  * - 自动附 `Authorization: Bearer <token>`（storage 读取）
  * - HTTP 401 或业务 code=1001：用 refresh_token 静默刷新一次并重放原请求；
  *   刷新失败清登录态并 reLaunch 到登录页
@@ -13,9 +13,23 @@ import type { Envelope } from '@/types/api'
 import { useToast } from '@/composables/useToast'
 import { redirectToLogin } from '@/utils/nav'
 
-// 基址：开发默认指向 Mock（9000）；生产由 .env.production 的 VITE_API_BASE 注入。
+// 基址：只由 .env.[mode] 的 VITE_API_BASE 注入（开发 http://localhost = 本机 nginx 反代 /api；
+// 生产 H5 显式留空走同源、小程序必须填绝对域名），代码内不再内置任何地址默认值。
+// 兜底空串 = 「同源」语义：H5 成立；小程序端交给下方 #ifdef MP-WEIXIN 断言拦成启动即报错。
 // 用 ?? 而非 ||：允许显式留空（H5 同源部署，由 nginx 反代 /api），空串不再被 fallback 覆盖。
-export const BASE_URL: string = import.meta.env.VITE_API_BASE ?? 'http://localhost:9000'
+export const BASE_URL: string = import.meta.env.VITE_API_BASE ?? ''
+
+// #ifdef MP-WEIXIN
+// 小程序不支持相对 URL：BASE_URL 为空时每个请求都会在网络层静默失败（表现为"零请求零报错"），
+// 而 .env.production 的留空只对 H5 同源反代成立，因此小程序侧必须启动即报错而不是静默。
+// MODE !== 'test'：vitest 不做 uni 条件编译，#ifdef 块在单测里同样会执行；
+// 若不排除 test，任何未设 VITE_API_BASE 的环境（含干净 clone）都会让整套单测在导入期即抛。
+if (!BASE_URL && import.meta.env.MODE !== 'test') {
+  throw new Error(
+    '[request] 小程序端 VITE_API_BASE 不能为空，请填绝对域名（仅 H5 可留空走 nginx 同源反代）',
+  )
+}
+// #endif
 
 const TOKEN_KEY = 'token'
 const REFRESH_TOKEN_KEY = 'refresh_token'

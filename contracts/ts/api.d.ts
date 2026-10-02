@@ -5,6 +5,7 @@
  * - 真源为 contracts/ts/api.d.ts，本文件为其副本；变更由主 Agent 单点同步（两份须逐字一致）。
  * - 再生成命令：bash contracts/gen-ts.sh（优先 npx openapi-typescript → ts/openapi.gen.ts；
  *   离线/失败时以手写文件为准）。
+ * - `ts/openapi.gen.ts` 为生成产物，不入库（勿手改、勿提交）；入库真源是手写 api.d.ts。
  * - 统一 envelope：成功 {code:0,message:"ok",data,request_id}；失败 data:null、errors 可选。
  */
 

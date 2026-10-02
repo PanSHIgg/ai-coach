@@ -16,6 +16,9 @@ env/
 coverage.xml
 htmlcov/
 
+# ---- 契约生成物（bash contracts/gen-ts.sh 的输出，入库真源是手写 ts/api.d.ts）----
+contracts/ts/openapi.gen.ts
+
 # ---- Node ----
 node_modules/
 npm-debug.log*

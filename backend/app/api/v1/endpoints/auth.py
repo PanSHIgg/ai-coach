@@ -25,7 +25,7 @@ async def auth_login(
     session: AsyncSession = Depends(get_db),
     request_id: str | None = Depends(get_request_id),
 ) -> Envelope[LoginData]:
-    """wx.login code → code2session 换 openid（密钥未配置走 mock）→ upsert 用户 → 签发 JWT。"""
+    """wx.login code → code2session 换 openid（无微信凭证即 1001 失败）→ upsert 用户 → 签发 JWT。"""
     data = await auth_service.login(session, payload.code)
     return ok(data, request_id=request_id)
 

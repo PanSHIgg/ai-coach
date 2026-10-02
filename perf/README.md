@@ -1,7 +1,7 @@
 # F5 性能测试目录
 
 对 `ai_coach_perf` 库 + 8003 端口真跑 uvicorn 施压。**本机 4GiB / 3 核 / 无 swap →
-压测串行、低并发**，实测参数与结论见 `report.md`。
+压测串行、低并发**；实测数据由 `harness.py` 现场输出，不归档到仓库。
 
 ## 文件
 
@@ -9,7 +9,6 @@
   `"order"` + 压测用户/商家/SKU。幂等（重复执行只补差量）；`--clean` 清理。
   执行后写 `seed_ids.json`（供 harness 读取 id）。
 - `harness.py`：httpx.AsyncClient + asyncio 压测器，输出 QPS / P50 / P95 / P99 / 错误率。
-- `report.md`：真实实测报告。
 - `seed_ids.json`：seed_bulk 产出的 id（自动生成，可删）。
 
 ## 用法
