@@ -6,7 +6,7 @@
 > **处置纪律（AGENTS §7.2）**：① 文档对、代码错 → 改代码补测试；② 代码做到、文档口径过时/文档自相矛盾 → 在第二部分登记，等产品拍板；③ 文档要求的 P0 未实现 → 登记排期。**禁止改文档**。
 > **当前门禁（2026-10-02 第三批 Wave A 更新）**：全量 pytest **646 passed / 0 failed / 0 skipped**（本地全量，含本轮入库测试资产；主 Agent 串行干净环境复跑定案）；契约一致性 **107 路径 / 116 操作**（与实现、mock 双向 diff 0）；`miniapp` type-check **0 错误** + Vitest **22 单测全过**（4 文件）+ `build:mp-weixin` / `build:h5` ✓；`admin` build ✓（vue-tsc + vite）；alembic **head 0010**；ORM 业务表 **54**；小程序页面 **37**。
 > **入库口径（2026-10-02 用户拍板，第三批修订）**：本轮**功能实现 + 本轮新增测试资产一并入库**——backend/tests 新增用例（`test_task`/`test_privacy`/`test_report`/`test_voice_transcribe`/`test_merchant_self`/`test_exclusive_offer`/`test_search_cn`/`test_archive`/`test_account_deletion`）、`test_contract_consistency.py` 冻结基线（107/116）、conftest 表清单、miniapp Vitest 用例与配置、`perf/coverage.md` 均随本次推送。**说明**：§1.6 所述 miniapp/admin Playwright E2E 与 60 条 Vitest 为**第二批本地留存资产**，未随本工作区检出（数字为当时实测记录，本轮不可复跑）；`scripts/e2e_fullchain/` 同样为第二批本地留存。
-> **更新时间**：2026-10-02（第三批 Wave A：并入 G3/G4/G5/G7/G8/G10/G11/G12 实现与测试、账号注销级联清除缺陷修复；同追加 compose 一键构建 + agent-browser E2E 复验，见 §1.5）
+> **更新时间**：2026-10-02（第三批 Wave A：并入 G3/G4/G5/G7/G8/G10/G11/G12 实现与测试、账号注销级联清除缺陷修复）
 
 ---
 
@@ -91,7 +91,7 @@
 - **H5 E2E 点击流：21/21 断言 PASS**（playwright + 系统 Chromium）：5 Tab 切换、邀请页新口径文案断言（「注册成功即算有效邀请」「1/3/10」「同设备只计 1 次」）+ 分享按钮交互、AI 对话页、商家列表（`/api/merchant/list` 请求发出）、记录中枢；登录走 mock code2session（`WECHAT_SECRET` 空）+ 后端签发 JWT 注入 localStorage；aiohttp 反代 :8080 同源接入 `/api`。控制台**严重报错 0**；轻微 2 类均为预期降级（监督空数据 3001 的 404 envelope、COS 占位域名 DNS 失败）。辅助脚本/截图留 /tmp 不入仓库
 - **CI 复现（按 `.github/workflows/ci.yml` 三 job 逐条）**：backend **564 passed / 0 failed / 0 skipped**（起真实 redis:7 后原 2 例锁定用例转执行全过；ruff/black 非阻断存量告警与 CI 口径一致）；frontend type-check + `build:mp-weixin`/`build:h5` ✓；admin `npm ci` + build ✓。偏差仅环境性（postgis:16-3.4 镜像替代 postgres:16、Python 3.11 vs 3.12）→ **推送 GitHub Actions / Gitea Actions（同构 runner）将全绿**
 - **docker compose 全栈部署实测**（2026-10-01）：7 服务全部健康（postgres/redis/api/worker/nginx/prometheus/grafana）；补齐部署缺口——postgres 自动初始化 schema（initdb 挂载）、Grafana provisioning 开箱即用（datasource uid=prometheus + 看板自动加载）、Dockerfile PyPI 国内源、nginx 443 块拆分至 `nginx-ssl.conf.example`（无证书环境可启动）、worker 禁用继承的 HTTP 探活；种子导入 + 8 用户全链路流量（登录/建档/记餐/商家 PostGIS 查询/账户）后 Prometheus targets `ai-coach-api up`、`http_requests_total` 等业务指标入采集
-- **docker compose 一键构建后端 + agent-browser E2E 复验（2026-10-02）**：`docker compose -f deploy/docker-compose.yml up -d --build` 一键拉起 7 服务（postgres/redis/api/worker/nginx/prometheus/grafana），api healthy、`/healthz` 返回 ok、schema 首次自动初始化 100 表、OpenAPI 暴露 **107 路径**、灌入 `003_phase3_admin_seed.sql`（`admin/Admin@123456` 等）。**实测发现并修复 2 项真实部署缺陷**：① 沙箱 9090 被 `sandbox-proxy` 占用 → prometheus 外部端口改 9091；② `deploy/nginx.conf` 正则静态 location（`~* \.(js|css)$`）未继承 root，导致 `/assets/*.js` 全部 404、H5 白屏（`#app` 不挂载）→ 补 server 级 `root /usr/share/nginx/html;` 并 `nginx -s reload` 修复；③ agent-browser 在容器环境需 `--args "--no-sandbox,--disable-gpu,--disable-dev-shm-usage"` 方可启动 Chrome。修复后 **agent-browser E2E 全绿**：**H5（`http://localhost/`，手机视口 390×844）** hash 路由到 `#/pages/login`、标题「登录」+ 应用图标真实渲染、控制台零报错（仅 1 条 vue-router 弃用 warning）；**admin（`http://localhost/admin/`）** 登录页（账号/密码/按钮/演示账号提示）渲染完整 → 填 `admin/Admin@123456` 真实登录成功 → 跳转 `#/dashboard`（7 项菜单 + KPI 卡片，数据来自后端真实接口）→ 点击「运营看板」SPA 路由正常、**全程控制台零报错**。验收报告与截图留 `/workspace/e2e-report/`（按惯例不入仓库）
+- **compose 一键构建 + agent-browser E2E 复验（2026-10-02）**：发现并修复 `deploy/nginx.conf` 正则静态 location 缺 server 级 `root`（`/assets/*` 404 → H5 白屏）；修复后 H5（`#/pages/login`）与 admin（登录→`#/dashboard`→看板）渲染正常、全程控制台零报错
 
 ### 1.6 前端测试基建与覆盖率（2026-10-02 第二批，§2.2 缺口闭环；**资产未入库**）
 
