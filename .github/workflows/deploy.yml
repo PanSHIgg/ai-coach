@@ -95,26 +95,49 @@ jobs:
           docker compose -f "$COMPOSE_FILE" logs --tail=120
           exit 1
 
-      - name: Smoke check (nginx → api → pg/redis → 监控)
+      - name: Smoke check (nginx → api → db → 鉴权正反对照 → 监控)
+        # 口径对齐仓库 ci.yml（去 Mock 之后）：CI 不建 .env → 无微信凭证 → /api/auth/login
+        # 必须 401 + code 1001；冒烟主线改走管理端种子账号。
         run: |
           set -e
+          cd "$(cat /tmp/ai-coach-src)"
           echo "--- 1) nginx /healthz ---"
-          curl -fsS http://127.0.0.1/healthz; echo
-          echo "--- 2) mock 登录（WECHAT_SECRET 未配 → mock 分支）---"
-          curl -fsS -X POST http://127.0.0.1/api/auth/login \
-            -H 'Content-Type: application/json' -d '{"code":"ci-smoke"}' \
-            -o /tmp/login.json -w "http=%{http_code}\n"
-          head -c 300 /tmp/login.json; echo
-          grep -q '"code":0' /tmp/login.json
-          echo "--- 3) 食物检索（验证 migrate 导入种子）---"
-          TOKEN=$(python3 -c "import json;print(json.load(open('/tmp/login.json'))['data']['token'])")
-          curl -fsS -X POST http://127.0.0.1/api/food/search \
-            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-            -d '{"keyword":"鸡胸肉"}' | head -c 300; echo
-          echo "--- 4) postgis 扩展 ---"
+          [ "$(curl -fsS http://127.0.0.1/healthz)" = "ok" ] && echo "healthz=ok"
+
+          echo "--- 2) C 端登录守卫：无凭证必须 401/1001（新守卫生效证据）---"
+          # 1001 映射 HTTP 401，curl -f 会先非零退出，故取状态码 + 读 body
+          http=$(curl -s -o /tmp/login.json -w '%{http_code}' -X POST http://127.0.0.1/api/auth/login \
+            -H 'Content-Type: application/json' -d '{"code":"ci-compose-smoke"}')
+          echo "auth/login http=$http body=$(head -c 200 /tmp/login.json)"
+          [ "$http" = "401" ] && grep -q '"code":1001' /tmp/login.json
+
+          echo "--- 3) 后台种子 + admin 登录（凭据单一真源：从种子文件注释解析）---"
+          docker exec -i ai-coach-postgres psql -U postgres -d ai_coach -v ON_ERROR_STOP=1 \
+            < data/sql/003_phase3_admin_seed.sql >/dev/null
+          CREDS=$(grep -m1 -oE 'admin/[A-Za-z0-9@#._-]+' data/sql/003_phase3_admin_seed.sql)
+          [ -n "$CREDS" ] || { echo "未能从 003 种子注释解析后台账号"; exit 1; }
+          ADMIN_TOKEN=$(curl -fsS -X POST http://127.0.0.1/api/admin/login \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"${CREDS%%/*}\",\"password\":\"${CREDS##*/}\"}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
+          [ -n "$ADMIN_TOKEN" ] && echo "admin token 获取成功"
+
+          echo "--- 4) 带 token 真实读库（nginx→api→db + JWT + migrate 种子 三者通）---"
+          curl -fsS http://127.0.0.1/api/admin/sku-catalog \
+            -H "Authorization: Bearer $ADMIN_TOKEN" | grep -q '"code":0' && echo "sku-catalog code=0"
+
+          echo "--- 5) 反向对照：不带 token 必须 401/1001（证明鉴权真在生效）---"
+          anon=$(curl -s -o /tmp/anon.json -w '%{http_code}' http://127.0.0.1/api/admin/sku-catalog)
+          echo "anon http=$anon body=$(head -c 200 /tmp/anon.json)"
+          [ "$anon" = "401" ] && grep -q '"code":1001' /tmp/anon.json
+
+          echo "--- 6) postgis 扩展 + 种子行数 ---"
           docker exec ai-coach-postgres psql -U postgres -d ai_coach -tAc \
-            "SELECT extname FROM pg_extension WHERE extname='postgis'"
-          echo "--- 5) 监控栈 ---"
+            "SELECT extname FROM pg_extension WHERE extname='postgis'" | grep -q postgis
+          docker exec ai-coach-postgres psql -U postgres -d ai_coach -tAc \
+            "SELECT count(*) FROM food" | awk '{ print "food rows =", $1; if ($1 < 100) exit 1 }'
+
+          echo "--- 7) 监控栈 ---"
           curl -fsS http://127.0.0.1:9091/-/ready; echo
           curl -fsS http://127.0.0.1:3000/api/health; echo
 
