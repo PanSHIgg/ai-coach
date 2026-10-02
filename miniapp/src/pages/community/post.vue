@@ -8,6 +8,22 @@
         maxlength="2000"
         placeholder="分享今天的饮食或运动心得…"
       />
+      <!-- 图片（COS 直传，最多 3 张） -->
+      <view class="post__images">
+        <view v-for="(p, i) in imagePaths" :key="p" class="post__image-item">
+          <image class="post__image" :src="p" mode="aspectFill" />
+          <text class="post__image-del" @tap="removeImage(i)">×</text>
+        </view>
+        <view
+          v-if="imagePaths.length < MAX_IMAGES"
+          class="post__image-add"
+          @tap="chooseImages"
+        >
+          <text class="post__image-add-icon">＋</text>
+          <text class="post__image-add-text">图片</text>
+        </view>
+      </view>
+
       <view class="post__switch">
         <text class="post__label">匿名发布</text>
         <switch :checked="anonymous" color="#22c55e" @change="onAnonymous" />
@@ -36,6 +52,15 @@
           </view>
           <text v-if="post.title" class="post-card__title">{{ post.title }}</text>
           <text class="post-card__content">{{ post.content }}</text>
+          <view v-if="post.images?.length" class="post-card__images">
+            <image
+              v-for="(img, i) in post.images"
+              :key="i"
+              class="post-card__image"
+              :src="img"
+              mode="aspectFill"
+            />
+          </view>
           <view class="post-card__foot">
             <text class="post-card__action" @tap="toggleLike">
               <image
@@ -90,8 +115,12 @@ import {
 } from '@/api/community'
 import type { CommunityCommentOut, CommunityPostOut } from '@/types/api'
 import { useToast } from '@/composables/useToast'
+import { uploadImage } from '@/utils/upload'
 
 const toast = useToast()
+
+/** 发帖最多 3 张图（COS 直传，公开读 URL 写入 images） */
+const MAX_IMAGES = 3
 
 const TYPES = [
   { value: 1, label: '动态' },
@@ -107,6 +136,8 @@ const content = ref('')
 const anonymous = ref(false)
 const postType = ref<1 | 2 | 3>(1)
 const submitting = ref(false)
+/** 已选本地图片（提交时直传 COS → images） */
+const imagePaths = ref<string[]>([])
 
 /* 详情态 */
 const loading = ref(false)
@@ -131,6 +162,25 @@ function onType(e: Event) {
   postType.value = Number(detail.value) as 1 | 2 | 3
 }
 
+/** 选择图片（最多 MAX_IMAGES 张） */
+function chooseImages() {
+  const remain = MAX_IMAGES - imagePaths.value.length
+  if (remain <= 0) return
+  uni.chooseImage({
+    count: remain,
+    sizeType: ['compressed'],
+    sourceType: ['album', 'camera'],
+    success: (res) => {
+      imagePaths.value = [...imagePaths.value, ...(res.tempFilePaths as string[])]
+    },
+  })
+}
+
+/** 移除已选图片 */
+function removeImage(index: number) {
+  imagePaths.value.splice(index, 1)
+}
+
 async function submit() {
   if (!content.value.trim()) {
     toast.info({ title: '请输入内容' })
@@ -138,10 +188,21 @@ async function submit() {
   }
   submitting.value = true
   try {
+    // 图片直传 COS（公开读 URL）；配置缺失/失败会返回 null，若有图但全部失败则中止
+    let images: string[] = []
+    if (imagePaths.value.length) {
+      const urls = await Promise.all(imagePaths.value.map((p) => uploadImage(p, 'post')))
+      images = urls.filter((u): u is string => !!u)
+      if (!images.length) {
+        toast.error({ title: '图片上传失败，请重试或去掉图片' })
+        return
+      }
+    }
     const res = await createPost({
       content: content.value.trim(),
       anonymous: anonymous.value,
       post_type: postType.value,
+      images,
     })
     toast.info({
       title: res.audit_status === 0 ? '已提交，审核通过后展示' : '发布成功',
@@ -224,6 +285,59 @@ onLoad((options?: Record<string, string>) => {
     font-size: $t-26;
     background: $bg;
     border-radius: $radius-sm;
+  }
+
+  &__images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $space-sm;
+    margin-top: $space-sm;
+  }
+
+  &__image-item {
+    position: relative;
+    width: 160rpx;
+    height: 160rpx;
+  }
+
+  &__image {
+    width: 160rpx;
+    height: 160rpx;
+    border-radius: $radius-sm;
+  }
+
+  &__image-del {
+    position: absolute;
+    top: -12rpx;
+    right: -12rpx;
+    width: 40rpx;
+    height: 40rpx;
+    font-size: $t-26;
+    line-height: 40rpx;
+    color: #fff;
+    text-align: center;
+    background: $danger;
+    border-radius: 50%;
+  }
+
+  &__image-add {
+    @include flex-center(column);
+
+    width: 160rpx;
+    height: 160rpx;
+    background: $bg;
+    border: 1rpx dashed $border;
+    border-radius: $radius-sm;
+  }
+
+  &__image-add-icon {
+    font-size: 44rpx;
+    color: $text-3;
+  }
+
+  &__image-add-text {
+    font-size: $t-22;
+    color: $text-3;
   }
 
   &__switch {
@@ -314,6 +428,19 @@ onLoad((options?: Record<string, string>) => {
     display: block;
     font-size: $t-26;
     color: $text-1;
+  }
+
+  &__images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $space-sm;
+    margin-top: $space-sm;
+  }
+
+  &__image {
+    width: 200rpx;
+    height: 200rpx;
+    border-radius: $radius-sm;
   }
 
   &__foot {

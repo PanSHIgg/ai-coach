@@ -1,11 +1,11 @@
-"""用户档案域接口（openapi: /api/body-profile POST/GET）。"""
+"""用户档案域接口（openapi: /api/body-profile POST/GET、/api/user/avatar POST）。"""
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_request_id
 from app.db.session import get_db
-from app.schemas import BodyProfileIn, BodyProfileOut, Envelope
+from app.schemas import AvatarUpdateIn, BodyProfileIn, BodyProfileOut, Envelope, UserDetail
 from app.schemas.common import ok
 from app.services import user_service
 
@@ -41,4 +41,20 @@ async def get_body_profile(
     """按 user_id 查 body_profile；未创建时 data=None（契约允许）。"""
     profile = await user_service.get_body_profile(session, user.id)
     data = BodyProfileOut.model_validate(profile) if profile is not None else None
+    return ok(data, request_id=request_id)
+
+
+@router.post(
+    "/user/avatar",
+    response_model=Envelope[UserDetail],
+    summary="更新当前用户头像（COS 公开读 URL）",
+)
+async def update_avatar(
+    payload: AvatarUpdateIn,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[UserDetail]:
+    """前端直传 COS 成功后回填公开读 URL；返回更新后的当前用户详情。"""
+    data = await user_service.update_avatar(session, user.id, payload.avatar_url)
     return ok(data, request_id=request_id)

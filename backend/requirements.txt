@@ -16,3 +16,5 @@ PyJWT>=2.8,<3.0
 python-multipart>=0.0.9,<0.1
 # Prometheus 指标 / /metrics 运维端点（F9；锁版本，沙箱已验证 0.26.0）
 prometheus-client==0.26.0
+# 腾讯云 COS 直传：STS 临时密钥签发（04 文档 §6.1 对象存储）
+qcloud-python-sts>=3.1,<4.0

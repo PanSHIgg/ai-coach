@@ -57,12 +57,15 @@ class Settings(BaseSettings):
     # → 无凭证时明确降级（不伪造步数，由前端回退传 0 → 后端按 PAL 估算 NEAT）。
     WECHAT_STEPS_SESSION_KEY: str = ""
 
-    # ---- 腾讯云 COS ----
+    # ---- 腾讯云 COS（公开读 / 私有写；小程序直传）----
+    # 桶策略：公开读（对象经 COS_BASE_URL 或 bucket 域名可读）；私有写（写需后端签发的
+    # STS 临时密钥，限本场景对象键前缀 + PutObject）。三者任一为空 → 上传凭证明确降级。
     COS_SECRET_ID: str = ""
     COS_SECRET_KEY: str = ""
     COS_BUCKET: str = ""
     COS_REGION: str = "ap-guangzhou"
-    COS_BASE_URL: str = ""
+    COS_BASE_URL: str = ""  # 自定义域名/CDN；留空回落 https://{bucket}.cos.{region}.myqcloud.com
+    COS_STS_DURATION: int = 1800  # STS 临时密钥有效期（秒），腾讯云下限 900
 
     # ---- AI（D-09：LLM 与 VLM 统一走 OpenAI 兼容协议 /v1/chat/completions）----
     # OpenAI 兼容端点（DeepSeek/通义/ModelScope/混元等均提供），换厂商只改 env，

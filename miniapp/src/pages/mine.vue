@@ -11,12 +11,14 @@
             v-if="userStore.detail?.avatar_url"
             class="me__avatar"
             :src="userStore.detail?.avatar_url"
+            @tap="changeAvatar"
             @error="onAvatarError"
           />
-          <image v-else class="me__avatar" src="/static/avatar-default.png" />
+          <image v-else class="me__avatar" src="/static/avatar-default.png" @tap="changeAvatar" />
           <view class="me__info">
             <text class="me__nickname">{{ userStore.nickname }}</text>
             <text class="me__tier">当前版本：{{ tierLabel }}</text>
+            <text class="me__hint">点击头像更换</text>
           </view>
         </view>
       </CCard>
@@ -114,10 +116,14 @@ import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
 import { getSubscriptions } from '@/api/notification'
+import { updateAvatar } from '@/api/profile'
 import { useSubscribe } from '@/composables/useSubscribe'
+import { uploadImage } from '@/utils/upload'
+import { useToast } from '@/composables/useToast'
 
 const userStore = useUserStore()
 const { requestSubscribe } = useSubscribe()
+const toast = useToast()
 
 // 权益档位文案（§5.5：0基础 1进阶 2高级 3终身）
 const TIER_LABEL: Record<number, string> = {
@@ -163,6 +169,31 @@ function goLogin() {
 /** 外链头像加载失败 → 回退本地默认头像（置空触发 v-else 分支） */
 function onAvatarError() {
   if (userStore.detail) userStore.detail.avatar_url = ''
+}
+/** 更换头像：选图 → COS 直传（公开读 URL）→ 回填用户详情（COS 集成） */
+function changeAvatar() {
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    sourceType: ['camera', 'album'],
+    success: async (res) => {
+      const path = (res.tempFilePaths as string[])[0]
+      if (!path) return
+      const url = await uploadImage(path, 'avatar')
+      if (!url) {
+        toast.error({ title: '头像上传失败，请稍后重试' })
+        return
+      }
+      try {
+        const detail = await updateAvatar(url)
+        userStore.detail = detail
+        if (userStore.user) userStore.user.avatar_url = detail.avatar_url
+        toast.success({ title: '头像已更新' })
+      } catch (e) {
+        // 错误信息已由 request 封装 toast
+      }
+    },
+  })
 }
 function goEdit() {
   uni.navigateTo({ url: '/pages/profile/edit' })
@@ -258,6 +289,12 @@ function onLogout() {
     margin-top: 4rpx;
     font-size: $t-22;
     color: $text-3;
+  }
+
+  &__hint {
+    margin-top: 4rpx;
+    font-size: $t-22;
+    color: $brand;
   }
 
   &__card {

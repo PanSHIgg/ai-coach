@@ -7,7 +7,7 @@
 
 覆盖四类断言：
 1) 后端 `app.openapi()` ↔ `contracts/openapi.yaml`：路径集合与每路径 method 集合双向一致
-   （当前冻结基线 107 路径 / 116 ops）；
+   （当前冻结基线 109 路径 / 118 ops）；
 2) 两份 TS 副本 `contracts/ts/api.d.ts` 与 `miniapp/src/types/api.d.ts` 逐字一致；
 3) `contracts/mock/routes.mjs` 覆盖契约全部 method+path（node 解析，缺失时回退正则）；
 4) 契约内 `$ref`（`#/components/**`）目标存在，防悬空引用。
@@ -35,8 +35,10 @@ MOCK_ROUTES = REPO_ROOT / "contracts" / "mock" / "routes.mjs"
 # G1/G2：真人教练工单 + 平台自营订阅付费 -> 路径 89 / ops 96
 # Wave A 地基：任务/积分 · 隐私 · 报告 · 语音 · 商家比价/自助（+18 路径 / +20 ops）
 #   -> 路径 107 / ops 116
-FROZEN_PATH_COUNT = 107
-FROZEN_OP_COUNT = 116
+# COS 集成：POST /api/upload/credential（STS 直传凭证）+ POST /api/user/avatar（更新头像）
+#   -> 路径 109 / ops 118
+FROZEN_PATH_COUNT = 109
+FROZEN_OP_COUNT = 118
 
 _METHODS = ("get", "post", "put", "delete", "patch", "options", "head")
 

@@ -67,6 +67,8 @@ tags:
     description: 账号注销（级联清除）
   - name: 商家自助
     description: 商家 token 登录与经营（选品定价/上下架/核销/看板）
+  - name: 上传
+    description: 腾讯云 COS 直传临时凭证（公开读/私有写；STS 临时密钥）
 paths:
   /api/auth/login:
     post:
@@ -3592,6 +3594,69 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/ServerError'
+  # ---- 上传（COS 直传）----
+  /api/upload/credential:
+    post:
+      tags: [上传]
+      summary: 获取 COS 直传临时凭证（STS；公开读/私有写）
+      operationId: getUploadCredential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadCredentialIn'
+      responses:
+        '200':
+          description: >-
+            STS 临时密钥 + 建议对象键 + 公开读 URL；COS 未配置时 configured=false 且 credentials=null
+            （前端跳过直传，不伪造可用）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UploadCredentialData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/user/avatar:
+    post:
+      tags: [用户档案]
+      summary: 更新当前用户头像（COS 公开读 URL）
+      operationId: updateUserAvatar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AvatarUpdateIn'
+      responses:
+        '200':
+          description: 更新后的当前用户详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -5030,6 +5095,48 @@ components:
       required: [accepted]
       properties:
         accepted: { type: integer, description: 成功受理的事件条数 }
+    # ---- 上传（COS 直传）----
+    UploadScene:
+      type: string
+      description: 上传场景，决定 COS 对象键前缀：meal 食物照片 / avatar 用户头像 / post 发帖图 / merchant 商家图
+      enum: [meal, avatar, post, merchant]
+    UploadFileExt:
+      type: string
+      description: 文件扩展名
+      enum: [jpg, jpeg, png, webp]
+    UploadCredentialIn:
+      type: object
+      required: [scene]
+      properties:
+        scene: { $ref: '#/components/schemas/UploadScene' }
+        ext: { $ref: '#/components/schemas/UploadFileExt', default: jpg }
+    StsCredentials:
+      type: object
+      description: 腾讯云 STS 临时密钥（COS 私有写；限本场景前缀 + PutObject）
+      required: [tmp_secret_id, tmp_secret_key, session_token, start_time, expired_time]
+      properties:
+        tmp_secret_id: { type: string }
+        tmp_secret_key: { type: string }
+        session_token: { type: string }
+        start_time: { type: integer, description: 临时密钥生效时间（Unix 秒） }
+        expired_time: { type: integer, description: 临时密钥过期时间（Unix 秒） }
+    UploadCredentialData:
+      type: object
+      required: [configured, bucket, region, key, public_url]
+      properties:
+        configured:
+          type: boolean
+          description: COS 是否已配置；false 时 credentials 为 null、key/public_url 为空，前端跳过直传
+        bucket: { type: string }
+        region: { type: string }
+        key: { type: string, description: '建议对象键（scene/YYYY/MM/DD/uuid.ext）' }
+        public_url: { type: string, description: 直传成功后公开读 URL（桶公开读） }
+        credentials: { $ref: '#/components/schemas/StsCredentials', nullable: true }
+    AvatarUpdateIn:
+      type: object
+      required: [avatar_url]
+      properties:
+        avatar_url: { type: string, minLength: 1, maxLength: 512, description: COS 公开读 URL }
     RefundIn:
       type: object
       properties:

@@ -110,6 +110,7 @@ import { createMeal, createCustomFood } from '@/api/records'
 import { BASE_URL, getToken } from '@/api/request'
 import { useToast } from '@/composables/useToast'
 import { track } from '@/utils/track'
+import { uploadImage } from '@/utils/upload'
 import type { Envelope, RecognizeData, RecognizedItem } from '@/types/api'
 
 /** 识别项 + 可编辑分量（字符串便于输入框双向绑定） */
@@ -137,6 +138,8 @@ const userStore = useUserStore()
 const toast = useToast()
 
 const imagePath = ref('')
+/** 当前照片的 COS 直传 Promise（与识别并行；保存时 await 取公开读 URL，未配置/失败为 null） */
+let cosUpload: Promise<string | null> | null = null
 const recognizing = ref(false)
 const failed = ref(false)
 const needConfirm = ref(false)
@@ -164,6 +167,8 @@ function choosePic() {
       const path = (res.tempFilePaths as string[])[0]
       if (!path) return
       imagePath.value = path
+      // 直传 COS（公开读/私有写；与识别并行，失败不阻断，image_url 回退 null）
+      cosUpload = uploadImage(path, 'meal')
       recognize(path)
     },
   })
@@ -264,14 +269,15 @@ async function onSave() {
   }
   saving.value = true
   try {
+    // 等待 COS 直传完成，取公开读 URL（未配置/失败 → null，不阻断记录）
+    const imageUrl = cosUpload ? await cosUpload : null
     for (const it of matched) {
       await createMeal({
         meal_type: mealType.value,
         food_id: it.food_id as number,
         amount_g: Number(it.amountText),
         source: 1,
-        // 【假设】本地临时路径非服务端 URL，首期 image_url 留空
-        image_url: null,
+        image_url: imageUrl,
       })
     }
     toast.success({ title: '已记下来' })

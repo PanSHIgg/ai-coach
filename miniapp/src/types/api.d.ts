@@ -198,6 +198,36 @@ export interface RecognizeData {
   need_confirm: boolean;
 }
 
+/* ---------- 上传（COS 直传） ---------- */
+
+export type UploadScene = 'meal' | 'avatar' | 'post' | 'merchant';
+
+export interface UploadCredentialIn {
+  scene: UploadScene;
+  ext?: 'jpg' | 'jpeg' | 'png' | 'webp';
+}
+
+export interface StsCredentials {
+  tmp_secret_id: string;
+  tmp_secret_key: string;
+  session_token: string;
+  start_time: number;
+  expired_time: number;
+}
+
+export interface UploadCredentialData {
+  configured: boolean;
+  bucket: string;
+  region: string;
+  key: string;
+  public_url: string;
+  credentials?: StsCredentials | null;
+}
+
+export interface AvatarUpdateIn {
+  avatar_url: string;
+}
+
 export interface MealCreateIn {
   meal_type: 1 | 2 | 3 | 4;
   food_id: number;

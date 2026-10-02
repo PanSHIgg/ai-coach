@@ -631,6 +631,40 @@ export const routes = [
   },
   { m: 'DELETE', p: '/api/account', d: { deleted: true } },
 
+  // ---- 上传（COS 直传） ----
+  {
+    m: 'POST', p: '/api/upload/credential',
+    d: (ctx) => {
+      const scene = ctx?.body?.scene || 'meal';
+      const ext = ctx?.body?.ext || 'jpg';
+      const key = `${scene}/2026/10/02/mock-${Date.now()}.${ext}`;
+      const nowSec = Math.floor(Date.now() / 1000);
+      return {
+        configured: true,
+        bucket: 'mock-1250000000',
+        region: 'ap-guangzhou',
+        key,
+        public_url: `https://cos.example.com/${key}`,
+        credentials: {
+          tmp_secret_id: 'mock-tmp-id',
+          tmp_secret_key: 'mock-tmp-key',
+          session_token: 'mock-session-token',
+          start_time: nowSec,
+          expired_time: nowSec + 1800,
+        },
+      };
+    },
+  },
+  {
+    m: 'POST', p: '/api/user/avatar',
+    d: (ctx) => ({
+      ...user,
+      avatar_url: ctx?.body?.avatar_url || user.avatar_url,
+      gender: 1,
+      benefit: { tier: 0, ai_times_left: 9 },
+    }),
+  },
+
   // ---- 商家自助（商家 token） ----
   {
     m: 'POST', p: '/api/merchant/login',

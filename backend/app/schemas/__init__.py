@@ -18,24 +18,6 @@ from .ai import (
     WeeklyCommentIn,
 )
 from .auth import LoginData, LoginRequest, RefreshData, RefreshIn, UserBrief
-from .common import (
-    ActivityLevel,
-    CouponScope,
-    CouponStatus,
-    CouponType,
-    Envelope,
-    ErrorCode,
-    Gender,
-    MealType,
-    OrderStatus,
-    PageMeta,
-    PageParams,
-    PageResult,
-    RecordSource,
-    TargetType,
-    fail,
-    ok,
-)
 from .coach import (
     CoachAssignedTicketListData,
     CoachAssignedUserItem,
@@ -53,6 +35,24 @@ from .coach import (
     CoachTicketPageData,
     CoachUserProfile,
     CoachUserRecordItem,
+)
+from .common import (
+    ActivityLevel,
+    CouponScope,
+    CouponStatus,
+    CouponType,
+    Envelope,
+    ErrorCode,
+    Gender,
+    MealType,
+    OrderStatus,
+    PageMeta,
+    PageParams,
+    PageResult,
+    RecordSource,
+    TargetType,
+    fail,
+    ok,
 )
 from .community import (
     BattleCreateIn,
@@ -132,7 +132,8 @@ from .record import (
     StepsSyncIn,
 )
 from .track import TrackData, TrackEventIn, TrackIn
-from .user import UserBenefit, UserDetail
+from .upload import StsCredentials, UploadCredentialData, UploadCredentialIn
+from .user import AvatarUpdateIn, UserBenefit, UserDetail
 from .weight import WeightRecordIn, WeightRecordOut
 
 __all__ = [
@@ -146,6 +147,7 @@ __all__ = [
     "AiRecommendData",
     "AiRecommendIn",
     "AiTimesData",
+    "AvatarUpdateIn",
     "BattleCreateIn",
     "BattleItem",
     "BattleJoinData",
@@ -246,6 +248,7 @@ __all__ = [
     "SkuOut",
     "StepsSyncData",
     "StepsSyncIn",
+    "StsCredentials",
     "SportIn",
     "SportRecordOut",
     "SuperviseMatchIn",
@@ -260,6 +263,8 @@ __all__ = [
     "UserBenefit",
     "UserBrief",
     "UserDetail",
+    "UploadCredentialData",
+    "UploadCredentialIn",
     "WeeklyCommentData",
     "WeeklyCommentIn",
     "WeightRecordIn",

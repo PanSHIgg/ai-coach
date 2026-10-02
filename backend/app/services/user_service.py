@@ -54,6 +54,20 @@ async def get_me(session: AsyncSession, user_id: int) -> UserDetail:
     )
 
 
+async def update_avatar(session: AsyncSession, user_id: int, avatar_url: str) -> UserDetail:
+    """更新当前用户头像（COS 公开读 URL）→ 回吐更新后的 UserDetail。
+
+    user 不存在（token 指向已删用户）→ 1001，与 get_me 同口径。
+    """
+    user = await session.get(User, user_id)
+    if user is None:
+        raise AppException(ErrorCode.UNAUTHORIZED)
+    user.avatar_url = avatar_url
+    user.updated_at = datetime.now(UTC)
+    await session.commit()
+    return await get_me(session, user_id)
+
+
 async def upsert_body_profile(
     session: AsyncSession, user_id: int, payload: BodyProfileIn
 ) -> BodyProfile:
