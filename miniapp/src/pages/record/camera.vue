@@ -157,12 +157,15 @@ const savingCustom = ref(false)
 const hour = new Date().getHours()
 const mealType = ref<1 | 2 | 3 | 4>(hour < 10 ? 1 : hour < 15 ? 2 : hour < 20 ? 3 : 4)
 
-/** 选择 / 拍摄图片（uni.chooseImage，相机 + 相册） */
+/**
+ * 拍摄照片：直接拉起微信原生拍照界面（全屏取景 + 快门 + 相册入口 + 反转摄像头），
+ * 不再弹「拍照 / 从相册选择」二选一。相册仍可从原生相机左下角入口进入。
+ */
 function choosePic() {
   uni.chooseImage({
     count: 1,
     sizeType: ['compressed'],
-    sourceType: ['camera', 'album'],
+    sourceType: ['camera'],
     success: (res) => {
       const path = (res.tempFilePaths as string[])[0]
       if (!path) return
