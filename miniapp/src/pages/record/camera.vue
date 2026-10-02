@@ -99,30 +99,11 @@
         </template>
       </CCard>
     </template>
-
-    <!-- #ifdef H5 -->
-    <!-- H5 无微信原生相机：自绘取景界面（对齐图1：全屏取景 + 相册 / 快门 / 反转摄像头） -->
-    <view v-if="h5CamOn" class="h5cam">
-      <view id="h5camStage" class="h5cam__stage">
-        <text v-if="h5CamError" class="h5cam__hint">浏览器未授权摄像头，可从相册选择</text>
-      </view>
-      <view class="h5cam__bar">
-        <view class="h5cam__act" @click="h5FromAlbum">
-          <image class="h5cam__icon" src="/static/icons/ic-album.svg" mode="aspectFit" />
-        </view>
-        <view class="h5cam__shutter" @click="h5Shoot" />
-        <view class="h5cam__act" @click="h5Flip">
-          <image class="h5cam__icon" src="/static/icons/ic-flip-camera.svg" mode="aspectFit" />
-        </view>
-      </view>
-      <text class="h5cam__back" @click="h5Close">‹</text>
-    </view>
-    <!-- #endif -->
   </view>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onBeforeUnmount } from 'vue'
+import { ref } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
 import { createMeal, createCustomFood } from '@/api/records'
@@ -176,32 +157,24 @@ const savingCustom = ref(false)
 const hour = new Date().getHours()
 const mealType = ref<1 | 2 | 3 | 4>(hour < 10 ? 1 : hour < 15 ? 2 : hour < 20 ? 3 : 4)
 
-/** 选中/拍到照片后统一处理：预览 + COS 直传 + 识别 */
-function onPicked(path: string) {
-  if (!path) return
-  imagePath.value = path
-  // 直传 COS（公开读/私有写；与识别并行，失败不阻断，image_url 回退 null）
-  cosUpload = uploadImage(path, 'meal')
-  recognize(path)
-}
-
 /**
- * 拍摄照片：直接拉起原生拍照界面（全屏取景 + 快门 + 相册入口 + 反转摄像头），
- * 不再弹「拍照 / 从相册选择」二选一。
- * 小程序走微信原生相机；H5 无原生相机，走自绘取景界面（见 h5cam，对齐图1）。
+ * 拍摄照片：直接拉起微信原生拍照界面（全屏取景 + 快门 + 相册入口 + 反转摄像头），
+ * 不再弹「拍照 / 从相册选择」二选一。相册仍可从原生相机左下角入口进入。
  */
 function choosePic() {
-  // #ifdef H5
-  openH5Camera()
-  // #endif
-  // #ifndef H5
   uni.chooseImage({
     count: 1,
     sizeType: ['compressed'],
     sourceType: ['camera'],
-    success: (res) => onPicked((res.tempFilePaths as string[])[0]),
+    success: (res) => {
+      const path = (res.tempFilePaths as string[])[0]
+      if (!path) return
+      imagePath.value = path
+      // 直传 COS（公开读/私有写；与识别并行，失败不阻断，image_url 回退 null）
+      cosUpload = uploadImage(path, 'meal')
+      recognize(path)
+    },
   })
-  // #endif
 }
 
 /**
@@ -369,115 +342,6 @@ function goManual() {
 function goLogin() {
   redirectToLogin()
 }
-
-// #ifdef H5
-/* ---------- H5 自绘相机（对齐图1：全屏取景 + 相册 / 快门 / 反转摄像头） ---------- */
-const h5CamOn = ref(false)
-const h5CamError = ref(false)
-const h5Facing = ref<'environment' | 'user'>('environment')
-let h5Stream: MediaStream | null = null
-let h5Video: HTMLVideoElement | null = null
-
-function h5StopStream() {
-  if (h5Stream) {
-    h5Stream.getTracks().forEach((t) => t.stop())
-    h5Stream = null
-  }
-  if (h5Video) h5Video.srcObject = null
-}
-
-function h5Close() {
-  h5CamOn.value = false
-  h5CamError.value = false
-  h5StopStream()
-}
-
-/** 打开取景界面并启动摄像头（getUserMedia 需 https 或 localhost） */
-async function openH5Camera() {
-  h5CamOn.value = true
-  await nextTick()
-  await h5StartStream()
-}
-
-async function h5StartStream() {
-  h5StopStream()
-  // 非安全上下文（http 非 localhost）或无摄像头设备时 mediaDevices 可能不存在
-  if (!navigator.mediaDevices?.getUserMedia) {
-    h5CamError.value = true
-    return
-  }
-  try {
-    h5Stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: h5Facing.value },
-      audio: false,
-    })
-  } catch (e) {
-    h5CamError.value = true
-    return
-  }
-  const stage = document.getElementById('h5camStage')
-  if (!stage) return
-  if (!h5Video) {
-    h5Video = document.createElement('video')
-    h5Video.setAttribute('autoplay', '')
-    h5Video.setAttribute('playsinline', '')
-    h5Video.setAttribute('muted', '')
-    h5Video.style.cssText =
-      'width:100%;height:100%;object-fit:cover;display:block;background:#000;'
-    stage.appendChild(h5Video)
-  }
-  // 前置摄像头按镜像显示（与原生自拍取景一致）
-  h5Video.style.transform = h5Facing.value === 'user' ? 'scaleX(-1)' : ''
-  h5Video.srcObject = h5Stream
-  void h5Video.play().catch(() => {})
-  h5CamError.value = false
-}
-
-/** 反转摄像头（前置 / 后置） */
-function h5Flip() {
-  h5Facing.value = h5Facing.value === 'environment' ? 'user' : 'environment'
-  void h5StartStream()
-}
-
-/** 快门：把当前取景帧画到 canvas，导出 blob URL 作为照片 */
-function h5Shoot() {
-  const v = h5Video
-  if (!v || !v.videoWidth) return
-  const canvas = document.createElement('canvas')
-  canvas.width = v.videoWidth
-  canvas.height = v.videoHeight
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  ctx.drawImage(v, 0, 0)
-  canvas.toBlob(
-    (blob) => {
-      if (!blob) return
-      const url = URL.createObjectURL(blob)
-      h5Close()
-      onPicked(url)
-    },
-    'image/jpeg',
-    0.92,
-  )
-}
-
-/** 相册：浏览器无系统相册 UI，退化为文件选择 */
-function h5FromAlbum() {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'image/*'
-  input.onchange = () => {
-    const f = input.files && input.files[0]
-    if (!f) return
-    const url = URL.createObjectURL(f)
-    h5Close()
-    onPicked(url)
-  }
-  input.click()
-}
-
-onBeforeUnmount(h5Close)
-// #endif
 </script>
 
 <style lang="scss" scoped>
@@ -608,74 +472,4 @@ onBeforeUnmount(h5Close)
   flex-wrap: wrap;
   gap: $space-sm;
 }
-
-/* #ifdef H5 */
-/* ---------- H5 自绘相机（对齐图1） ---------- */
-.h5cam {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 999;
-  display: flex;
-  flex-direction: column;
-  background: #000;
-
-  &__stage {
-    position: relative;
-    flex: 1;
-    overflow: hidden;
-    background: #000;
-  }
-
-  &__hint {
-    position: absolute;
-    top: 50%;
-    left: 0;
-    width: 100%;
-    padding: 0 $space-lg;
-    font-size: $t-26;
-    color: #fff;
-    text-align: center;
-    transform: translateY(-50%);
-  }
-
-  &__bar {
-    @include flex-center(row);
-
-    height: 220rpx;
-    background: #000;
-  }
-
-  &__act {
-    @include flex-center(row);
-
-    width: 96rpx;
-    height: 96rpx;
-  }
-
-  &__icon {
-    width: 56rpx;
-    height: 56rpx;
-  }
-
-  &__shutter {
-    width: 144rpx;
-    height: 144rpx;
-    margin: 0 120rpx;
-    border-radius: 50%;
-    background: #fff;
-  }
-
-  &__back {
-    position: absolute;
-    top: $space-md;
-    left: $space-md;
-    font-size: 64rpx;
-    line-height: 1;
-    color: #fff;
-  }
-}
-/* #endif */
 </style>
