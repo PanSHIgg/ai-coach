@@ -481,7 +481,7 @@ onShow(() => {
 
     &--sos {
       color: $danger;
-      background: rgba(239, 68, 68, 0.1);
+      background: rgba($danger, 0.1);
     }
   }
 
@@ -520,7 +520,7 @@ onShow(() => {
   bottom: 0;
   left: 0;
   z-index: $z-mask;
-  background: rgba(0, 0, 0, 0.5);
+  background: $mask;
 }
 
 .rescue {

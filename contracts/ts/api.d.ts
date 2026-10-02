@@ -979,3 +979,204 @@ export interface PlanOrderItem {
 }
 
 export type PlanOrderPageData = PageData<PlanOrderItem>;
+
+/* ---------- 本轮新增（Wave A 地基）：任务/积分 · 隐私 · 报告 · 语音 · 商家比价/自助 ---------- */
+
+export interface TaskItem {
+  code: string; // daily_checkin / complete_profile / first_ai_check 等
+  name: string;
+  reward_points: number;
+  reward_desc?: string | null;
+  status: number; // 0未完成 1已完成/已领取
+  progress: number; // 进度（0-100 百分比或步数）
+}
+
+export interface TaskListData {
+  items: TaskItem[];
+}
+
+export interface TaskCheckinData {
+  points_added: number; // 当日重复签到为 0
+  total_points: number;
+  streak: number; // 连续签到天数
+}
+
+export interface PointsThreshold {
+  points: number;
+  reward_desc: string;
+}
+
+export interface PointsOverviewData {
+  balance: number;
+  total_earned: number;
+  thresholds: PointsThreshold[];
+}
+
+export interface PointsRecordItem {
+  change: number; // 正=获得 负=消耗
+  reason: string;
+  created_at: string;
+}
+
+export type PointsPageData = PageData<PointsRecordItem>;
+
+export interface PrivacyIn {
+  anonymous?: boolean;
+  mask_share?: boolean;
+  visibility_leaderboard?: boolean;
+  visibility_community?: boolean;
+  allow_data_export?: boolean;
+}
+
+export interface PrivacyData {
+  anonymous: boolean;
+  mask_share: boolean;
+  visibility_leaderboard: boolean;
+  visibility_community: boolean;
+  allow_data_export: boolean;
+}
+
+export interface ExclusiveCouponData {
+  items: CouponOut[];
+}
+
+export interface ReportExportIn {
+  report_type: 'weight' | 'weekly';
+  format: 'csv';
+}
+
+export interface ReportExportData {
+  filename: string;
+  mime: string;
+  content: string; // CSV 文本
+}
+
+export interface WeeklyReportDay {
+  date: string; // YYYY-MM-DD
+  intake?: number | null;
+  deficit?: number | null;
+  steps?: number | null;
+  weight?: number | null;
+}
+
+export interface WeeklyReportData {
+  period: { start: string; end: string };
+  intake_avg: number;
+  deficit_avg: number;
+  steps_avg: number;
+  weight_change?: number | null;
+  comment: string; // 含免责声明
+  days: WeeklyReportDay[];
+}
+
+export interface VoiceTranscribeIn {
+  audio_base64: string;
+  format: string; // mp3 / wav / aac
+}
+
+export interface VoiceTranscribeData {
+  text: string;
+  provider: string; // 无 ASR 配置时为降级标识
+}
+
+export interface MerchantCompareItem {
+  merchant_id: number;
+  name: string;
+  distance: number; // 米
+  rating: number;
+  price: number;
+  coupon_amount: number;
+  sku_name: string;
+}
+
+export interface MerchantCompareData {
+  items: MerchantCompareItem[];
+}
+
+export interface AccountDeleteData {
+  deleted: true;
+}
+
+export interface MerchantLoginIn {
+  username: string;
+  password: string;
+}
+
+export interface MerchantLoginData {
+  token: string; // MerchantBearer token
+  merchant_id: number;
+  name: string;
+  expires_in: number; // 秒
+}
+
+export interface MerchantMeData {
+  id: number;
+  name: string;
+  category?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  rating?: number | null;
+  status: number; // 1营业 0停业
+  audit_status: number; // 0待审 1通过 2驳回
+  partner_level: number; // 0普通 1优选合作 2战略合作
+}
+
+export interface MerchantSkuItem {
+  sku_id: number; // merchant_sku.id
+  catalog_id: number;
+  catalog_code?: string | null;
+  catalog_name: string;
+  price: number;
+  min_price: number;
+  max_price: number;
+  stock: number; // -1 不限量
+  status: number; // 1上架 0下架
+}
+
+export interface MerchantSkuListData {
+  items: MerchantSkuItem[];
+}
+
+export interface MerchantSkuPriceIn {
+  sku_id: number;
+  price: number;
+  listed: boolean;
+}
+
+export interface MerchantSkuUpdateIn {
+  items: MerchantSkuPriceIn[];
+}
+
+export interface MerchantSkuToggleData {
+  sku_id: number;
+  status: number; // 1上架 0下架
+}
+
+export interface MerchantOrderItem {
+  id: number;
+  order_no: string;
+  user_id?: number | null;
+  total_amount?: number | null;
+  pay_amount?: number | null;
+  status: 1 | 2 | 3 | 4 | 5;
+  redeem_code?: string | null;
+  redeemed_at?: string | null;
+  created_at: string;
+}
+
+export type MerchantOrderPageData = PageData<MerchantOrderItem>;
+
+export interface MerchantRedeemData {
+  order_id: number;
+  status: 1 | 2 | 3 | 4 | 5;
+  redeemed_at: string;
+}
+
+export interface MerchantStatsData {
+  merchant_id: number;
+  order_count: number;
+  redeem_count: number;
+  gmv: number;
+  sku_count: number;
+  contribution_points: number;
+}

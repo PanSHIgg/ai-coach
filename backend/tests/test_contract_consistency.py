@@ -7,7 +7,7 @@
 
 覆盖四类断言：
 1) 后端 `app.openapi()` ↔ `contracts/openapi.yaml`：路径集合与每路径 method 集合双向一致
-   （当前冻结基线 72 路径 / 78 ops）；
+   （当前冻结基线 107 路径 / 116 ops）；
 2) 两份 TS 副本 `contracts/ts/api.d.ts` 与 `miniapp/src/types/api.d.ts` 逐字一致；
 3) `contracts/mock/routes.mjs` 覆盖契约全部 method+path（node 解析，缺失时回退正则）；
 4) 契约内 `$ref`（`#/components/**`）目标存在，防悬空引用。
@@ -32,8 +32,11 @@ MOCK_ROUTES = REPO_ROOT / "contracts" / "mock" / "routes.mjs"
 # F-05：新增 POST /api/admin/sku-catalog 与 PUT /api/admin/sku-catalog/{id} -> 路径 73 / ops 80
 # F-02：新增 POST /api/food/custom -> 路径 74 / ops 81
 # F-01：新增 POST /api/account/today-status -> 路径 75 / ops 82
-FROZEN_PATH_COUNT = 75
-FROZEN_OP_COUNT = 82
+# G1/G2：真人教练工单 + 平台自营订阅付费 -> 路径 89 / ops 96
+# Wave A 地基：任务/积分 · 隐私 · 报告 · 语音 · 商家比价/自助（+18 路径 / +20 ops）
+#   -> 路径 107 / ops 116
+FROZEN_PATH_COUNT = 107
+FROZEN_OP_COUNT = 116
 
 _METHODS = ("get", "post", "put", "delete", "patch", "options", "head")
 
@@ -80,7 +83,7 @@ def test_backend_and_contract_methods_match(path: str):
 
 
 def test_contract_freeze_baseline_counts():
-    """冻结基线：契约路径数 72、ops 数 78（漂移即失败，迫使显式更新）。"""
+    """冻结基线：契约路径数 107、ops 数 116（漂移即失败，迫使显式更新）。"""
     assert len(_CONTRACT) == FROZEN_PATH_COUNT, (
         f"契约路径数 {len(_CONTRACT)} != 冻结基线 {FROZEN_PATH_COUNT}"
     )

@@ -13,8 +13,14 @@
       <text class="eat__entry-label">AI 帮我找吃的</text>
       <view class="eat__entry-row">
         <CButton class="eat__entry-btn" size="md" @click="goCamera">拍照菜单 / 货架</CButton>
-        <CButton class="eat__entry-btn" size="md" type="secondary" @click="onVoice">
-          语音输入
+        <CButton
+          class="eat__entry-btn"
+          size="md"
+          type="secondary"
+          :loading="voice.transcribing.value"
+          @click="onVoice"
+        >
+          {{ voiceLabel }}
         </CButton>
       </view>
     </view>
@@ -106,14 +112,39 @@
       <text class="eat__link" @tap="onMoreStandard">查看全部标准餐 ›</text>
     </CCard>
 
-    <!-- 7. 附近商家比价占位（§5.2-7；BE5 Phase 3）；商家已从 Tab 降为普通页（§3.2），此处保留列表入口 -->
+    <!-- 7. 附近商家比价（§5.2-7）：标准套餐比价卡片（G5） -->
     <CCard title="附近商家比价（显示标准套餐）" class="eat__card">
+      <CSkeleton v-if="cmpLoading" type="card" />
+      <CError v-else-if="cmpError" @retry="loadCompare" />
       <CEmpty
+        v-else-if="!cmpItems.length"
         icon="empty-store"
-        text="附近商家比价即将上线"
+        text="附近暂无在售该标准套餐的商家"
         button-text="查看附近商家"
         @action="goMerchants"
       />
+      <view v-else class="cmp">
+        <view v-for="m in cmpItems" :key="m.merchant_id" class="cmp__item">
+          <view class="cmp__head">
+            <text class="cmp__name">{{ m.name }}</text>
+            <text class="cmp__dist">{{ fmtDistance(m.distance) }}</text>
+          </view>
+          <view class="cmp__meta">
+            <image class="cmp__star" src="/static/icons/ic-star.png" mode="aspectFit" />
+            <text class="cmp__rating">{{ m.rating.toFixed(1) }}</text>
+          </view>
+          <view class="cmp__sku">
+            <text class="cmp__sku-name">{{ m.sku_name }}</text>
+            <text class="cmp__price">¥{{ m.price }}</text>
+            <text v-if="m.coupon_amount > 0" class="cmp__coupon">可用{{ m.coupon_amount }}元券</text>
+          </view>
+          <view class="cmp__actions">
+            <CButton size="sm" @click="goBook(m)">预约</CButton>
+            <CButton size="sm" type="secondary" @click="goMerchantDetail(m)">查看详情</CButton>
+          </view>
+        </view>
+        <text class="eat__link" @tap="goMerchants">查看附近全部商家 ›</text>
+      </view>
     </CCard>
 
     <!-- 8. 专家问诊（§5.2-8；P1 权益，本期仅 UI） -->
@@ -158,9 +189,11 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import { useAccountStore } from '@/stores/account'
 import { useUserStore } from '@/stores/user'
 import { useToast } from '@/composables/useToast'
+import { useVoice } from '@/composables/useVoice'
 import { recommend } from '@/api/ai'
+import { getMerchantCompare, getSkuCatalog } from '@/api/merchant'
 import { createMeal, searchFood } from '@/api/records'
-import type { FoodItem, RecommendOption } from '@/types/api'
+import type { FoodItem, GeoLocation, MerchantCompareItem, RecommendOption } from '@/types/api'
 
 /* ---------- 常量 ---------- */
 
@@ -235,6 +268,98 @@ const leftValue = computed(() => (showLeft.value ? Math.round(accountStore.left)
 
 /** 专家问诊权益：tier ≥1（进阶/高级/终身）解锁；本期仅 UI，不做真问诊 */
 const expertUnlocked = computed(() => userStore.tier >= 1)
+
+/* ---------- 语音输入（G4） ---------- */
+
+/** 转写文本回填：拆成食物名并入「AI 识别到」列表（本页无文本输入框，回填到识别结果） */
+const voice = useVoice({
+  onResult: (text) => {
+    const names = text
+      .split(COMBO_SPLIT)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (!names.length) return
+    recognized.value = Array.from(new Set([...recognized.value, ...names]))
+    toast.success({ title: '已识别语音内容' })
+  },
+})
+
+const voiceLabel = computed(() => {
+  if (voice.transcribing.value) return '识别中…'
+  return voice.recording.value ? '录音中…点击结束' : '语音输入'
+})
+
+/* ---------- 附近商家比价（G5） ---------- */
+
+const cmpItems = ref<MerchantCompareItem[]>([])
+const cmpLoading = ref(false)
+const cmpError = ref(false)
+/** 用于比价的标准 SKU 目录 id（取目录首项，页面内缓存） */
+const cmpSkuId = ref(0)
+
+function fmtDistance(meters: number): string {
+  if (!meters || meters <= 0) return ''
+  return meters < 1000 ? `${meters}m` : `${(meters / 1000).toFixed(1)}km`
+}
+
+/** 取定位（gcj02）；失败降级为不带坐标（后端按默认城市返回），不阻断比价 */
+function getLocationSafe(): Promise<GeoLocation | null> {
+  return new Promise((resolve) => {
+    uni.getLocation({
+      type: 'gcj02',
+      success: (res) => resolve({ lat: res.latitude, lng: res.longitude }),
+      fail: () => resolve(null),
+    })
+  })
+}
+
+/** 取比价用标准 SKU（目录首项）；目录为空返回 0 */
+async function ensureCompareSku(): Promise<number> {
+  if (cmpSkuId.value) return cmpSkuId.value
+  const data = await getSkuCatalog()
+  cmpSkuId.value = data?.items?.[0]?.id ?? 0
+  return cmpSkuId.value
+}
+
+async function loadCompare() {
+  cmpLoading.value = true
+  cmpError.value = false
+  try {
+    const skuId = await ensureCompareSku()
+    if (!skuId) {
+      // 无标准套餐目录：空态提示，不算错误
+      cmpItems.value = []
+      return
+    }
+    const loc = await getLocationSafe()
+    const data = await getMerchantCompare({
+      sku_id: skuId,
+      ...(loc ? { lat: loc.lat, lng: loc.lng } : {}),
+    })
+    cmpItems.value = data?.items ?? []
+  } catch (e) {
+    // request 已统一 toast；此处置错误态提供「重试」入口
+    cmpError.value = true
+    cmpItems.value = []
+  } finally {
+    cmpLoading.value = false
+  }
+}
+
+/** 预约：带所选标准 SKU 进入下单确认页 */
+function goBook(m: MerchantCompareItem) {
+  const items = [{ sku_id: cmpSkuId.value, name: m.sku_name, price: m.price, qty: 1 }]
+  const query = [
+    `merchant_id=${m.merchant_id}`,
+    `merchant_name=${encodeURIComponent(m.name)}`,
+    `items=${encodeURIComponent(JSON.stringify(items))}`,
+  ].join('&')
+  uni.navigateTo({ url: `/pages/order/confirm?${query}` })
+}
+
+function goMerchantDetail(m: MerchantCompareItem) {
+  uni.navigateTo({ url: `/pages/merchant/detail?id=${m.merchant_id}` })
+}
 
 function fmt(n: number): string {
   return Math.abs(Math.round(n))
@@ -355,9 +480,9 @@ function goCamera() {
   uni.navigateTo({ url: '/pages/record/camera?scene=menu&from=eat' })
 }
 
-/** 语音输入占位（后续版本支持，不硬接不存在的能力） */
+/** 语音输入（G4）：小程序录音+转写；H5 等环境由 useVoice 优雅降级提示手动输入 */
 function onVoice() {
-  toast.info({ title: '语音输入后续版本支持' })
+  voice.toggle()
 }
 
 /** 通知占位（二期接入消息中心） */
@@ -409,6 +534,8 @@ onLoad((options) => {
   }
   uni.$on(EVT_RECOGNIZED, onRecognized)
   void loadRecommend()
+  // 附近商家比价（G5）：标准套餐 SKU 比价
+  void loadCompare()
   // 今日账户（/api/account/today）→ 今天还剩 X kcal
   void accountStore.refresh()
   if (!userStore.detail) void userStore.fetchMe()
@@ -425,6 +552,7 @@ onShow(() => {
 
 onUnmounted(() => {
   uni.$off(EVT_RECOGNIZED, onRecognized)
+  voice.dispose()
 })
 </script>
 
@@ -513,7 +641,7 @@ onUnmounted(() => {
     padding: 4rpx $space-sm;
     font-size: $t-24;
     color: $brand-dark;
-    background: rgba(34, 197, 94, 0.1);
+    background: rgba($brand, 0.1);
     border-radius: $radius-sm;
   }
 
@@ -666,6 +794,94 @@ onUnmounted(() => {
   &__meta {
     font-size: $t-22;
     color: $text-2;
+  }
+}
+
+// 附近商家比价卡片（§5.2-7，G5）
+.cmp {
+  display: flex;
+  flex-direction: column;
+
+  &__item {
+    padding: $space-sm 0;
+
+    &:not(:last-of-type) {
+      @include hairline(bottom);
+    }
+  }
+
+  &__head {
+    @include flex-between;
+
+    margin-bottom: $space-xs;
+  }
+
+  &__name {
+    flex: 1;
+    min-width: 0;
+    font-size: $t-26;
+    font-weight: 500;
+    color: $text-1;
+  }
+
+  &__dist {
+    margin-left: $space-sm;
+    font-size: $t-22;
+    color: $text-2;
+  }
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    margin-bottom: $space-xs;
+  }
+
+  &__star {
+    width: 28rpx;
+    height: 28rpx;
+    margin-right: $space-xs;
+  }
+
+  &__rating {
+    font-size: $t-22;
+    color: $warn;
+  }
+
+  &__sku {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: $space-xs;
+  }
+
+  &__sku-name {
+    font-size: $t-24;
+    color: $text-1;
+  }
+
+  &__price {
+    font-size: $t-26;
+    font-weight: 700;
+    color: $brand;
+  }
+
+  &__coupon {
+    padding: 2rpx $space-xs;
+    font-size: $t-22;
+    color: $danger;
+    background: rgba($danger, 0.1);
+    border-radius: $radius-sm;
+  }
+
+  &__actions {
+    display: flex;
+    gap: $space-sm;
+    margin-top: $space-sm;
+
+    // 两个操作按钮等宽（CButton 为 view，flex 生效）
+    :deep(.c-btn) {
+      flex: 1;
+    }
   }
 }
 

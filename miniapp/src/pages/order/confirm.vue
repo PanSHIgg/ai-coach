@@ -304,7 +304,7 @@ onLoad((options) => {
     font-size: $t-22;
     color: $warn;
     text-align: center;
-    background: rgba(245, 158, 11, 0.1);
+    background: rgba($warn, 0.1);
     border-radius: $radius-sm;
   }
 
@@ -380,7 +380,7 @@ onLoad((options) => {
     flex: none;
     width: 150rpx;
     padding: $space-sm 0;
-    background: rgba(34, 197, 94, 0.1);
+    background: rgba($brand, 0.1);
     border-radius: $radius-sm;
   }
 

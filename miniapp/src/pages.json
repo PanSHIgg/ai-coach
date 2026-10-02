@@ -185,6 +185,48 @@
       "style": {
         "navigationBarTitleText": "订阅订单"
       }
+    },
+    {
+      "path": "pages/task/index",
+      "style": {
+        "navigationBarTitleText": "任务中心"
+      }
+    },
+    {
+      "path": "pages/points/index",
+      "style": {
+        "navigationBarTitleText": "我的积分"
+      }
+    },
+    {
+      "path": "pages/privacy/index",
+      "style": {
+        "navigationBarTitleText": "隐私控制"
+      }
+    },
+    {
+      "path": "pages/report/index",
+      "style": {
+        "navigationBarTitleText": "报告导出"
+      }
+    },
+    {
+      "path": "pages/report/weekly",
+      "style": {
+        "navigationBarTitleText": "热量控制周报"
+      }
+    },
+    {
+      "path": "pages/merchant/login",
+      "style": {
+        "navigationBarTitleText": "商家登录"
+      }
+    },
+    {
+      "path": "pages/merchant/admin",
+      "style": {
+        "navigationBarTitleText": "商家后台"
+      }
     }
   ],
   "tabBar": {

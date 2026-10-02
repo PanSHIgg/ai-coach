@@ -282,7 +282,7 @@ onShow(() => {
     padding: 2rpx $space-xs;
     font-size: $t-22;
     color: $danger;
-    background: rgba(239, 68, 68, 0.1);
+    background: rgba($danger, 0.1);
     border-radius: $radius-sm;
   }
 
@@ -341,7 +341,7 @@ onShow(() => {
   border-radius: $radius;
 
   &--active {
-    background: rgba(34, 197, 94, 0.06);
+    background: rgba($brand, 0.06);
     border-color: $brand;
   }
 
@@ -361,7 +361,7 @@ onShow(() => {
     padding: 2rpx $space-xs;
     font-size: $t-22;
     color: $brand-dark;
-    background: rgba(34, 197, 94, 0.1);
+    background: rgba($brand, 0.1);
     border-radius: $radius-sm;
   }
 

@@ -50,6 +50,41 @@
           <text class="me__item-label">我的订阅</text>
           <text class="me__item-arrow">›</text>
         </view>
+        <!-- 券包 / 专属优惠（§5.5-4/7：吃的券·动的券·异业联盟券） -->
+        <view class="me__item" @tap="goCoupon">
+          <text class="me__item-label">我的券包</text>
+          <text class="me__item-arrow">›</text>
+        </view>
+        <view class="me__item" @tap="goCoupon">
+          <text class="me__item-label">专属优惠</text>
+          <text class="me__item-arrow">›</text>
+        </view>
+        <!-- 任务中心（G3：/api/task/*） -->
+        <view class="me__item" @tap="goTask">
+          <text class="me__item-label">任务中心</text>
+          <text class="me__item-arrow">›</text>
+        </view>
+        <!-- 我的积分（G3：/api/points*） -->
+        <view class="me__item" @tap="goPoints">
+          <text class="me__item-label">我的积分</text>
+          <text class="me__item-arrow">›</text>
+        </view>
+      </CCard>
+
+      <!-- 报告与隐私（§5.5-8/9：隐私控制、报告导出、热量周报） -->
+      <CCard title="报告与隐私" class="me__card">
+        <view class="me__item" @tap="goReport">
+          <text class="me__item-label">报告导出</text>
+          <text class="me__item-arrow">›</text>
+        </view>
+        <view class="me__item" @tap="goWeekly">
+          <text class="me__item-label">热量周报</text>
+          <text class="me__item-arrow">›</text>
+        </view>
+        <view class="me__item" @tap="goPrivacy">
+          <text class="me__item-label">隐私控制</text>
+          <text class="me__item-arrow">›</text>
+        </view>
       </CCard>
 
       <!-- 提醒订阅（§2.3.1 餐前/深夜推送；§2.4 未授权引导设置页，不阻断核心流程） -->
@@ -147,6 +182,30 @@ function goInvite() {
 /** 我的订阅（G2）：会员档位 / 权益 / 订阅订单 */
 function goPlan() {
   uni.navigateTo({ url: '/pages/plan/index' })
+}
+/** 我的券包 / 专属优惠（§5.5-4/7）：券包明细页（含异业联盟券分组） */
+function goCoupon() {
+  uni.navigateTo({ url: '/pages/coupon' })
+}
+/** 任务中心（G3）：每日签到 / 完善档案 / 首次AI检测 */
+function goTask() {
+  uni.navigateTo({ url: '/pages/task/index' })
+}
+/** 我的积分（G3）：余额 / 兑换进度 / 积分明细 */
+function goPoints() {
+  uni.navigateTo({ url: '/pages/points/index' })
+}
+/** 报告导出（G3）：导出体重健康报告 / 分享报告 */
+function goReport() {
+  uni.navigateTo({ url: '/pages/report/index' })
+}
+/** 热量周报（G12）：缺口 / 步数 / 体重趋势 + AI 点评 */
+function goWeekly() {
+  uni.navigateTo({ url: '/pages/report/weekly' })
+}
+/** 隐私控制（G3）：匿名身份 / 脱敏分享 / 可见性 / 一键删除 */
+function goPrivacy() {
+  uni.navigateTo({ url: '/pages/privacy/index' })
 }
 function onLogout() {
   uni.showModal({

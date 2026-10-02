@@ -236,7 +236,7 @@ onLoad((options) => {
     @include flex-center;
 
     height: 320rpx;
-    background: linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(34, 197, 94, 0.05));
+    background: linear-gradient(135deg, rgba($brand, 0.18), rgba($brand, 0.05));
 
     &--img {
       background: none;
@@ -259,7 +259,7 @@ onLoad((options) => {
     font-size: $t-22;
     color: $warn;
     text-align: center;
-    background: rgba(245, 158, 11, 0.1);
+    background: rgba($warn, 0.1);
     border-radius: $radius-sm;
   }
 
@@ -452,7 +452,7 @@ onLoad((options) => {
     height: 52rpx;
     font-size: $t-28;
     color: $brand;
-    background: rgba(34, 197, 94, 0.1);
+    background: rgba($brand, 0.1);
     border-radius: $radius-sm;
 
     &--off {

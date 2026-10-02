@@ -31,6 +31,7 @@ $text-2: #6b7280; // --text-2 次要文字
 $text-3: #9ca3af; // --text-3 占位 / 辅助
 $border: #e5e7eb; // --border 分割线 / 输入框边
 $disabled: #d1d5db; // 禁用底色（§4.6 按钮）【假设】文档未定义令牌名
+$mask: rgba(0, 0, 0, 0.5); // --mask 半透明遮罩（§4.9：50% 黑）
 
 // ---------- 4. 字体（§4.2，行高 1.5 / 字间距 0）----------
 $t-32: 32rpx; // 页面标题          weight 500
@@ -99,6 +100,7 @@ $ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
   --text-2: #{$text-2};
   --text-3: #{$text-3};
   --border: #{$border};
+  --mask: #{$mask};
   // 圆角 / 阴影
   --radius-sm: #{$radius-sm};
   --radius: #{$radius};

@@ -224,7 +224,7 @@ onLoad((query) => {
     border-radius: $radius-sm;
 
     &--reached {
-      background: rgba(34, 197, 94, 0.1);
+      background: rgba($brand, 0.1);
       border-color: $brand;
     }
   }

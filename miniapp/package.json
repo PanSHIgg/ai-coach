@@ -8,7 +8,8 @@
     "dev:h5": "uni",
     "build:mp-weixin": "uni build -p mp-weixin",
     "build:h5": "uni build",
-    "type-check": "vue-tsc --noEmit"
+    "type-check": "vue-tsc --noEmit",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4020420240722002",
@@ -25,10 +26,14 @@
     "@dcloudio/uni-cli-shared": "3.0.0-4020420240722002",
     "@dcloudio/uni-stacktracey": "3.0.0-4020420240722002",
     "@dcloudio/vite-plugin-uni": "3.0.0-4020420240722002",
+    "@vitejs/plugin-vue": "^5.2.4",
     "@vue/runtime-core": "^3.4.21",
+    "@vue/test-utils": "^2.5.1",
+    "jsdom": "^25.0.1",
     "sass": "~1.77.8",
     "typescript": "~5.4.5",
     "vite": "^5.2.8",
+    "vitest": "^2.1.9",
     "vue-tsc": "^1.8.27"
   }
 }

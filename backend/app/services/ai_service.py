@@ -109,41 +109,43 @@ def _escape_like(value: str) -> str:
 async def retrieve_knowledge(
     session: AsyncSession, query: str, limit: int = TOP_K
 ) -> list[AiKnowledge]:
-    """RAG 检索 top-K：先 PG 全文检索 `search_vec`，无命中降级 ILIKE；失败按无引用继续。"""
-    terms = _terms(query)
-    if not terms:
+    """RAG 检索 top-K：pg_trgm 中文可用检索（ILIKE 命中 + similarity 排序）。
+
+    弃用 `to_tsvector('simple')`（不切中文，长句/子串会漏召回）；改以完整问句 + 2 字滑窗
+    切词做 ILIKE 召回（GIN trgm 索引可加速 food/food_alias；知识库无索引亦正确），
+    再按 title/content 的 `similarity()` 排序取 top-K。检索异常按无引用继续，不中断对话。
+    """
+    kw = (query or "").strip()
+    if not kw:
         return []
-    tsquery = func.plainto_tsquery("simple", " ".join(terms))
+    terms = list(dict.fromkeys([kw, *_terms(kw)]))
+    match_any = or_(
+        *[
+            column.ilike(f"%{_escape_like(t)}%", escape="\\")
+            for t in terms
+            for column in (AiKnowledge.content, AiKnowledge.title)
+        ]
+    )
+    score = func.greatest(
+        func.similarity(AiKnowledge.title, kw),
+        func.similarity(AiKnowledge.content, kw),
+    )
     try:
         rows = (
             (
                 await session.execute(
                     select(AiKnowledge)
-                    .where(AiKnowledge.search_vec.op("@@")(tsquery))
-                    .order_by(func.ts_rank(AiKnowledge.search_vec, tsquery).desc())
+                    .where(match_any)
+                    .order_by(score.desc(), AiKnowledge.id)
                     .limit(limit)
                 )
             )
             .scalars()
             .all()
         )
-        if rows:
-            return list(rows)
-    except Exception:  # noqa: BLE001 - 检索异常须降级，不得中断对话
-        logger.warning("知识库全文检索失败，降级 ILIKE")
-    try:
-        matched = or_(
-            *[
-                column.ilike(f"%{_escape_like(t)}%", escape="\\")
-                for t in terms
-                for column in (AiKnowledge.content, AiKnowledge.title)
-            ]
-        )
-        stmt = select(AiKnowledge).where(matched).order_by(AiKnowledge.id).limit(limit)
-        rows = (await session.execute(stmt)).scalars().all()
         return list(rows)
-    except Exception:  # noqa: BLE001 - 兜底也失败则返回空引用
-        logger.warning("知识库 ILIKE 检索失败，本次无引用")
+    except Exception:  # noqa: BLE001 - 检索异常须降级，不得中断对话
+        logger.warning("知识库 pg_trgm 检索失败，本次无引用")
         return []
 
 

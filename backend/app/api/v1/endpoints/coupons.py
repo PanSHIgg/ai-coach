@@ -8,17 +8,26 @@ status 过滤口径：1未用排除已过期，3过期含「库里仍 1 但已�
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_request_id
 from app.db.session import get_db
-from app.models import Coupon
+from app.models import Coupon, ExclusiveOffer
 from app.schemas import Envelope
 from app.schemas.common import PageMeta, ok
 from app.schemas.coupon import CouponOut, CouponPageData
 
 router = APIRouter(tags=["券"])
+
+
+class ExclusiveCouponData(BaseModel):
+    """专属优惠（异业联盟券）列表：items 复用契约 CouponOut 结构（scope=3 异业）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[CouponOut]
 
 
 def _display_status(coupon: Coupon, now: datetime) -> int:
@@ -81,3 +90,53 @@ async def list_coupons(
         items=items, page=PageMeta(page=page, page_size=page_size, total=total or 0)
     )
     return ok(data, request_id=request_id)
+
+
+@router.get(
+    "/coupon/exclusive",
+    response_model=Envelope[ExclusiveCouponData],
+    summary="专属优惠（异业联盟券目录）",
+)
+async def list_exclusive_coupons(
+    user: CurrentUser = Depends(get_current_user),
+    request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
+) -> Envelope[ExclusiveCouponData]:
+    """上架（status=1）且未过期（valid_to 为空或未到）的异业联盟券目录。
+
+    【假设】`exclusive_offer` 目录映射契约 `CouponOut`：scope 恒为 3（异业）；
+    code 由 offer.id 合成（目录表无 code 列）；coupon_amount>0 → type 1（满减），
+    否则 type 3（免费/体验）；min_spend/merchant_id/discount_rate/valid_from 目录无对应列，置默认。
+    """
+    now = datetime.now(UTC)
+    rows = (
+        (
+            await session.execute(
+                select(ExclusiveOffer)
+                .where(
+                    ExclusiveOffer.status == 1,
+                    or_(ExclusiveOffer.valid_to.is_(None), ExclusiveOffer.valid_to >= now),
+                )
+                .order_by(ExclusiveOffer.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    items = [
+        CouponOut(
+            id=o.id,
+            code=f"EX-{o.id:06d}",
+            type=1 if float(o.coupon_amount or 0) > 0 else 3,
+            scope=3,
+            amount=float(o.coupon_amount or 0),
+            discount_rate=None,
+            min_spend=0,
+            merchant_id=None,
+            status=1,
+            valid_from=None,
+            valid_to=o.valid_to,
+        )
+        for o in rows
+    ]
+    return ok(ExclusiveCouponData(items=items), request_id=request_id)

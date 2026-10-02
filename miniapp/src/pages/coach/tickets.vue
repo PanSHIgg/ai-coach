@@ -162,7 +162,7 @@ onReachBottom(() => {
 
     &--active {
       color: $brand-dark;
-      background: rgba(34, 197, 94, 0.1);
+      background: rgba($brand, 0.1);
       border-color: $brand;
       font-weight: 500;
     }

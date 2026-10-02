@@ -54,3 +54,15 @@ async def get_account_trend(
     # 按 start_date/end_date 查快照；【假设】缺省返回最近 7 天（契约注释）。
     data = await account_service.get_trend(session, user.id, start_date, end_date)
     return ok(data, request_id=request_id)
+
+
+@router.delete("/account", response_model=Envelope[dict], summary="账号注销（级联清除）")
+async def delete_account(
+    user: CurrentUser = Depends(get_current_user),
+    request_id: str | None = Depends(get_request_id),
+    session: AsyncSession = Depends(get_db),
+) -> Envelope[dict]:
+    # 单事务内按外键依赖序级联清除用户全部关联数据，最后删 "user" 行（G7 / 04 §6.3）。
+    # 未登录或用户已注销（token 指向已删用户）→ get_current_user 统一 1001/401。
+    await account_service.delete_account(session, user.id)
+    return ok({"deleted": True}, request_id=request_id)

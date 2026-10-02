@@ -1321,7 +1321,7 @@ function onBmrTest() {
   bottom: 0;
   left: 0;
   z-index: $z-mask;
-  background: rgba(0, 0, 0, 0.5);
+  background: $mask;
 }
 
 .status {

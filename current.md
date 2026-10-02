@@ -4,9 +4,9 @@
 > **依据**：`docs/AI饮食管控教练_全栈开发交付文档.md`（唯一真源，基线 `015d736` 冻结只读、全程一字未动）
 > **结构**：本文件**只有两部分**——**一、已完成** / **二、待完成 · 优化**。
 > **处置纪律（AGENTS §7.2）**：① 文档对、代码错 → 改代码补测试；② 代码做到、文档口径过时/文档自相矛盾 → 在第二部分登记，等产品拍板；③ 文档要求的 P0 未实现 → 登记排期。**禁止改文档**。
-> **当前门禁（2026-10-02 第二批更新）**：全量 pytest **603 passed / 0 failed / 0 skipped**（本地全量，含未入库测试资产）；契约一致性 **89 路径 / 96 操作**（与实现、mock 双向 diff 0）；`miniapp` type-check **0 错误** + Vitest **60 单测全过** + `build:mp-weixin` / `build:h5` ✓ + Playwright E2E **5 passed**；`admin` build ✓ + Playwright E2E **10 passed**（见 §1.6）；alembic **head 0009**；**全链路 E2E（真实 AI + PageSpy）已打通**（见 §1.7）；H5 E2E 点击流 21/21 PASS；CI 三 job 本地复现全绿。
-> **入库口径（2026-10-02 用户拍板）**：本轮**功能实现**随本文档推送；**测试资产一律不入库**——backend/tests 新增用例（`test_coach` / `test_plan` / conftest / 契约基线常量）、miniapp Vitest + Playwright、admin Playwright、`perf/coverage.md`、`scripts/e2e_fullchain/` 均保留本地工作区、不随本次推送。影响：远程 clone 后 `test_contract_consistency.py` 仍冻结 75/82，与入库契约 89/96 不匹配，远程跑全量 pytest 会 fail（本地文件齐全，不受影响）；本文档 §1.6 / §1.7 所述测试基建均为**本地已验证**状态。
-> **更新时间**：2026-10-02（第二批：并入 G1 教练工单 / G2 订阅付费实现、前端测试基建补齐、覆盖率报告、全链路 E2E 实测）
+> **当前门禁（2026-10-02 第三批 Wave A 更新）**：全量 pytest **646 passed / 0 failed / 0 skipped**（本地全量，含本轮入库测试资产；主 Agent 串行干净环境复跑定案）；契约一致性 **107 路径 / 116 操作**（与实现、mock 双向 diff 0）；`miniapp` type-check **0 错误** + Vitest **22 单测全过**（4 文件）+ `build:mp-weixin` / `build:h5` ✓；`admin` build ✓（vue-tsc + vite）；alembic **head 0010**；ORM 业务表 **54**；小程序页面 **37**。
+> **入库口径（2026-10-02 用户拍板，第三批修订）**：本轮**功能实现 + 本轮新增测试资产一并入库**——backend/tests 新增用例（`test_task`/`test_privacy`/`test_report`/`test_voice_transcribe`/`test_merchant_self`/`test_exclusive_offer`/`test_search_cn`/`test_archive`/`test_account_deletion`）、`test_contract_consistency.py` 冻结基线（107/116）、conftest 表清单、miniapp Vitest 用例与配置、`perf/coverage.md` 均随本次推送。**说明**：§1.6 所述 miniapp/admin Playwright E2E 与 60 条 Vitest 为**第二批本地留存资产**，未随本工作区检出（数字为当时实测记录，本轮不可复跑）；`scripts/e2e_fullchain/` 同样为第二批本地留存。
+> **更新时间**：2026-10-02（第三批 Wave A：并入 G3/G4/G5/G7/G8/G10/G11/G12 实现与测试、账号注销级联清除缺陷修复）
 
 ---
 
@@ -58,10 +58,11 @@
 - 社区页 + 监督/兴趣社群/约战/挑战赛/动态 5 个子页
 - 我的、邀请裂变、体重记录与趋势
 - 通用状态组件（加载骨架/空/错误/无权限/未开通权益）
-- 页面路由：代码 **26 页**、TabBar **5 个**（首页/吃什么/运动/社区/我的），与文档 §3.2 一致
+- 页面路由：代码 **37 页**、TabBar **5 个**（首页/吃什么/运动/社区/我的），与文档 §3.2 一致
 - **登录后回跳原页**：统一 `nav.ts`，跳登录携 `?redirect=`，防开放重定向/循环
 - **AI 满意度评分埋点**：AI 回答 1~5 星 → `track('ai_rating')`
 - **教练/订阅 4 个新页（2026-10-02 第二批）**：`pages/coach/tickets`（我的工单）、`pages/coach/chat`（工单对话）、`pages/plan/index`（套餐与权益）、`pages/plan/orders`（会员订单）；`api/coach.ts` / `api/plan.ts`；页面注册 26 → **30 页**
+- **Wave A 7 个新页（2026-10-02 第三批）**：`pages/points/index`（我的积分）、`pages/task/index`（任务中心/签到）、`pages/privacy/index`（隐私控制）、`pages/report/index` + `pages/report/weekly`（报告导出/周报）、`pages/merchant/login` + `pages/merchant/admin`（商家自助后台）；`api/task.ts` / `api/privacy.ts` / `api/report.ts` / `api/merchantAdmin.ts`；页面注册 30 → **37 页**
 
 ### 1.3 管理后台（Vue3 H5）
 
@@ -73,17 +74,17 @@
 
 ### 1.4 契约 / 数据 / 部署
 
-- 契约冻结：`contracts/openapi.yaml` **89 路径 / 96 操作**（G1 8 接口 + G2 6 接口并入后），与实现、mock 双向 diff 0
+- 契约冻结：`contracts/openapi.yaml` **107 路径 / 116 操作**（G1 8 + G2 6 + 第三批 Wave A 18 路径/20 操作并入后），与实现、mock 双向 diff 0
 - pydantic schema 与契约响应字段差异 0；TS 双副本逐字一致（`contracts/ts/api.d.ts` ↔ `miniapp/src/types/api.d.ts`）
 - Mock Server 覆盖契约全部操作
-- 数据库 **40 表**三方（schema.sql ↔ ORM ↔ 实际库）列级差异 0（第二批 +4：coach / coach_ticket / coach_ticket_message / plan_order）
+- 数据库 ORM 业务表 **54**（schema.sql ↔ ORM 双向非分区表差异 0；第三批 0010 新增 `user_points`/`points_log`/`daily_checkin`/`user_task`/`user_privacy`/`exclusive_offer`/`report_export`/`merchant_account` 8 业务表 + 7 张归档分区父表；实际库另有 PostGIS `spatial_ref_sys` 与遗留 `config`）
 - 种子数据：food 1750 / food_alias 342 / sku_catalog 5 / ai_knowledge 50
-- Alembic 迁移（0001~0009：0007 邀请规则 / 0008 merchant PostGIS / 0009 教练工单与订阅付费）与 schema.sql 同源
+- Alembic 迁移（0001~0010：0007 邀请规则 / 0008 merchant PostGIS / 0009 教练工单与订阅付费 / 0010 我的页模块+商家自助+归档+中文检索）与 schema.sql 同源
 - 部署产物：`deploy/`（nginx、prometheus 告警、grafana 看板、灰度方案；PG 镜像 postgis/postgis:16-3.4）
 - Dockerfile.backend 多阶段构建 + 非 root 用户
 - CI 补 black 非阻断检查
 - 冒烟用例 **55 条**（文档要求 50，超出非缺失）
-- 测试门禁：全量 pytest **603 passed / 0 failed / 0 skipped**（本地全量；测试资产未入库，远程基线仍 564）；type-check 0 错误；Vitest 60 单测；双端 build + admin build 全部通过
+- 测试门禁（第三批）：全量 pytest **646 passed / 0 failed / 0 skipped**（测试资产本轮入库）；miniapp type-check 0 错误 + Vitest **22 单测**；miniapp `build:mp-weixin`/`build:h5` + admin build 全部通过；契约一致性 107 路径/116 操作双向 diff 0
 
 ### 1.5 E2E 与 CI 验证（2026-10-01 实测，编排 agent 复验）
 
@@ -157,6 +158,18 @@
 - §8.1 `:1346`「参数错 422」↔ 代码 ✓（与 N-3 的「400」冲突见上）
 - 错误码 HTTP 映射、契约 75 路径/82 ops ↔ 实现/mock 双向 diff 0 ✓
 
+### 1.9 Wave A 地基（2026-10-02 第三批，§2.1 G3–G12 缺口补齐）
+
+- **G3 我的页 5 模块**：`user_points`/`points_log`/`daily_checkin`/`user_task`/`user_privacy`/`exclusive_offer`/`report_export` 7 表（0010 迁移）+ 接口 `/api/task/list`、`/api/task/checkin`、`/api/points`、`/api/points/list`、`/api/privacy`（GET/PUT）、`/api/report/export`、`/api/report/weekly`、`/api/coupon/exclusive`（`task_service` / `privacy_service` / `report_service`）+ 小程序页 `pages/points/index`、`pages/task/index`、`pages/privacy/index`、`pages/report/index`、`pages/report/weekly`（专属优惠：后端 `GET /api/coupon/exclusive` 已就绪，前端入口暂复用券包页、未单接异业目录，见 §2.3）
+- **G4 语音录入**：`POST /api/ai/voice-transcribe`（`voice_service`）+ `composables/useVoice.ts`（RecorderManager 录音上传）
+- **G5 附近商家比价卡片**：`eat.vue` 接入 `/api/merchant/list`（标准套餐比价卡）
+- **G7 账号注销级联清除**：`DELETE /api/account` 单事务级联清除（`account.delete_account`）；删除集合 =「FK→user ∪ 含 user_id 列」∪ **下游引用闭包**，按 FK 拓扑序（子表先于父表）删除，直接命中列等值、间接触达用 FK 子查询
+- **G8 记录按月分区归档**：7 张归档分区父表（`meal/sport/weight/step/daily_snapshot/track_event/ai_dialog` + `_archive`，0010 迁移，`PARTITION BY RANGE (created_at)` + 示例月分区）+ 归档任务 `app/tasks/archive.py`
+- **G10 中文检索**：`pg_trgm` GIN 三元组索引（`food.name` / `food_alias.alias`，0010 迁移）+ 检索路径修正
+- **G11 商家自助后台**：`merchant_account` 表（0010 迁移）+ 接口 `/api/merchant/login`、`/api/merchant/me`、`/api/merchant/orders`、`/api/merchant/order/{id}/redeem`（`merchant_auth` + `merchant_service`）+ 页 `pages/merchant/login`、`pages/merchant/admin`
+- **G12 周报**：`GET /api/report/weekly`（缺口/步数/体重趋势聚合）+ 页 `pages/report/weekly`
+- **缺陷修复（第三批复审轮）**：账号注销两处 500 —— ①商家所有者场景删 `merchant` 被 `coupon_pool`/`merchant_sku`/`merchant_account` 等子表阻断；②已核销订单场景删 `order` 被 `redeem_log` 阻断。均以「下游引用闭包 + 拓扑序 + FK 子查询」修复，`test_account_deletion.py` 新增 2 用例覆盖（全 6 用例通过）
+
 ---
 
 ## 二、待完成 · 优化
@@ -169,22 +182,23 @@
 | --- | --- | --- | --- | --- |
 | ~~G1~~ | §2.1 P1 `:80`、§2.2 `:84-92`、§5.2-8 | 真人健身教练工单 | **已实现**（2026-10-02 第二批，见 §1.1） | ~~P1~~ |
 | ~~G2~~ | §2.1 P1 `:80`、§1.2 `:30` | 平台自营 AI+真人教练订阅付费 | **已实现**（2026-10-02 第二批，见 §1.1） | ~~P1~~ |
-| G3 | §5.5 `:683-698` | 我的页 items 5–9：任务中心/每日签到、我的积分、隐私控制、报告导出、专属优惠 | `mine.vue` 仅「常用/提醒/账号」三卡，上述模块全缺 | P2 |
-| G4 | §5.1-4 `:141`、§5.2-2、§5.3-4 | 语音录入/语音输入/语音描述 | `eat.vue` 语音按钮为占位「后续版本支持」，无 `RecorderManager`；其余页无语音 | P2 |
-| G5 | §5.2-7 `:109-114` | 附近商家比价卡片（标准套餐） | `eat.vue` 占位「即将上线」，未调用 `/api/merchant/list` | P2 |
+| ~~G3~~ | §5.5 `:683-698` | 我的页 items 5–9：任务中心/每日签到、我的积分、隐私控制、报告导出、专属优惠 | **已实现**（2026-10-02 第三批 Wave A，见 §1.9） | ~~P2~~ |
+| ~~G4~~ | §5.1-4 `:141`、§5.2-2、§5.3-4 | 语音录入/语音输入/语音描述 | **已实现**（`/api/ai/voice-transcribe` + `useVoice`，见 §1.9） | ~~P2~~ |
+| ~~G5~~ | §5.2-7 `:109-114` | 附近商家比价卡片（标准套餐） | **已实现**（`eat.vue` 接 `/api/merchant/list`，见 §1.9） | ~~P2~~ |
 | G6 | §5.3-8 `:296-297` | 硬件同步（小米手环/华为手表/Apple Watch/智能秤） | `sport.vue` 注释明示「无后端支撑，本期不实现」（文档 §6.3.3 亦列二期） | P2（二期） |
-| G7 | §6.3.6 `:911` | 账号注销级联清除 | 无注销/级联删除端点 | P2 |
-| G8 | §7.4 `:1335` | 2 年记录按月分区归档 | 未实现（文档允许首期不实施） | P2 |
-| G11 | §3.1 #24/25 `:159-160` | 独立商家后台登录页 / 商家后台页 | 无 `pages/merchant/login`、`pages/merchant/admin`；功能并入 `admin/` H5（同 D-07） | P2 |
-| G12 | §2.3.1-7 `:92` | 周报（缺口/步数/体重趋势 + AI 点评） | 有 `/api/ai/weekly-comment`（仅 AI 点评聚合），无周报导出 | P2 |
+| ~~G7~~ | §6.3.6 `:911` | 账号注销级联清除 | **已实现**（`DELETE /api/account`，见 §1.9） | ~~P2~~ |
+| ~~G8~~ | §7.4 `:1335` | 2 年记录按月分区归档 | **已实现**（7 张归档分区父表 + `tasks/archive.py`，0010 迁移，见 §1.9） | ~~P2~~ |
+| ~~G11~~ | §3.1 #24/25 `:159-160` | 独立商家后台登录页 / 商家后台页 | **已实现**（`pages/merchant/login`、`pages/merchant/admin` + `/api/merchant/*` 自助后台，见 §1.9） | ~~P2~~ |
+| ~~G12~~ | §2.3.1-7 `:92` | 周报（缺口/步数/体重趋势 + AI 点评） | **已实现**（`GET /api/report/weekly`，见 §1.9） | ~~P2~~ |
 
 ### 2.2 工程与测试基建缺口
 
-> **已闭环（2026-10-02 第二批，本地）**：原两项「前端测试基建缺失」「单元测试行覆盖率无报告」均已在**本地**补齐，见 §1.6（Vitest 60 单测 + miniapp E2E 5 passed + admin E2E 8/2 + `perf/coverage.md` 双口径 ≥70% 达标）。**注意：全套测试资产按用户决定未入库**（见头部「入库口径」）——远程仓库当前仍无前端测试与覆盖率报告，从远程视角该缺口仍然存在；本地已闭环。
+> **已闭环（2026-10-02 第三批）**：原两项「前端测试基建缺失」「单元测试行覆盖率无报告」已闭环，见 §1.6（Vitest + miniapp E2E + admin E2E + `perf/coverage.md` 双口径 ≥70% 达标）。**第三批起测试资产随功能一并入库**（见头部「入库口径」）；本轮入库资产 = backend/tests 9 个新用例文件 + `test_contract_consistency.py` 基线 + conftest + miniapp Vitest（`tests/unit/**` 4 文件 22 用例）+ `vitest.config.ts` + `perf/coverage.md`。第二批的 miniapp/admin Playwright E2E 与 60 条 Vitest 为本地留存资产、未随本工作区检出。
 
 ### 2.3 已实现但不完整 / 优化项
 
-- **中文全文检索失真**（G10，§6.3.2 `:889`）：按文档原文用 `to_tsvector('simple')`，实测不切中文（`热量` 命中 0 行），每次实际走 `ILIKE` 降级（`record_service.py:111`、`ai_service.py:116`）
+- ~~**中文全文检索失真**（G10，§6.3.2 `:889`）~~：**已修复（第三批）**——0010 迁移引入 `pg_trgm`（GIN 三元组索引 `food.name` / `food_alias.alias`），检索改 ILIKE 子串命中 + `similarity()` 排序，中文子串（如「鸡胸」）在真实种子库命中且精确名排首位（`test_search_cn.py` 3 用例覆盖）
+- **专属优惠前端未接异业目录**（G3 残留）：`GET /api/coupon/exclusive` 后端 + mock + 契约 + 测试就绪，但 `mine.vue`「专属优惠」入口复用 `/pages/coupon`（仅 `GET /api/coupon/list`），尚未消费异业券目录接口
 - **设计令牌未落地消费**：`tokens.scss` 已定义，但 `miniapp/src` 内 `var(--` 使用 0 次、硬编码 hex 61 处
 - **首页模块未做像素级验收**：已按文档 §5.1 补齐评分卡/需要你关注/同款减友/自查工具/最近记录，券提醒已接真实接口，但是否与设计稿完全一致未做像素级核对
 - **`.env.example` 密钥占位过短**：`JWT_SECRET=change-me-to-a-random-secret` 仅 28 字节 < 32（RFC 7518）
@@ -204,6 +218,7 @@
 ### 2.5 本次复核补登（登记口径）
 
 - **2026-10-02 第二批补登**：① G1/G2 落地——契约 89 路径/96 操作、alembic 0009、40 表、页面 26→30、pytest 基线 564→603（本地，含未入库测试资产）；② 前端测试基建补齐（§1.6）；③ 全链路 E2E 打通（§1.7，真实 AI + PageSpy）；④ 缺陷修复 4 项（§1.1）；⑤ `perf/coverage.md` 覆盖率报告（双口径 ≥70% 达标）；⑥ 原「测试文件注释滞后」P2 项已随 docstring 同步 89/96 闭环
-- ✅ **契约数字修正**：契约现状为 **89 路径 / 96 操作**（G1 8 + G2 6 接口并入；此前 75/82 系 F-01/F-02/F-05 三次契约新增后的状态）。文档侧仍为「标题 30 / 表格 34」，属 N-2 同类滞后，等产品决定是否修订基线
+- **2026-10-02 第三批 Wave A 补登**：① G3/G4/G5/G7/G8/G10/G11/G12 落地（见 §1.9）——契约 **107 路径/116 操作**、alembic **0010**、ORM 表 **54**、页面 30→**37**、pytest 基线 603→**646**（测试资产本轮入库）；② 账号注销级联清除两处 500 修复（商家所有者 / 已核销订单）；③ 中文检索改 `pg_trgm`；④ conftest 表清单与 `test_contract_consistency.py` 冻结基线同步至 107/116；⑤ 双审查 P2 收口（评测去重 1 例、`task_service` progress 口径、miniapp 测试导入/夹具修正）
+- ✅ **契约数字修正**：契约现状为 **107 路径 / 116 操作**（G1 8 + G2 6 + Wave A 18 路径/20 操作并入）。文档侧仍为「标题 30 / 表格 34」，属 N-2 同类滞后，等产品决定是否修订基线
 - **P1 覆盖统计**：文档 §2.1 P1 共 6 项 —— 全实现 4（商家权重保护、智能推荐、G1 教练工单、G2 订阅付费）、部分 2（报表后台、社区审核基础版）、缺失 0
-- **数量维度现状**（供后续对账）：页面 **30** / 接口 **89 路径·96 操作** / 表 **40** / 错误码 16 / 后端 pytest 收集 **603**（本地含未入库资产；远程 564）；文档 §7.1 列 31、§7.2 DDL 27、§8.3 标题 30 / 表格 34，均与实现对不上，属 N-1 / N-2 登记项
+- **数量维度现状**（供后续对账）：页面 **37** / 接口 **107 路径·116 操作** / ORM 表 **54** / 错误码 16 / 后端 pytest 收集 **646**（本地，测试资产本轮入库）；文档 §7.1 列 31、§7.2 DDL 27、§8.3 标题 30 / 表格 34，均与实现对不上，属 N-1 / N-2 登记项。§2.1 P2 功能缺口仅余 **G6 硬件同步**（文档明示二期）

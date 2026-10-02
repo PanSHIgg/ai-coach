@@ -57,6 +57,16 @@ tags:
     description: 体重记录与趋势（Phase 1 / BE-w 新增）
   - name: 订阅
     description: 提醒订阅设置（Phase 1 / BE-n 新增）
+  - name: 任务与积分
+    description: 任务中心、每日签到、积分（明细/门槛）
+  - name: 隐私
+    description: 隐私开关（匿名/榜单可见性/数据导出）
+  - name: 报告
+    description: 热量控制周报与报告导出
+  - name: 账户
+    description: 账号注销（级联清除）
+  - name: 商家自助
+    description: 商家 token 登录与经营（选品定价/上下架/核销/看板）
 paths:
   /api/auth/login:
     post:
@@ -3036,6 +3046,552 @@ paths:
           $ref: '#/components/responses/Validation422'
         '500':
           $ref: '#/components/responses/ServerError'
+# ---- 本轮新增（Wave A 地基）：任务/积分 · 隐私 · 报告 · 语音 · 商家自助 ----
+  /api/task/list:
+    get:
+      tags: [任务与积分]
+      summary: 任务中心列表（每日签到/完善档案/首次AI检测等）
+      operationId: taskList
+      responses:
+        '200':
+          description: 任务列表；status 1 已完成，progress 为进度（百分比或步数）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TaskListData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/task/checkin:
+    post:
+      tags: [任务与积分]
+      summary: 每日签到（同一用户当日幂等）
+      operationId: taskCheckin
+      responses:
+        '200':
+          description: 签到结果；当日重复签到幂等返回同一 streak（points_added=0）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TaskCheckinData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/points:
+    get:
+      tags: [任务与积分]
+      summary: 积分概览
+      operationId: getPoints
+      responses:
+        '200':
+          description: 积分余额、累计获得与兑换门槛
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PointsOverviewData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/points/list:
+    get:
+      tags: [任务与积分]
+      summary: 积分明细（分页）
+      operationId: listPoints
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: type
+          in: query
+          description: 变动类型过滤（【假设】1获得 2消耗；缺省=全部）
+          schema: { type: integer, enum: [1, 2] }
+      responses:
+        '200':
+          description: 积分明细分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PointsPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/privacy:
+    get:
+      tags: [隐私]
+      summary: 读取隐私设置
+      operationId: getPrivacy
+      responses:
+        '200':
+          description: 隐私开关
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PrivacyData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags: [隐私]
+      summary: 更新隐私设置（部分字段）
+      operationId: updatePrivacy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrivacyIn'
+      responses:
+        '200':
+          description: 更新后的完整隐私设置
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PrivacyData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/coupon/exclusive:
+    get:
+      tags: [券]
+      summary: 专属优惠（异业联盟券目录）
+      operationId: listExclusiveCoupons
+      responses:
+        '200':
+          description: 用户可领取的异业联盟券（scope=3 异业）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExclusiveCouponData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/report/export:
+    post:
+      tags: [报告]
+      summary: 报告导出（csv）
+      operationId: exportReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportExportIn'
+      responses:
+        '200':
+          description: 导出文件（content 为文本内容；filename/mime 由前端落地保存）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReportExportData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/report/weekly:
+    get:
+      tags: [报告]
+      summary: 热量控制周报（缺口/步数/体重趋势 + AI 点评）
+      operationId: getWeeklyReport
+      parameters:
+        - name: week
+          in: query
+          description: 期号 YYYY-Www；缺省=本周
+          schema: { type: string, maxLength: 16 }
+      responses:
+        '200':
+          description: 周报数据；comment 含免责声明
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WeeklyReportData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/ai/voice-transcribe:
+    post:
+      tags: [AI]
+      summary: 语音转文字
+      operationId: voiceTranscribe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoiceTranscribeIn'
+      responses:
+        '200':
+          description: 转写文本；无 ASR 配置时走降级（provider=local-fallback）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/VoiceTranscribeData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/merchant/compare:
+    get:
+      tags: [商家]
+      summary: 附近商家比价（按 SKU）
+      operationId: compareMerchants
+      parameters:
+        - name: sku_id
+          in: query
+          required: true
+          description: 标准 SKU 目录 id
+          schema: { type: integer, minimum: 1 }
+        - name: lat
+          in: query
+          description: 纬度（-90 到 90）
+          schema: { type: number, format: double, minimum: -90, maximum: 90 }
+        - name: lng
+          in: query
+          description: 经度（-180 到 180）
+          schema: { type: number, format: double, minimum: -180, maximum: 180 }
+      responses:
+        '200':
+          description: 在售该 SKU 的附近商家（含券后抵扣），按价格升序
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantCompareData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/account:
+    delete:
+      tags: [账户]
+      summary: 账号注销（级联清除）
+      operationId: deleteAccount
+      responses:
+        '200':
+          description: 注销结果（用户及其关联数据已级联清除）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AccountDeleteData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  # ---- 商家自助（商家 token，独立于用户 JWT；MerchantBearer） ----
+  /api/merchant/login:
+    post:
+      tags: [商家自助]
+      summary: 商家登录（账号密码）
+      operationId: merchantLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MerchantLoginIn'
+      responses:
+        '200':
+          description: 商家登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantLoginData'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/merchant/me:
+    get:
+      tags: [商家自助]
+      summary: 商家信息
+      operationId: merchantMe
+      security:
+        - MerchantBearer: []
+      responses:
+        '200':
+          description: 当前商家信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantMeData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/merchant/skus:
+    get:
+      tags: [商家自助]
+      summary: 商家选品/定价列表
+      operationId: merchantSkus
+      security:
+        - MerchantBearer: []
+      responses:
+        '200':
+          description: 商家已选 SKU（含目录限价区间回显）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantSkuListData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags: [商家自助]
+      summary: 商家选品/在区间内定价（批量）
+      operationId: updateMerchantSkus
+      security:
+        - MerchantBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MerchantSkuUpdateIn'
+      responses:
+        '200':
+          description: 更新后的 SKU 列表；价格越出目录区间 → 2001
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantSkuListData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/merchant/sku/{id}/toggle:
+    post:
+      tags: [商家自助]
+      summary: 上架/下架
+      operationId: toggleMerchantSku
+      security:
+        - MerchantBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 切换后的上下架状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantSkuToggleData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/merchant/orders:
+    get:
+      tags: [商家自助]
+      summary: 商家订单/核销列表
+      operationId: merchantOrders
+      security:
+        - MerchantBearer: []
+      parameters:
+        - name: status
+          in: query
+          description: 订单状态过滤（1待支付 2已支付待核销 3已完成 4已取消 5已退款）
+          schema: { type: integer, enum: [1, 2, 3, 4, 5] }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 本商家订单分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantOrderPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/merchant/order/{id}/redeem:
+    post:
+      tags: [商家自助]
+      summary: 商家核销
+      operationId: redeemMerchantOrder
+      security:
+        - MerchantBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 核销结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantRedeemData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '409':
+          $ref: '#/components/responses/RedeemUsed'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/merchant/stats:
+    get:
+      tags: [商家自助]
+      summary: 商家数据看板
+      operationId: merchantStats
+      security:
+        - MerchantBearer: []
+      responses:
+        '200':
+          description: 商家经营数据概览
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MerchantStatsData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
 components:
   securitySchemes:
     bearerAuth:
@@ -3043,6 +3599,11 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: 'Authorization: Bearer <token>；未带返回 1001'
+    MerchantBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: '商家自助域 Authorization: Bearer <token>（/api/merchant/login 换发，独立于用户 JWT）；未带返回 1001'
   parameters:
     ResourceId:
       name: id
@@ -4734,3 +5295,275 @@ components:
             $ref: '#/components/schemas/PlanOrderItem'
         page:
           $ref: '#/components/schemas/PageMeta'
+    # ---- 本轮新增（Wave A 地基）：任务/积分 · 隐私 · 报告 · 语音 · 商家比价/自助 ----
+    TaskItem:
+      type: object
+      required: [code, name, reward_points, status]
+      properties:
+        code: { type: string, description: '任务编码，如 daily_checkin / complete_profile / first_ai_check' }
+        name: { type: string }
+        reward_points: { type: integer, description: 完成奖励积分 }
+        reward_desc: { type: string, nullable: true, description: 奖励文案 }
+        status: { type: integer, description: 0未完成 1已完成/已领取 }
+        progress: { type: integer, default: 0, description: 进度（0-100 百分比或步数） }
+    TaskListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskItem'
+    TaskCheckinData:
+      type: object
+      required: [points_added, total_points, streak]
+      properties:
+        points_added: { type: integer, description: 本次签到获得积分；当日重复签到为 0 }
+        total_points: { type: integer, description: 当前积分余额 }
+        streak: { type: integer, description: 连续签到天数 }
+    PointsThreshold:
+      type: object
+      required: [points, reward_desc]
+      properties:
+        points: { type: integer, description: 兑换门槛积分 }
+        reward_desc: { type: string }
+    PointsOverviewData:
+      type: object
+      required: [balance, total_earned, thresholds]
+      properties:
+        balance: { type: integer, description: 可用积分余额 }
+        total_earned: { type: integer, description: 累计获得积分 }
+        thresholds:
+          type: array
+          items:
+            $ref: '#/components/schemas/PointsThreshold'
+    PointsRecordItem:
+      type: object
+      required: [change, reason, created_at]
+      properties:
+        change: { type: integer, description: 积分变动（正=获得，负=消耗） }
+        reason: { type: string }
+        created_at: { type: string, format: date-time }
+    PointsPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PointsRecordItem'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    PrivacyIn:
+      type: object
+      description: 隐私设置入参（部分字段；仅更新传递的开关）
+      properties:
+        anonymous: { type: boolean, description: 社区/榜单匿名 }
+        mask_share: { type: boolean, description: 分享海报打码 }
+        visibility_leaderboard: { type: boolean, description: 榜单向他人可见 }
+        visibility_community: { type: boolean, description: 社区资料可见 }
+        allow_data_export: { type: boolean, description: 允许数据导出 }
+    PrivacyData:
+      type: object
+      required: [anonymous, mask_share, visibility_leaderboard, visibility_community, allow_data_export]
+      properties:
+        anonymous: { type: boolean }
+        mask_share: { type: boolean }
+        visibility_leaderboard: { type: boolean }
+        visibility_community: { type: boolean }
+        allow_data_export: { type: boolean }
+    ExclusiveCouponData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CouponOut'
+    ReportExportIn:
+      type: object
+      required: [report_type, format]
+      properties:
+        report_type: { type: string, enum: [weight, weekly], description: 导出内容：体重记录 / 周报 }
+        format: { type: string, enum: [csv], description: 导出格式（首期仅 csv） }
+    ReportExportData:
+      type: object
+      required: [filename, mime, content]
+      properties:
+        filename: { type: string }
+        mime: { type: string, example: text/csv }
+        content: { type: string, description: CSV 文本内容 }
+    WeeklyReportDay:
+      type: object
+      required: [date]
+      properties:
+        date: { type: string, format: date }
+        intake: { type: number, nullable: true }
+        deficit: { type: number, nullable: true }
+        steps: { type: integer, nullable: true }
+        weight: { type: number, nullable: true }
+    WeeklyReportData:
+      type: object
+      required: [period, intake_avg, deficit_avg, steps_avg, weight_change, comment, days]
+      properties:
+        period:
+          type: object
+          required: [start, end]
+          properties:
+            start: { type: string, format: date }
+            end: { type: string, format: date }
+        intake_avg: { type: number, description: 日均摄入 kcal }
+        deficit_avg: { type: number, description: 日均缺口 kcal }
+        steps_avg: { type: integer, description: 日均步数 }
+        weight_change: { type: number, nullable: true, description: 周内体重变化 kg }
+        comment: { type: string, description: AI 周点评（含免责声明） }
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeeklyReportDay'
+    VoiceTranscribeIn:
+      type: object
+      required: [audio_base64, format]
+      properties:
+        audio_base64: { type: string, description: Base64 音频字节 }
+        format: { type: string, description: '音频格式，如 mp3 / wav / aac' }
+    VoiceTranscribeData:
+      type: object
+      required: [text, provider]
+      properties:
+        text: { type: string }
+        provider: { type: string, description: '转写提供方；无 ASR 配置时为降级标识（如 local-fallback）' }
+    MerchantCompareItem:
+      type: object
+      required: [merchant_id, name, distance, rating, price, coupon_amount, sku_name]
+      properties:
+        merchant_id: { type: integer }
+        name: { type: string }
+        distance: { type: number, description: 距离（米） }
+        rating: { type: number }
+        price: { type: number, description: 商家售价（元） }
+        coupon_amount: { type: number, description: 可用券抵扣金额（元） }
+        sku_name: { type: string }
+    MerchantCompareData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MerchantCompareItem'
+    AccountDeleteData:
+      type: object
+      required: [deleted]
+      properties:
+        deleted: { const: true }
+    MerchantLoginIn:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 64 }
+        password: { type: string, minLength: 6, maxLength: 128 }
+    MerchantLoginData:
+      type: object
+      required: [token, merchant_id, name, expires_in]
+      properties:
+        token: { type: string, description: 商家 token（MerchantBearer） }
+        merchant_id: { type: integer }
+        name: { type: string }
+        expires_in: { type: integer, description: 有效期（秒） }
+    MerchantMeData:
+      type: object
+      required: [id, name, status]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        category: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        rating: { type: number, nullable: true }
+        status: { type: integer, description: 1营业 0停业 }
+        audit_status: { type: integer, description: 0待审 1通过 2驳回 }
+        partner_level: { type: integer, description: 0普通 1优选合作 2战略合作 }
+    MerchantSkuItem:
+      type: object
+      required: [sku_id, catalog_id, catalog_name, price, min_price, max_price, stock, status]
+      properties:
+        sku_id: { type: integer, description: 商家 SKU id（merchant_sku.id） }
+        catalog_id: { type: integer }
+        catalog_code: { type: string, nullable: true }
+        catalog_name: { type: string }
+        price: { type: number, description: 商家定价（元），须落在 min_price~max_price }
+        min_price: { type: number }
+        max_price: { type: number }
+        stock: { type: integer, description: -1 表示不限量 }
+        status: { type: integer, description: 1上架 0下架 }
+    MerchantSkuListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MerchantSkuItem'
+    MerchantSkuPriceIn:
+      type: object
+      required: [sku_id, price, listed]
+      properties:
+        sku_id: { type: integer, description: 商家 SKU id }
+        price: { type: number, minimum: 0, description: 元；越出目录区间 → 2001 }
+        listed: { type: boolean, description: true=上架 false=下架 }
+    MerchantSkuUpdateIn:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/MerchantSkuPriceIn'
+    MerchantSkuToggleData:
+      type: object
+      required: [sku_id, status]
+      properties:
+        sku_id: { type: integer }
+        status: { type: integer, description: 1上架 0下架 }
+    MerchantOrderItem:
+      type: object
+      required: [id, order_no, status, created_at]
+      properties:
+        id: { type: integer }
+        order_no: { type: string }
+        user_id: { type: integer, nullable: true }
+        total_amount: { type: number, nullable: true }
+        pay_amount: { type: number, nullable: true }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        redeem_code: { type: string, nullable: true }
+        redeemed_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+    MerchantOrderPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MerchantOrderItem'
+        page:
+          $ref: '#/components/schemas/PageMeta'
+    MerchantRedeemData:
+      type: object
+      required: [order_id, status, redeemed_at]
+      properties:
+        order_id: { type: integer }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        redeemed_at: { type: string, format: date-time }
+    MerchantStatsData:
+      type: object
+      required: [merchant_id, order_count, redeem_count, gmv, sku_count, contribution_points]
+      properties:
+        merchant_id: { type: integer }
+        order_count: { type: integer, description: 订单总数 }
+        redeem_count: { type: integer, description: 已核销订单数 }
+        gmv: { type: number, description: 成交总额（元） }
+        sku_count: { type: integer, description: 在售 SKU 数 }
+        contribution_points: { type: integer, description: 贡献分 }

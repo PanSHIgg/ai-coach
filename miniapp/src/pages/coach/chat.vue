@@ -476,7 +476,7 @@ onShow(() => {
     }
 
     .msg__time {
-      color: rgba(255, 255, 255, 0.75);
+      color: rgba($card, 0.75);
     }
   }
 }

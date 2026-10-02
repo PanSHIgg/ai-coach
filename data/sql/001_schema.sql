@@ -769,6 +769,292 @@ COMMENT ON COLUMN plan_order.tier IS '档位：1进阶 29 元 2高级 59 元 3�
 COMMENT ON COLUMN plan_order.status IS '1待支付 2已支付 3已取消';
 
 -- -----------------------------------------------------------------------------
+-- 10. current.md §二 缺口数据地基（0010 迁移，additive-only）
+-- -----------------------------------------------------------------------------
+
+-- G10 中文检索：三元组模糊匹配（pg_trgm 已在文件头创建，幂等）
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- 10.1 G3 我的页 5 模块
+
+-- 用户积分账户（一人一条）
+CREATE TABLE user_points (
+    user_id      BIGINT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+    balance      INTEGER NOT NULL DEFAULT 0,
+    total_earned INTEGER NOT NULL DEFAULT 0,
+    updated_at   TIMESTAMPTZ DEFAULT NOW()
+);
+COMMENT ON TABLE user_points IS '用户积分账户：余额 + 累计获得（我的页 G3，一人一条）';
+COMMENT ON COLUMN user_points.balance IS '当前可用积分余额';
+COMMENT ON COLUMN user_points.total_earned IS '累计获得积分（只增不减口径）';
+
+-- 积分流水
+CREATE TABLE points_log (
+    id         BIGSERIAL PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    change     INTEGER NOT NULL,
+    reason     VARCHAR(64) NOT NULL,
+    ref        VARCHAR(64),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_points_log_user ON points_log(user_id, created_at DESC);
+COMMENT ON TABLE points_log IS '积分流水：change 正负皆可，reason 变更原因，ref 关联业务单号';
+COMMENT ON COLUMN points_log.change IS '积分变动值（正为获得，负为消耗）';
+
+-- 每日签到
+CREATE TABLE daily_checkin (
+    id           BIGSERIAL PRIMARY KEY,
+    user_id      BIGINT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    checkin_date DATE NOT NULL,
+    points       INTEGER NOT NULL DEFAULT 5,
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (user_id, checkin_date)
+);
+COMMENT ON TABLE daily_checkin IS '每日签到：(user_id, checkin_date) 唯一，一人一天一次';
+
+-- 用户任务进度
+CREATE TABLE user_task (
+    id            BIGSERIAL PRIMARY KEY,
+    user_id       BIGINT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    task_code     VARCHAR(32) NOT NULL,
+    status        SMALLINT NOT NULL DEFAULT 0,
+    progress      INTEGER NOT NULL DEFAULT 0,
+    reward_points INTEGER NOT NULL DEFAULT 0,
+    completed_at  TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (user_id, task_code)
+);
+COMMENT ON TABLE user_task IS '用户任务进度：(user_id, task_code) 唯一';
+COMMENT ON COLUMN user_task.status IS '状态：0未完成 1已完成 2已领奖';
+
+-- 用户隐私设置（一人一条）
+CREATE TABLE user_privacy (
+    user_id                BIGINT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+    anonymous              BOOLEAN NOT NULL DEFAULT TRUE,
+    mask_share             BOOLEAN NOT NULL DEFAULT TRUE,
+    visibility_leaderboard SMALLINT NOT NULL DEFAULT 1,
+    visibility_community   SMALLINT NOT NULL DEFAULT 1,
+    allow_data_export      BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at             TIMESTAMPTZ DEFAULT NOW()
+);
+COMMENT ON TABLE user_privacy IS '用户隐私设置：匿名/脱敏分享/榜单与社区可见性/数据导出（G3，一人一条）';
+COMMENT ON COLUMN user_privacy.visibility_leaderboard IS '榜单可见性：1公开 0隐藏';
+COMMENT ON COLUMN user_privacy.visibility_community IS '社区可见性：1公开 0隐藏';
+
+-- 专属优惠（异业联盟券目录）
+CREATE TABLE exclusive_offer (
+    id            BIGSERIAL PRIMARY KEY,
+    title         VARCHAR(128) NOT NULL,
+    category      VARCHAR(32),
+    partner       VARCHAR(64),
+    description   TEXT,
+    coupon_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    stock         INTEGER NOT NULL DEFAULT 0,
+    status        SMALLINT NOT NULL DEFAULT 1,
+    valid_to      TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+COMMENT ON TABLE exclusive_offer IS '专属优惠·异业联盟券目录（G3）：平台维护的合作方券';
+COMMENT ON COLUMN exclusive_offer.status IS '1上架 0下架';
+
+-- 报告导出记录
+CREATE TABLE report_export (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    report_type VARCHAR(16) NOT NULL,
+    format      VARCHAR(8) NOT NULL,
+    filename    VARCHAR(128) NOT NULL,
+    content     TEXT,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    expires_at  TIMESTAMPTZ
+);
+CREATE INDEX idx_report_export_user ON report_export(user_id, created_at DESC);
+COMMENT ON TABLE report_export IS '报告导出记录（G3）：生成的文件可下载，含过期时间';
+
+-- 10.2 G11 商家自助后台账号
+CREATE TABLE merchant_account (
+    id            BIGSERIAL PRIMARY KEY,
+    merchant_id   BIGINT NOT NULL REFERENCES merchant(id) ON DELETE CASCADE,
+    username      VARCHAR(64) NOT NULL UNIQUE,
+    password_hash VARCHAR(128) NOT NULL,
+    phone         VARCHAR(32),
+    status        SMALLINT NOT NULL DEFAULT 1,
+    last_login_at TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_merchant_account_merchant ON merchant_account(merchant_id);
+COMMENT ON TABLE merchant_account IS '商家自助后台账号（G11）：商家自助管理，username 唯一';
+COMMENT ON COLUMN merchant_account.status IS '1启用 0停用';
+
+-- 10.3 G8 记录按月分区归档（文档 §7.4：2 年记录按月分区归档）
+--   归档表列与源表逐列对应：去主键序列/默认，created_at 提为 NOT NULL（分区键，入 PK），
+--   追加 archived_at；主键 = (id, created_at)（分区表主键必须含分区键）。
+CREATE TABLE meal_record_archive (
+    id                 BIGINT NOT NULL,
+    user_id            BIGINT REFERENCES "user"(id) ON DELETE CASCADE,
+    record_date        DATE NOT NULL,
+    meal_type          SMALLINT NOT NULL,
+    food_id            BIGINT REFERENCES food(id),
+    food_name_snapshot VARCHAR(128),
+    amount_g           NUMERIC(7, 1) NOT NULL,
+    calories           NUMERIC(8, 1) NOT NULL,
+    protein            NUMERIC(7, 2),
+    fat                NUMERIC(7, 2),
+    carb               NUMERIC(7, 2),
+    confidence         NUMERIC(4, 2),
+    source             SMALLINT DEFAULT 1,
+    image_url          TEXT,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at        TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+COMMENT ON TABLE meal_record_archive IS '饮食记录归档（G8）：源 meal_record，按月分区，超 2 年冷数据';
+COMMENT ON COLUMN meal_record_archive.archived_at IS '归档写入时间';
+
+CREATE TABLE sport_record_archive (
+    id           BIGINT NOT NULL,
+    user_id      BIGINT REFERENCES "user"(id) ON DELETE CASCADE,
+    sport_name   VARCHAR(128),
+    met          NUMERIC(4, 2),
+    duration_min INTEGER NOT NULL,
+    calories     NUMERIC(8, 1) NOT NULL,
+    source       SMALLINT DEFAULT 1,
+    record_at    TIMESTAMPTZ NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at  TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+COMMENT ON TABLE sport_record_archive IS '运动记录归档（G8）：源 sport_record，按月分区';
+
+CREATE TABLE weight_record_archive (
+    id          BIGINT NOT NULL,
+    user_id     BIGINT REFERENCES "user"(id) ON DELETE CASCADE,
+    weight      NUMERIC(5, 1) NOT NULL,
+    record_at   DATE NOT NULL,
+    source      SMALLINT DEFAULT 1,
+    note        TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+COMMENT ON TABLE weight_record_archive IS '体重记录归档（G8）：源 weight_record，按月分区';
+
+CREATE TABLE step_record_archive (
+    id             BIGINT NOT NULL,
+    user_id        BIGINT REFERENCES "user"(id) ON DELETE CASCADE,
+    record_date    DATE NOT NULL,
+    steps          INTEGER NOT NULL,
+    source         SMALLINT DEFAULT 1,
+    hourly_json    JSONB DEFAULT '{}'::jsonb,
+    calibrated_met NUMERIC(4, 2),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at    TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+COMMENT ON TABLE step_record_archive IS '步数记录归档（G8）：源 step_record（源表实际名为 step_record，非 steps_record），按月分区';
+
+CREATE TABLE daily_snapshot_archive (
+    id               BIGINT NOT NULL,
+    user_id          BIGINT REFERENCES "user"(id) ON DELETE CASCADE,
+    snapshot_date    DATE NOT NULL,
+    bmr              NUMERIC(7, 1),
+    pal              NUMERIC(3, 2),
+    neat             NUMERIC(7, 1),
+    eat              NUMERIC(7, 1),
+    tef              NUMERIC(7, 1),
+    tee              NUMERIC(7, 1),
+    intake           NUMERIC(7, 1) DEFAULT 0,
+    deficit          NUMERIC(8, 1) DEFAULT 0,
+    steps            INTEGER DEFAULT 0,
+    calories_burnt   NUMERIC(8, 1) DEFAULT 0,
+    calibration_used BOOLEAN DEFAULT FALSE,
+    activity_level   SMALLINT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at      TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+COMMENT ON TABLE daily_snapshot_archive IS '每日热量快照归档（G8）：源 daily_snapshot，按月分区';
+
+CREATE TABLE track_event_archive (
+    id          BIGINT NOT NULL,
+    event       VARCHAR(64) NOT NULL,
+    user_id     BIGINT,
+    device_id   VARCHAR(64),
+    platform    SMALLINT DEFAULT 1,
+    properties  JSONB DEFAULT '{}'::jsonb,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+COMMENT ON TABLE track_event_archive IS '埋点事件归档（G8）：源 track_event，按月分区';
+
+CREATE TABLE ai_dialog_archive (
+    id          BIGINT NOT NULL,
+    user_id     BIGINT REFERENCES "user"(id),
+    session_id  UUID DEFAULT uuid_generate_v4(),
+    role        VARCHAR(16) NOT NULL,
+    content     TEXT NOT NULL,
+    intent      VARCHAR(64),
+    tokens      INTEGER,
+    model       VARCHAR(64),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
+COMMENT ON TABLE ai_dialog_archive IS 'AI 对话流水归档（G8）：源 ai_dialog，按月分区（§7.4 超 2 年归档）';
+
+-- 示例月分区（2024-01 ~ 2024-06）
+CREATE TABLE meal_record_archive_2024_01 PARTITION OF meal_record_archive FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+CREATE TABLE meal_record_archive_2024_02 PARTITION OF meal_record_archive FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+CREATE TABLE meal_record_archive_2024_03 PARTITION OF meal_record_archive FOR VALUES FROM ('2024-03-01') TO ('2024-04-01');
+CREATE TABLE meal_record_archive_2024_04 PARTITION OF meal_record_archive FOR VALUES FROM ('2024-04-01') TO ('2024-05-01');
+CREATE TABLE meal_record_archive_2024_05 PARTITION OF meal_record_archive FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
+CREATE TABLE meal_record_archive_2024_06 PARTITION OF meal_record_archive FOR VALUES FROM ('2024-06-01') TO ('2024-07-01');
+CREATE TABLE sport_record_archive_2024_01 PARTITION OF sport_record_archive FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+CREATE TABLE sport_record_archive_2024_02 PARTITION OF sport_record_archive FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+CREATE TABLE sport_record_archive_2024_03 PARTITION OF sport_record_archive FOR VALUES FROM ('2024-03-01') TO ('2024-04-01');
+CREATE TABLE sport_record_archive_2024_04 PARTITION OF sport_record_archive FOR VALUES FROM ('2024-04-01') TO ('2024-05-01');
+CREATE TABLE sport_record_archive_2024_05 PARTITION OF sport_record_archive FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
+CREATE TABLE sport_record_archive_2024_06 PARTITION OF sport_record_archive FOR VALUES FROM ('2024-06-01') TO ('2024-07-01');
+CREATE TABLE weight_record_archive_2024_01 PARTITION OF weight_record_archive FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+CREATE TABLE weight_record_archive_2024_02 PARTITION OF weight_record_archive FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+CREATE TABLE weight_record_archive_2024_03 PARTITION OF weight_record_archive FOR VALUES FROM ('2024-03-01') TO ('2024-04-01');
+CREATE TABLE weight_record_archive_2024_04 PARTITION OF weight_record_archive FOR VALUES FROM ('2024-04-01') TO ('2024-05-01');
+CREATE TABLE weight_record_archive_2024_05 PARTITION OF weight_record_archive FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
+CREATE TABLE weight_record_archive_2024_06 PARTITION OF weight_record_archive FOR VALUES FROM ('2024-06-01') TO ('2024-07-01');
+CREATE TABLE step_record_archive_2024_01 PARTITION OF step_record_archive FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+CREATE TABLE step_record_archive_2024_02 PARTITION OF step_record_archive FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+CREATE TABLE step_record_archive_2024_03 PARTITION OF step_record_archive FOR VALUES FROM ('2024-03-01') TO ('2024-04-01');
+CREATE TABLE step_record_archive_2024_04 PARTITION OF step_record_archive FOR VALUES FROM ('2024-04-01') TO ('2024-05-01');
+CREATE TABLE step_record_archive_2024_05 PARTITION OF step_record_archive FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
+CREATE TABLE step_record_archive_2024_06 PARTITION OF step_record_archive FOR VALUES FROM ('2024-06-01') TO ('2024-07-01');
+CREATE TABLE daily_snapshot_archive_2024_01 PARTITION OF daily_snapshot_archive FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+CREATE TABLE daily_snapshot_archive_2024_02 PARTITION OF daily_snapshot_archive FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+CREATE TABLE daily_snapshot_archive_2024_03 PARTITION OF daily_snapshot_archive FOR VALUES FROM ('2024-03-01') TO ('2024-04-01');
+CREATE TABLE daily_snapshot_archive_2024_04 PARTITION OF daily_snapshot_archive FOR VALUES FROM ('2024-04-01') TO ('2024-05-01');
+CREATE TABLE daily_snapshot_archive_2024_05 PARTITION OF daily_snapshot_archive FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
+CREATE TABLE daily_snapshot_archive_2024_06 PARTITION OF daily_snapshot_archive FOR VALUES FROM ('2024-06-01') TO ('2024-07-01');
+CREATE TABLE track_event_archive_2024_01 PARTITION OF track_event_archive FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+CREATE TABLE track_event_archive_2024_02 PARTITION OF track_event_archive FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+CREATE TABLE track_event_archive_2024_03 PARTITION OF track_event_archive FOR VALUES FROM ('2024-03-01') TO ('2024-04-01');
+CREATE TABLE track_event_archive_2024_04 PARTITION OF track_event_archive FOR VALUES FROM ('2024-04-01') TO ('2024-05-01');
+CREATE TABLE track_event_archive_2024_05 PARTITION OF track_event_archive FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
+CREATE TABLE track_event_archive_2024_06 PARTITION OF track_event_archive FOR VALUES FROM ('2024-06-01') TO ('2024-07-01');
+CREATE TABLE ai_dialog_archive_2024_01 PARTITION OF ai_dialog_archive FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+CREATE TABLE ai_dialog_archive_2024_02 PARTITION OF ai_dialog_archive FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+CREATE TABLE ai_dialog_archive_2024_03 PARTITION OF ai_dialog_archive FOR VALUES FROM ('2024-03-01') TO ('2024-04-01');
+CREATE TABLE ai_dialog_archive_2024_04 PARTITION OF ai_dialog_archive FOR VALUES FROM ('2024-04-01') TO ('2024-05-01');
+CREATE TABLE ai_dialog_archive_2024_05 PARTITION OF ai_dialog_archive FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
+CREATE TABLE ai_dialog_archive_2024_06 PARTITION OF ai_dialog_archive FOR VALUES FROM ('2024-06-01') TO ('2024-07-01');
+
+-- 10.4 G10 中文检索：GIN 三元组索引（food.name / food_alias.alias）
+CREATE INDEX idx_food_name_trgm ON food USING gin (name gin_trgm_ops);
+CREATE INDEX idx_food_alias_trgm ON food_alias USING gin (alias gin_trgm_ops);
+COMMENT ON INDEX idx_food_name_trgm IS '中文模糊检索：food.name 三元组 GIN（G10）';
+COMMENT ON INDEX idx_food_alias_trgm IS '中文模糊检索：food_alias.alias 三元组 GIN（G10）';
+
+-- -----------------------------------------------------------------------------
 -- updated_at 自动维护触发器
 -- -----------------------------------------------------------------------------
 CREATE TRIGGER trg_user_updated_at BEFORE UPDATE ON "user"
@@ -782,4 +1068,8 @@ CREATE TRIGGER trg_order_updated_at BEFORE UPDATE ON "order"
 CREATE TRIGGER trg_config_updated_at BEFORE UPDATE ON config
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER trg_coach_ticket_updated_at BEFORE UPDATE ON coach_ticket
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER trg_user_points_updated_at BEFORE UPDATE ON user_points
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER trg_user_privacy_updated_at BEFORE UPDATE ON user_privacy
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();

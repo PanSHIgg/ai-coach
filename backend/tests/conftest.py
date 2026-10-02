@@ -88,6 +88,23 @@ _TRUNCATE_TABLES = (
     "review",
     # Phase 5 埋点域
     "track_event",
+    # 0010：我的页 5 模块 + 商家自助后台（G3/G11）
+    "user_points",
+    "points_log",
+    "daily_checkin",
+    "user_task",
+    "user_privacy",
+    "exclusive_offer",
+    "report_export",
+    "merchant_account",
+    # 0010：记录归档分区父表（G8；TRUNCATE 父表级联清空各分区）
+    "meal_record_archive",
+    "sport_record_archive",
+    "weight_record_archive",
+    "step_record_archive",
+    "daily_snapshot_archive",
+    "track_event_archive",
+    "ai_dialog_archive",
 )
 
 

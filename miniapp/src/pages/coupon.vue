@@ -204,7 +204,7 @@ onLoad(() => {
 
     &--active {
       color: $brand-dark;
-      background: rgba(34, 197, 94, 0.1);
+      background: rgba($brand, 0.1);
       border-color: $brand;
       font-weight: 500;
     }
@@ -217,7 +217,7 @@ onLoad(() => {
     font-size: $t-22;
     color: $warn;
     text-align: center;
-    background: rgba(245, 158, 11, 0.1);
+    background: rgba($warn, 0.1);
     border-radius: $radius-sm;
   }
 }
@@ -241,7 +241,7 @@ onLoad(() => {
 
     flex: none;
     width: 170rpx;
-    background: rgba(34, 197, 94, 0.1);
+    background: rgba($brand, 0.1);
     border-radius: $radius-sm;
 
     // 已用/过期：面额区去色

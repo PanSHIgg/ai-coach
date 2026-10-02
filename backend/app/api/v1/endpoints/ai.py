@@ -17,7 +17,8 @@ from app.schemas import (
     WeeklyCommentIn,
 )
 from app.schemas.common import ok
-from app.services import ai_service
+from app.services import ai_service, voice_service
+from app.services.voice_service import VoiceTranscribeData, VoiceTranscribeIn
 
 router = APIRouter(tags=["AI"])
 
@@ -72,4 +73,19 @@ async def weekly_comment(
     data = await ai_service.weekly_comment(
         session, user_id=int(user.id), week=payload.week if payload else None
     )
+    return ok(data, request_id=request_id)
+
+
+@router.post(
+    "/ai/voice-transcribe",
+    response_model=Envelope[VoiceTranscribeData],
+    summary="语音转文字",
+)
+async def voice_transcribe(
+    payload: VoiceTranscribeIn,
+    user: CurrentUser = Depends(get_current_user),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[VoiceTranscribeData]:
+    """未配置 ASR 时明确降级（provider="disabled"、text=""），HTTP 200 不 500。"""
+    data = await voice_service.transcribe(payload.audio_base64, payload.format)
     return ok(data, request_id=request_id)

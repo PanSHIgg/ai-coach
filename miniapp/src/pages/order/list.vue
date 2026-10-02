@@ -273,7 +273,7 @@ onReachBottom(() => {
 
     &--active {
       color: $brand-dark;
-      background: rgba(34, 197, 94, 0.1);
+      background: rgba($brand, 0.1);
       border-color: $brand;
       font-weight: 500;
     }
@@ -286,7 +286,7 @@ onReachBottom(() => {
     font-size: $t-22;
     color: $warn;
     text-align: center;
-    background: rgba(245, 158, 11, 0.1);
+    background: rgba($warn, 0.1);
     border-radius: $radius-sm;
   }
 
@@ -399,7 +399,7 @@ onReachBottom(() => {
 
     padding: $space-md 0 $space-xs;
     margin-top: $space-sm;
-    background: rgba(34, 197, 94, 0.06);
+    background: rgba($brand, 0.06);
     border: 1rpx dashed $brand;
     border-radius: $radius-sm;
   }

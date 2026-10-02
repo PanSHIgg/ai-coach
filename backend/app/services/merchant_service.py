@@ -24,11 +24,12 @@ from __future__ import annotations
 import math
 from datetime import datetime, timedelta, timezone
 
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppException
-from app.models import CouponPool, Merchant, MerchantSku, RedeemLog, SkuCatalog
+from app.models import CouponPool, Merchant, MerchantSku, Order, RedeemLog, SkuCatalog
 from app.schemas.common import ErrorCode, PageMeta
 from app.schemas.merchant import (
     CatalogData,
@@ -38,6 +39,8 @@ from app.schemas.merchant import (
     MerchantPageData,
     SkuOut,
 )
+from app.services import merchant_auth
+from app.services.redeem_aftercare import apply_redeem_aftercare
 
 _TZ = timezone(timedelta(hours=8))
 
@@ -228,6 +231,476 @@ async def list_catalog(db: AsyncSession, category: str | None) -> CatalogData:
             for c in rows
         ]
     )
+
+
+# ---------------------------------------------------------------------------
+# G11 商家自助后台
+#
+# 说明：本轮独占可写文件不含 `schemas/`，故契约 `components.schemas.Merchant*`
+# 的 pydantic 实现就近定义于本服务模块，端点直接复用（路径/方法已与契约逐字对齐）。
+# 价格区间越界沿用商家管理口径：code=2001、HTTP 覆盖为 400。
+# ---------------------------------------------------------------------------
+
+_STATUS_PAID = 2  # 已支付待核销
+_STATUS_REDEEMED = 3  # 已完成（核销）
+
+
+class MerchantLoginIn(BaseModel):
+    """商家登录入参（契约 MerchantLoginIn）。"""
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class MerchantLoginData(BaseModel):
+    """商家登录响应（契约 MerchantLoginData）。"""
+
+    token: str
+    merchant_id: int
+    name: str
+    expires_in: int
+
+
+class MerchantMeData(BaseModel):
+    """商家信息（契约 MerchantMeData）。"""
+
+    id: int
+    name: str
+    category: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    rating: float | None = None
+    status: int
+    audit_status: int
+    partner_level: int
+
+
+class MerchantSkuItem(BaseModel):
+    """商家选品/定价项（契约 MerchantSkuItem）。"""
+
+    sku_id: int
+    catalog_id: int
+    catalog_code: str | None = None
+    catalog_name: str
+    price: float
+    min_price: float
+    max_price: float
+    stock: int
+    status: int
+
+
+class MerchantSkuListData(BaseModel):
+    items: list[MerchantSkuItem]
+
+
+class MerchantSkuPriceIn(BaseModel):
+    """批量定价入参单项（契约 MerchantSkuPriceIn）。"""
+
+    sku_id: int
+    price: float = Field(ge=0)
+    listed: bool
+
+
+class MerchantSkuUpdateIn(BaseModel):
+    items: list[MerchantSkuPriceIn] = Field(min_length=1)
+
+
+class MerchantSkuToggleData(BaseModel):
+    sku_id: int
+    status: int
+
+
+class MerchantOrderItem(BaseModel):
+    """商家订单项（契约 MerchantOrderItem）。"""
+
+    id: int
+    order_no: str
+    user_id: int | None = None
+    total_amount: float | None = None
+    pay_amount: float | None = None
+    status: int
+    redeem_code: str | None = None
+    redeemed_at: datetime | None = None
+    created_at: datetime
+
+
+class MerchantOrderPageData(BaseModel):
+    items: list[MerchantOrderItem]
+    page: PageMeta
+
+
+class MerchantRedeemData(BaseModel):
+    order_id: int
+    status: int
+    redeemed_at: datetime
+
+
+class MerchantStatsData(BaseModel):
+    merchant_id: int
+    order_count: int
+    redeem_count: int
+    gmv: float
+    sku_count: int
+    contribution_points: int
+
+
+class MerchantCompareItem(BaseModel):
+    """比价项（契约 MerchantCompareItem）。"""
+
+    merchant_id: int
+    name: str
+    distance: float
+    rating: float
+    price: float
+    coupon_amount: float
+    sku_name: str
+
+
+class MerchantCompareData(BaseModel):
+    items: list[MerchantCompareItem]
+
+
+async def _require_merchant(db: AsyncSession, merchant_id: int) -> Merchant:
+    """token 指向的商家必须存在；否则视为 token 失效（1001）。"""
+    merchant = await db.get(Merchant, merchant_id)
+    if merchant is None:
+        raise AppException(ErrorCode.UNAUTHORIZED)
+    return merchant
+
+
+async def merchant_login(
+    db: AsyncSession, payload: MerchantLoginIn
+) -> MerchantLoginData:
+    """商家登录：校验账号口令 → 更新 last_login_at → 签发商家 token。
+
+    失败（账号不存在/停用/口令错）统一 1001，不泄露账号是否存在。
+    """
+    account = await merchant_auth.authenticate(db, payload.username, payload.password)
+    merchant = await db.get(Merchant, account.merchant_id)
+    if merchant is None:
+        raise AppException(ErrorCode.UNAUTHORIZED)
+    account.last_login_at = datetime.now(timezone.utc)
+    await db.commit()
+    token, expires_in = merchant_auth.create_merchant_token(merchant.id, account.id)
+    return MerchantLoginData(
+        token=token, merchant_id=merchant.id, name=merchant.name, expires_in=expires_in
+    )
+
+
+async def merchant_me(db: AsyncSession, merchant_id: int) -> MerchantMeData:
+    m = await _require_merchant(db, merchant_id)
+    return MerchantMeData(
+        id=m.id,
+        name=m.name,
+        category=m.category,
+        address=m.address,
+        phone=m.phone,
+        rating=round(float(m.rating), 1) if m.rating is not None else None,
+        status=m.status,
+        audit_status=m.audit_status,
+        partner_level=int(m.partner_level or 0),
+    )
+
+
+async def _merchant_sku_items(db: AsyncSession, merchant_id: int) -> list[MerchantSkuItem]:
+    rows = (
+        await db.execute(
+            select(MerchantSku, SkuCatalog)
+            .join(SkuCatalog, MerchantSku.catalog_id == SkuCatalog.id)
+            .where(MerchantSku.merchant_id == merchant_id)
+            .order_by(MerchantSku.id)
+        )
+    ).all()
+    return [
+        MerchantSkuItem(
+            sku_id=ms.id,
+            catalog_id=cat.id,
+            catalog_code=cat.code,
+            catalog_name=cat.name,
+            price=float(ms.price),
+            min_price=float(cat.min_price),
+            max_price=float(cat.max_price),
+            stock=ms.stock,
+            status=ms.status,
+        )
+        for ms, cat in rows
+    ]
+
+
+async def list_merchant_skus(db: AsyncSession, merchant_id: int) -> MerchantSkuListData:
+    """当前商家的选品/定价列表（join standard_sku 回显名称与限价区间）。"""
+    await _require_merchant(db, merchant_id)
+    return MerchantSkuListData(items=await _merchant_sku_items(db, merchant_id))
+
+
+async def update_merchant_skus(
+    db: AsyncSession, merchant_id: int, payload: MerchantSkuUpdateIn
+) -> MerchantSkuListData:
+    """批量选品/定价；价格越出 `sku_catalog` 区间 → 2001/400（不落库）。"""
+    await _require_merchant(db, merchant_id)
+    targets: list[tuple[MerchantSku, MerchantSkuPriceIn]] = []
+    for item in payload.items:
+        row = (
+            await db.execute(
+                select(MerchantSku, SkuCatalog)
+                .join(SkuCatalog, MerchantSku.catalog_id == SkuCatalog.id)
+                .where(
+                    MerchantSku.id == item.sku_id,
+                    MerchantSku.merchant_id == merchant_id,
+                )
+            )
+        ).one_or_none()
+        if row is None:
+            raise AppException(ErrorCode.NOT_FOUND, "商家 SKU 不存在")
+        ms, cat = row
+        if not (float(cat.min_price) <= item.price <= float(cat.max_price)):
+            raise AppException(
+                ErrorCode.VALIDATION_ERROR,
+                f"价格超出目录区间 ¥{cat.min_price:g}-¥{cat.max_price:g}",
+                http_status=400,  # 业务规则拒绝：code 仍 2001，HTTP 覆盖为 400
+            )
+        targets.append((ms, item))
+    for ms, item in targets:
+        ms.price = item.price
+        ms.status = 1 if item.listed else 0
+    await db.commit()
+    return MerchantSkuListData(items=await _merchant_sku_items(db, merchant_id))
+
+
+async def toggle_merchant_sku(
+    db: AsyncSession, merchant_id: int, sku_id: int
+) -> MerchantSkuToggleData:
+    """上架/下架切换；SKU 不存在或不属于本商家 → 3001。"""
+    await _require_merchant(db, merchant_id)
+    ms = (
+        await db.execute(
+            select(MerchantSku).where(
+                MerchantSku.id == sku_id, MerchantSku.merchant_id == merchant_id
+            )
+        )
+    ).scalar_one_or_none()
+    if ms is None:
+        raise AppException(ErrorCode.NOT_FOUND)
+    ms.status = 0 if ms.status == 1 else 1
+    await db.commit()
+    return MerchantSkuToggleData(sku_id=ms.id, status=ms.status)
+
+
+async def list_merchant_orders(
+    db: AsyncSession,
+    merchant_id: int,
+    *,
+    status: int | None,
+    page: int,
+    page_size: int,
+) -> MerchantOrderPageData:
+    """当前商家订单/核销列表（分页，created_at DESC）。"""
+    await _require_merchant(db, merchant_id)
+    base = select(Order).where(Order.merchant_id == merchant_id)
+    count_stmt = select(func.count()).select_from(Order).where(Order.merchant_id == merchant_id)
+    if status is not None:
+        base = base.where(Order.status == status)
+        count_stmt = count_stmt.where(Order.status == status)
+    total = int(await db.scalar(count_stmt) or 0)
+    rows = (
+        await db.scalars(
+            base.order_by(Order.created_at.desc(), Order.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).all()
+    # order 表无 redeemed_at 列；核销时间回填自 redeem_log 最近一次成功核销（result=1）。
+    order_ids = [o.id for o in rows]
+    redeem_times: dict[int, datetime] = {}
+    if order_ids:
+        log_rows = (
+            await db.execute(
+                select(RedeemLog.order_id, func.max(RedeemLog.created_at))
+                .where(RedeemLog.order_id.in_(order_ids), RedeemLog.result == 1)
+                .group_by(RedeemLog.order_id)
+            )
+        ).all()
+        redeem_times = {oid: ts for oid, ts in log_rows if oid is not None}
+    items = [
+        MerchantOrderItem(
+            id=o.id,
+            order_no=o.order_no,
+            user_id=o.user_id,
+            total_amount=float(o.total_amount) if o.total_amount is not None else None,
+            pay_amount=float(o.pay_amount) if o.pay_amount is not None else None,
+            status=o.status,
+            redeem_code=o.redeem_code,
+            redeemed_at=redeem_times.get(o.id),
+            created_at=o.created_at,
+        )
+        for o in rows
+    ]
+    return MerchantOrderPageData(
+        items=items, page=PageMeta(page=page, page_size=page_size, total=total)
+    )
+
+
+async def redeem_merchant_order(
+    db: AsyncSession, merchant_id: int, order_id: int
+) -> MerchantRedeemData:
+    """商家自助核销（按订单 id，无核销码入参）：2已支付 → 3已完成 + 核销留痕 + 三件套。
+
+    - 订单不存在 / 不属于本商家 → 3001；
+    - 已核销（3）→ 5004（核销码一次性）；
+    - 待支付(1)/已取消(4)/已退款(5) → 5003（业务冲突 409）。
+    """
+    merchant = await _require_merchant(db, merchant_id)
+    order = (
+        await db.execute(select(Order).where(Order.id == order_id).with_for_update())
+    ).scalar_one_or_none()
+    if order is None or order.merchant_id != merchant_id:
+        raise AppException(ErrorCode.NOT_FOUND, "订单不存在")
+
+    async def _fail(reason: str, code: int) -> AppException:
+        db.add(
+            RedeemLog(
+                order_id=order.id, merchant_id=merchant_id, result=2, fail_reason=reason
+            )
+        )
+        await db.commit()
+        return AppException(code, reason)
+
+    if order.status == _STATUS_PAID:
+        order.status = _STATUS_REDEEMED
+        db.add(
+            RedeemLog(
+                order_id=order.id, merchant_id=merchant_id, result=1, fail_reason=None
+            )
+        )
+        await apply_redeem_aftercare(db, order, merchant)
+        await db.commit()
+        return MerchantRedeemData(
+            order_id=order.id,
+            status=order.status,
+            redeemed_at=datetime.now(timezone.utc),
+        )
+    if order.status == _STATUS_REDEEMED:
+        raise await _fail("核销码已使用", ErrorCode.REDEEM_CODE_USED)
+    reasons = {1: "订单未支付", 4: "订单已取消", 5: "订单已退款"}
+    raise await _fail(reasons.get(order.status, "订单状态不可核销"), ErrorCode.ORDER_TIMEOUT)
+
+
+async def merchant_stats(db: AsyncSession, merchant_id: int) -> MerchantStatsData:
+    """商家数据看板：订单数/核销数/销售额/在售 SKU 数/贡献分。"""
+    m = await _require_merchant(db, merchant_id)
+    order_count = int(
+        await db.scalar(
+            select(func.count()).select_from(Order).where(Order.merchant_id == merchant_id)
+        )
+        or 0
+    )
+    redeem_count = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(Order)
+            .where(Order.merchant_id == merchant_id, Order.status == _STATUS_REDEEMED)
+        )
+        or 0
+    )
+    # 【假设】GMV = 已支付/已完成订单实付金额之和（含券后实付 pay_amount）
+    gmv = float(
+        await db.scalar(
+            select(func.coalesce(func.sum(Order.pay_amount), 0)).where(
+                Order.merchant_id == merchant_id,
+                Order.status.in_((_STATUS_PAID, _STATUS_REDEEMED)),
+            )
+        )
+        or 0
+    )
+    sku_count = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(MerchantSku)
+            .where(MerchantSku.merchant_id == merchant_id, MerchantSku.status == 1)
+        )
+        or 0
+    )
+    return MerchantStatsData(
+        merchant_id=m.id,
+        order_count=order_count,
+        redeem_count=redeem_count,
+        gmv=round(gmv, 2),
+        sku_count=sku_count,
+        contribution_points=int(m.contribution_points or 0),
+    )
+
+
+async def _merchant_coupon_amounts(
+    db: AsyncSession, merchant_ids: list[int]
+) -> dict[int, float]:
+    """一次查出各商家名下可取券池（status=1、在有效期、有余量）的最大面额（元）。"""
+    if not merchant_ids:
+        return {}
+    now = datetime.now(_TZ)
+    stmt = (
+        select(CouponPool.merchant_id, func.max(CouponPool.amount))
+        .where(
+            CouponPool.status == 1,
+            CouponPool.merchant_id.in_(merchant_ids),
+            or_(CouponPool.total_count == -1, CouponPool.granted_count < CouponPool.total_count),
+            or_(CouponPool.valid_from.is_(None), CouponPool.valid_from <= now),
+            or_(CouponPool.valid_to.is_(None), CouponPool.valid_to >= now),
+        )
+        .group_by(CouponPool.merchant_id)
+    )
+    return {mid: float(amt or 0) for mid, amt in (await db.execute(stmt)).all() if mid is not None}
+
+
+async def compare_merchants(
+    db: AsyncSession, *, sku_id: int, lat: float | None, lng: float | None
+) -> MerchantCompareData:
+    """附近商家比价：同目录 SKU 在售、过审营业的商家，含距离/券抵扣。
+
+    排序：券后实付价升序 → 评分降序（权重）→ 距离升序 → 商家 id。
+    【假设】`distance` 为必填：未传坐标时记 0.0（无坐标商家同）；券抵扣取该商家名下
+    可取券池的最大 `amount`（折扣/免费券无固定抵扣额，按 0 计）。
+    """
+    has_geo = lat is not None and lng is not None
+    stmt = (
+        select(MerchantSku, Merchant, SkuCatalog)
+        .join(Merchant, MerchantSku.merchant_id == Merchant.id)
+        .join(SkuCatalog, MerchantSku.catalog_id == SkuCatalog.id)
+        .where(
+            MerchantSku.catalog_id == sku_id,
+            MerchantSku.status == 1,
+            Merchant.audit_status == 1,
+            Merchant.status == 1,
+        )
+    )
+    if has_geo:
+        stmt = stmt.add_columns(func.ST_DistanceSphere(Merchant.geo, _point_wgs84(lng, lat)))
+    raw = (await db.execute(stmt)).all()
+    coupons = await _merchant_coupon_amounts(db, [r[1].id for r in raw])
+
+    items: list[MerchantCompareItem] = []
+    for r in raw:
+        ms, m, cat = r[0], r[1], r[2]
+        dist = float(r[3]) if has_geo and r[3] is not None else 0.0
+        items.append(
+            MerchantCompareItem(
+                merchant_id=m.id,
+                name=m.name,
+                distance=round(dist, 1),
+                rating=round(float(m.rating), 1),
+                price=float(ms.price),
+                coupon_amount=coupons.get(m.id, 0.0),
+                sku_name=cat.name,
+            )
+        )
+    items.sort(
+        key=lambda it: (
+            round(it.price - it.coupon_amount, 2),
+            -it.rating,
+            it.distance,
+            it.merchant_id,
+        )
+    )
+    return MerchantCompareData(items=items)
 
 
 # ---------------------------------------------------------------------------

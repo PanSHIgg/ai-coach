@@ -1,4 +1,4 @@
-// 路由表：method + 路径模板 → canned envelope data（覆盖 openapi.yaml 全部 96 接口）。
+// 路由表：method + 路径模板 → canned envelope data（覆盖 openapi.yaml 全部 116 接口）。
 // 匹配规则（宽松）：/api 前缀可有可无、结尾斜杠与多斜杠忽略、{param} 匹配任意单段。
 // 零依赖：仅用标准 JS，供 server.mjs 消费。
 
@@ -541,6 +541,135 @@ export const routes = [
     m: 'POST',
     p: '/api/track',
     d: (ctx) => ({ accepted: Array.isArray(ctx?.body?.events) ? ctx.body.events.length : 0 }),
+  },
+
+  // ---- 本轮新增（Wave A 地基）：任务/积分 · 隐私 · 报告 · 语音 · 商家比价/自助 ----
+  {
+    m: 'GET', p: '/api/task/list',
+    d: {
+      items: [
+        { code: 'daily_checkin', name: '每日签到', reward_points: 5, reward_desc: '连续签到积分递增', status: 1, progress: 7 },
+        { code: 'complete_profile', name: '完善档案', reward_points: 20, reward_desc: '补齐身高体重目标', status: 1, progress: 100 },
+        { code: 'first_ai_check', name: '首次 AI 检测', reward_points: 10, reward_desc: '完成一次 AI 饮食检测', status: 0, progress: 0 },
+      ],
+    },
+  },
+  { m: 'POST', p: '/api/task/checkin', d: { points_added: 5, total_points: 125, streak: 7 } },
+  {
+    m: 'GET', p: '/api/points',
+    d: {
+      balance: 125, total_earned: 260,
+      thresholds: [
+        { points: 100, reward_desc: '兑换 3 元吃券' },
+        { points: 300, reward_desc: '兑换会员体验券' },
+      ],
+    },
+  },
+  {
+    m: 'GET', p: '/api/points/list',
+    d: {
+      items: [
+        { change: 5, reason: '每日签到', created_at: now() },
+        { change: 20, reason: '完善档案', created_at: '2026-09-30T09:00:00+08:00' },
+        { change: -100, reason: '兑换 3 元吃券', created_at: '2026-09-29T12:00:00+08:00' },
+      ],
+      page,
+    },
+  },
+  {
+    m: 'GET', p: '/api/privacy',
+    d: { anonymous: false, mask_share: true, visibility_leaderboard: true, visibility_community: true, allow_data_export: true },
+  },
+  {
+    m: 'PUT', p: '/api/privacy',
+    d: (ctx) => ({
+      anonymous: false, mask_share: true, visibility_leaderboard: true,
+      visibility_community: true, allow_data_export: true,
+      ...(ctx?.body || {}),
+    }),
+  },
+  {
+    m: 'GET', p: '/api/coupon/exclusive',
+    d: {
+      items: [
+        { id: 4101, code: 'CP-EX-4101', type: 1, scope: 3, amount: 5.0, discount_rate: null, min_spend: 30.0, merchant_id: 88, status: 1, valid_from: now(), valid_to: '2026-12-31T23:59:59+08:00' },
+      ],
+    },
+  },
+  {
+    m: 'POST', p: '/api/report/export',
+    d: (ctx) => ({
+      filename: `${ctx?.body?.report_type || 'weight'}-report.csv`,
+      mime: 'text/csv',
+      content: 'date,weight\n2026-09-30,68.8\n2026-10-02,68.5\n',
+    }),
+  },
+  {
+    m: 'GET', p: '/api/report/weekly',
+    d: {
+      period: { start: '2026-09-26', end: '2026-10-02' },
+      intake_avg: 1650, deficit_avg: -480, steps_avg: 9800, weight_change: -0.7,
+      comment: '本周记录 5 天，日均缺口约 480 kcal，节奏平稳。（AI 输出仅供参考，具体请遵医嘱）',
+      days: [
+        { date: '2026-09-26', intake: 1700, deficit: -520, steps: 9000, weight: 69.2 },
+        { date: '2026-10-02', intake: 1418, deficit: -966, steps: 12000, weight: 68.5 },
+      ],
+    },
+  },
+  {
+    m: 'POST', p: '/api/ai/voice-transcribe',
+    d: { text: '今天中午吃了鸡胸肉沙拉', provider: 'local-fallback' },
+  },
+  {
+    m: 'GET', p: '/api/merchant/compare',
+    d: {
+      items: [
+        { merchant_id: 88, name: '轻食一号店', distance: 350, rating: 4.8, price: 28.0, coupon_amount: 5.0, sku_name: '鸡胸肉沙拉' },
+        { merchant_id: 92, name: '轻食二号店', distance: 820, rating: 4.6, price: 26.0, coupon_amount: 3.0, sku_name: '鸡胸肉沙拉' },
+      ],
+    },
+  },
+  { m: 'DELETE', p: '/api/account', d: { deleted: true } },
+
+  // ---- 商家自助（商家 token） ----
+  {
+    m: 'POST', p: '/api/merchant/login',
+    d: { token: 'mock-merchant-token', merchant_id: 88, name: '轻食一号店', expires_in: 7200 },
+  },
+  {
+    m: 'GET', p: '/api/merchant/me',
+    d: { id: 88, name: '轻食一号店', category: '轻食', address: 'XX路1号', phone: '021-0000000', rating: 4.8, status: 1, audit_status: 1, partner_level: 2 },
+  },
+  {
+    m: 'GET', p: '/api/merchant/skus',
+    d: {
+      items: [
+        { sku_id: 12, catalog_id: 1, catalog_code: 'FD-001', catalog_name: '鸡胸肉沙拉', price: 28.0, min_price: 20.0, max_price: 40.0, stock: 99, status: 1 },
+      ],
+    },
+  },
+  {
+    m: 'PUT', p: '/api/merchant/skus',
+    d: {
+      items: [
+        { sku_id: 12, catalog_id: 1, catalog_code: 'FD-001', catalog_name: '鸡胸肉沙拉', price: 26.0, min_price: 20.0, max_price: 40.0, stock: 99, status: 1 },
+      ],
+    },
+  },
+  { m: 'POST', p: '/api/merchant/sku/{id}/toggle', d: { sku_id: 12, status: 0 } },
+  {
+    m: 'GET', p: '/api/merchant/orders',
+    d: {
+      items: [
+        { id: 66001, order_no: 'DD202609280001', user_id: 1001, total_amount: 28.0, pay_amount: 25.0, status: 2, redeem_code: 'RD-ABC123', redeemed_at: null, created_at: now() },
+      ],
+      page,
+    },
+  },
+  { m: 'POST', p: '/api/merchant/order/{id}/redeem', d: { order_id: 66001, status: 3, redeemed_at: now() } },
+  {
+    m: 'GET', p: '/api/merchant/stats',
+    d: { merchant_id: 88, order_count: 120, redeem_count: 96, gmv: 3360.0, sku_count: 1, contribution_points: 96 },
   },
 ];
 

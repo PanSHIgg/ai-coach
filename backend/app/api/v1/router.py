@@ -12,9 +12,12 @@ from app.api.v1.endpoints import (
     merchants,
     notification,
     orders,
+    privacy,
     recommend,
     records,
+    report,
     steps,
+    task,
     track,
     users,
     weight,
@@ -41,5 +44,8 @@ for module in (
     track,
     coach,  # G1 真人教练工单（current.md §2.1）
     plan,  # G2 平台自营会员订阅付费（路径族 /api/plan，不复用 order/subscription）
+    task,  # 任务中心 / 每日签到 / 积分（Wave A 地基）
+    privacy,  # 隐私设置（Wave A 地基）
+    report,  # 报告导出 / 周报（Wave A 地基）
 ):
     api_router.include_router(module.router)

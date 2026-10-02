@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -333,3 +333,198 @@ async def get_trend(
             for r in rows
         ]
     )
+
+
+# ---------------------------------------------------------------------------
+# G7 账号注销（级联清除，04 §6.3「删除账号级联清除可清除数据」）
+# ---------------------------------------------------------------------------
+
+# 所有外键指向 public."user"(id) 的表（用 PG 目录动态枚举，含无 ON DELETE CASCADE 的表，
+# 如 user_benefit/ai_dialog/invite/order/coupon/… 与分区归档父表）。
+# 只取父表（NOT relispartition），避免分区子表重复；列名可为多列（invite/user_a·user_b）。
+_USER_FK_SQL = text(
+    """
+    SELECT rel.relname AS child_table, att.attname AS child_column
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_class frel ON frel.oid = con.confrelid
+    JOIN pg_attribute att
+      ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
+    WHERE con.contype = 'f'
+      AND frel.relname = 'user'
+      AND frel.relnamespace = 'public'::regnamespace
+      AND rel.relnamespace = 'public'::regnamespace
+      AND NOT rel.relispartition
+    """
+)
+
+# 含 `user_id` 列（且非分区子表）的全部 public 表。除「外键指向 user」外，还需覆盖
+# 无外键但带 `user_id` 的埋点表（track_event / track_event_archive）：其 user_id 无 FK，
+# 仅靠 _USER_FK_SQL 收集不到 → 注销后会残留。relkind 'p' 为分区父表（DELETE 级联清分区）。
+_USER_ID_COL_SQL = text(
+    """
+    SELECT rel.relname AS table_name
+    FROM pg_attribute att
+    JOIN pg_class rel ON rel.oid = att.attrelid
+    JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+    WHERE att.attname = 'user_id'
+      AND att.attnum > 0
+      AND NOT att.attisdropped
+      AND rel.relkind IN ('r', 'p')
+      AND ns.nspname = 'public'
+      AND NOT rel.relispartition
+    """
+)
+
+# 目标集合内表与表之间的外键（child 引用 parent），带引用列对被删时的过滤/排序复用。
+_FK_EDGE_SQL = text(
+    """
+    SELECT DISTINCT rel.relname AS child, frel.relname AS parent,
+                    att.attname AS child_col, fatt.attname AS parent_col
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_class frel ON frel.oid = con.confrelid
+    JOIN LATERAL unnest(con.conkey, con.confkey) AS k(child_attnum, parent_attnum) ON true
+    JOIN pg_attribute att
+      ON att.attrelid = con.conrelid AND att.attnum = k.child_attnum
+    JOIN pg_attribute fatt
+      ON fatt.attrelid = con.confrelid AND fatt.attnum = k.parent_attnum
+    WHERE con.contype = 'f'
+      AND rel.relnamespace = 'public'::regnamespace
+      AND frel.relnamespace = 'public'::regnamespace
+      AND NOT rel.relispartition
+    """
+)
+
+
+def _referencing_closure(
+    roots: set[str], edges: list[tuple[str, str, str, str]]
+) -> set[str]:
+    """删除集合的递归闭包：凡（直接/间接）引用集合内表的表都纳入。
+
+    仅「FK→user ∪ 含 user_id 列」不足：merchant / order 被 coupon_pool、redeem_log、
+    merchant_sku、merchant_account 等**无 user_id 列**的下游表引用（FK 无 CASCADE），
+    不纳入就会在删父表时外键违约 → 500。闭包保证所有引用者都在删除集合内。
+    """
+    closure = set(roots)
+    changed = True
+    while changed:
+        changed = False
+        for child, parent, _ccol, _pcol in edges:
+            if parent in closure and child not in closure:
+                closure.add(child)
+                changed = True
+    return closure
+
+
+def _delete_order(tables: set[str], edges: list[tuple[str, str]]) -> list[str]:
+    """按 FK 依赖给出删除顺序：引用方（child）先于被引用方（parent）。
+
+    以 child→parent 边构造 `children[parent] = [child...]`，对受影响表做**后序 DFS**
+    （先递归删除所有引用该表的子表，再删自身），确保被引用的行总在其引用者之后删除，
+    不会因子表 `NO ACTION` 外键报错。**不依赖表名字母序**——字母序可能把父表（如 food）
+    排在子表（如 meal_record）之前，导致外键违约。
+    """
+    children: dict[str, list[str]] = {t: [] for t in tables}
+    for child, parent in edges:
+        if child in tables and parent in tables and child not in children[parent]:
+            children[parent].append(child)
+    order: list[str] = []
+    seen: set[str] = set()
+
+    def visit(table: str) -> None:
+        if table in seen:
+            return
+        seen.add(table)
+        for child in children[table]:
+            visit(child)
+        order.append(table)  # 先删所有引用它的子表，再删自身（子表优先）
+
+    for t in sorted(tables):
+        visit(t)
+    return order
+
+
+def _membership_pred(
+    table: str,
+    direct_cols: dict[str, list[str]],
+    child_edges: dict[str, list[tuple[str, str, str]]],
+    cache: dict[str, str],
+    stack: set[str],
+) -> str:
+    """返回「该表属于被注销用户的行」的 SQL 布尔片段（用于 `DELETE ... WHERE <片段>`）。
+
+    - 直接命中：`"col" = :uid`（FK→user 的列 / 含 user_id 的列）；
+    - 间接触达：`"ccol" IN (SELECT "pcol" FROM parent WHERE <parent 归属片段>)`，沿 FK 边递归。
+    删除按「子表优先」序执行，删子表时其父表行仍在 → 子查询可正常取到父表的 id。
+    """
+    if table in cache:
+        return cache[table]
+    if table in stack:  # 自引用/环：保守返回 FALSE，避免无限递归
+        return "FALSE"
+    stack.add(table)
+    preds = [f'"{col}" = :uid' for col in direct_cols.get(table, [])]
+    for child_col, parent, parent_col in child_edges.get(table, []):
+        parent_pred = _membership_pred(parent, direct_cols, child_edges, cache, stack)
+        preds.append(
+            f'"{child_col}" IN (SELECT "{parent_col}" FROM "{parent}" WHERE {parent_pred})'
+        )
+    stack.discard(table)
+    result = "(" + " OR ".join(preds) + ")" if preds else "FALSE"
+    cache[table] = result
+    return result
+
+
+async def delete_account(session: AsyncSession, user_id: int) -> bool:
+    """级联清除用户及其全部关联数据（单事务），最后删 "user" 行。
+
+    - 根集合 = 「外键指向 `"user"(id)` 的表」（含无 ON DELETE CASCADE 的 user_benefit/
+      ai_dialog/invite/order/coupon/… 与归档分区父表）∪「含 `user_id` 列的表」
+      （后者覆盖 track_event / track_event_archive 等无 FK 的埋点表，避免注销后残留）；
+    - 再取**下游引用闭包**（所有引用根集合表的表，如 merchant→coupon_pool、order→redeem_log），
+      保证删除父表前其子表数据已清除；
+    - 按 FK 依赖的**拓扑序（子表先于父表）**逐表删除：直接命中表用 `"列" = :uid`，
+      间接触达表用 `"子列" IN (SELECT "父列" FROM 父表 WHERE <父表归属片段>)` 子查询；
+    - 同一事务内完成，最终删 `"user"` 行；用户不存在时返回 False（幂等，无残留）。
+
+    返回是否真正删除了 `"user"` 行。
+    """
+    fk_rows = (await session.execute(_USER_FK_SQL)).all()
+    direct_cols: dict[str, list[str]] = {}
+    for table, column in fk_rows:
+        cols = direct_cols.setdefault(table, [])
+        if column not in cols:
+            cols.append(column)
+
+    # 补充无外键但含 `user_id` 列的表（track_event 等）：按列值一并清除。
+    for (table,) in (await session.execute(_USER_ID_COL_SQL)).all():
+        cols = direct_cols.setdefault(table, [])
+        if "user_id" not in cols:
+            cols.append("user_id")
+
+    full_edges = [
+        (child, parent, child_col, parent_col)
+        for child, parent, child_col, parent_col in (await session.execute(_FK_EDGE_SQL)).all()
+    ]
+    closure = _referencing_closure(set(direct_cols), full_edges)
+    order = _delete_order(closure, [(c, p) for c, p, _cc, _pc in full_edges])
+
+    child_edges: dict[str, list[tuple[str, str, str]]] = {}
+    for child, parent, child_col, parent_col in full_edges:
+        if child in closure and parent in closure:
+            child_edges.setdefault(child, []).append((child_col, parent, parent_col))
+
+    cache: dict[str, str] = {}
+    try:
+        for table in order:
+            pred = _membership_pred(table, direct_cols, child_edges, cache, set())
+            await session.execute(text(f'DELETE FROM "{table}" WHERE {pred}'), {"uid": user_id})
+        result = await session.execute(
+            text('DELETE FROM "user" WHERE id = :uid'), {"uid": user_id}
+        )
+        deleted = bool(result.rowcount)
+        await session.commit()
+        return deleted
+    except Exception:
+        await session.rollback()
+        raise

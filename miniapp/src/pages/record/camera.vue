@@ -381,7 +381,7 @@ function goLogin() {
     padding: $space-sm $space-md;
     font-size: $t-22;
     color: $warn;
-    background: rgba(245, 158, 11, 0.1);
+    background: rgba($warn, 0.1);
     border-radius: $radius-sm;
   }
 

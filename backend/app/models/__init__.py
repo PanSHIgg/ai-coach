@@ -840,9 +840,315 @@ class PlanOrder(Base):
     created_at: Mapped[datetime] = _ts()
 
 
+# ---------------------------------------------------------------------------
+# 我的页 5 模块 + 商家自助后台 + 记录归档（0010 迁移，current.md §二 G3/G8/G10/G11）
+# ---------------------------------------------------------------------------
+
+
+class UserPoints(Base):
+    """用户积分账户（user_points）：余额 + 累计获得，一人一条。"""
+
+    __tablename__ = "user_points"
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
+    balance: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    total_earned: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class PointsLog(Base):
+    """积分流水（points_log）：change 正负皆可，ref 关联业务单号。"""
+
+    __tablename__ = "points_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    change: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    ref: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = _ts()
+
+
+class DailyCheckin(Base):
+    """每日签到（daily_checkin）：(user_id, checkin_date) 唯一，一人一天一次。"""
+
+    __tablename__ = "daily_checkin"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "checkin_date", name="daily_checkin_user_id_checkin_date_key"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+    )
+    checkin_date: Mapped[date] = mapped_column(Date, nullable=False)
+    points: Mapped[int] = mapped_column(Integer, server_default="5", default=5)
+    created_at: Mapped[datetime] = _ts()
+
+
+class UserTask(Base):
+    """用户任务进度（user_task）：(user_id, task_code) 唯一。"""
+
+    __tablename__ = "user_task"
+    __table_args__ = (
+        UniqueConstraint("user_id", "task_code", name="user_task_user_id_task_code_key"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+    )
+    task_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    # 0未完成 1已完成 2已领奖
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="0", default=0)
+    progress: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    reward_points: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _ts()
+
+
+class UserPrivacy(Base):
+    """用户隐私设置（user_privacy）：一人一条。"""
+
+    __tablename__ = "user_privacy"
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
+    anonymous: Mapped[bool] = mapped_column(Boolean, server_default="true", default=True)
+    mask_share: Mapped[bool] = mapped_column(Boolean, server_default="true", default=True)
+    # 榜单/社区可见性：1公开 0隐藏
+    visibility_leaderboard: Mapped[int] = mapped_column(
+        SmallInteger, server_default="1", default=1
+    )
+    visibility_community: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    allow_data_export: Mapped[bool] = mapped_column(Boolean, server_default="true", default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ExclusiveOffer(Base):
+    """专属优惠·异业联盟券目录（exclusive_offer）。"""
+
+    __tablename__ = "exclusive_offer"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(32))
+    partner: Mapped[str | None] = mapped_column(String(64))
+    description: Mapped[str | None] = mapped_column(Text)
+    coupon_amount: Mapped[float] = mapped_column(
+        Numeric(10, 2, asdecimal=False), server_default="0", default=0
+    )
+    stock: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)  # 1上架 0下架
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _ts()
+
+
+class ReportExport(Base):
+    """报告导出记录（report_export）：生成文件可下载，含过期时间。"""
+
+    __tablename__ = "report_export"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    report_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    format: Mapped[str] = mapped_column(String(8), nullable=False)
+    filename: Mapped[str] = mapped_column(String(128), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _ts()
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MerchantAccount(Base):
+    """商家自助后台账号（merchant_account）：username 唯一。"""
+
+    __tablename__ = "merchant_account"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    merchant_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("merchant.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)  # 1启用 0停用
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _ts()
+
+
+# 归档分区父表（G8）：复合主键 (id, created_at)；分区由迁移/schema.sql 建，ORM 仅映射。
+# created_at 为分区键，须 NOT NULL 且入 PK；id 无序列（归档写入携带原 id）。
+
+
+class MealRecordArchive(Base):
+    """饮食记录归档（meal_record_archive）：源 meal_record，按月分区。"""
+
+    __tablename__ = "meal_record_archive"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="CASCADE"))
+    record_date: Mapped[date] = mapped_column(Date, nullable=False)
+    meal_type: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    food_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("food.id"))
+    food_name_snapshot: Mapped[str | None] = mapped_column(String(128))
+    amount_g: Mapped[float] = mapped_column(Numeric(7, 1, asdecimal=False), nullable=False)
+    calories: Mapped[float] = mapped_column(Numeric(8, 1, asdecimal=False), nullable=False)
+    protein: Mapped[float | None] = mapped_column(Numeric(7, 2, asdecimal=False))
+    fat: Mapped[float | None] = mapped_column(Numeric(7, 2, asdecimal=False))
+    carb: Mapped[float | None] = mapped_column(Numeric(7, 2, asdecimal=False))
+    confidence: Mapped[float | None] = mapped_column(Numeric(4, 2, asdecimal=False))
+    source: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    image_url: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), primary_key=True, nullable=False
+    )
+    archived_at: Mapped[datetime] = _ts()
+
+
+class SportRecordArchive(Base):
+    """运动记录归档（sport_record_archive）：源 sport_record，按月分区。"""
+
+    __tablename__ = "sport_record_archive"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="CASCADE"))
+    sport_name: Mapped[str | None] = mapped_column(String(128))
+    met: Mapped[float | None] = mapped_column(Numeric(4, 2, asdecimal=False))
+    duration_min: Mapped[int] = mapped_column(Integer, nullable=False)
+    calories: Mapped[float] = mapped_column(Numeric(8, 1, asdecimal=False), nullable=False)
+    source: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    record_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), primary_key=True, nullable=False
+    )
+    archived_at: Mapped[datetime] = _ts()
+
+
+class WeightRecordArchive(Base):
+    """体重记录归档（weight_record_archive）：源 weight_record，按月分区。"""
+
+    __tablename__ = "weight_record_archive"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="CASCADE"))
+    weight: Mapped[float] = mapped_column(Numeric(5, 1, asdecimal=False), nullable=False)
+    record_at: Mapped[date] = mapped_column(Date, nullable=False)
+    source: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), primary_key=True, nullable=False
+    )
+    archived_at: Mapped[datetime] = _ts()
+
+
+class StepRecordArchive(Base):
+    """步数记录归档（step_record_archive）：源 step_record，按月分区。"""
+
+    __tablename__ = "step_record_archive"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="CASCADE"))
+    record_date: Mapped[date] = mapped_column(Date, nullable=False)
+    steps: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    hourly_json: Mapped[dict] = mapped_column(JSONB, server_default="'{}'::jsonb", default=dict)
+    calibrated_met: Mapped[float | None] = mapped_column(Numeric(4, 2, asdecimal=False))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), primary_key=True, nullable=False
+    )
+    archived_at: Mapped[datetime] = _ts()
+
+
+class DailySnapshotArchive(Base):
+    """每日热量快照归档（daily_snapshot_archive）：源 daily_snapshot，按月分区。"""
+
+    __tablename__ = "daily_snapshot_archive"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id", ondelete="CASCADE"))
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
+    bmr: Mapped[float | None] = mapped_column(Numeric(7, 1, asdecimal=False))
+    pal: Mapped[float | None] = mapped_column(Numeric(3, 2, asdecimal=False))
+    neat: Mapped[float | None] = mapped_column(Numeric(7, 1, asdecimal=False))
+    eat: Mapped[float | None] = mapped_column(Numeric(7, 1, asdecimal=False))
+    tef: Mapped[float | None] = mapped_column(Numeric(7, 1, asdecimal=False))
+    tee: Mapped[float | None] = mapped_column(Numeric(7, 1, asdecimal=False))
+    intake: Mapped[float] = mapped_column(
+        Numeric(7, 1, asdecimal=False), server_default="0", default=0
+    )
+    deficit: Mapped[float] = mapped_column(
+        Numeric(8, 1, asdecimal=False), server_default="0", default=0
+    )
+    steps: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    calories_burnt: Mapped[float] = mapped_column(
+        Numeric(8, 1, asdecimal=False), server_default="0", default=0
+    )
+    calibration_used: Mapped[bool] = mapped_column(Boolean, server_default="false", default=False)
+    activity_level: Mapped[int | None] = mapped_column(SmallInteger)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), primary_key=True, nullable=False
+    )
+    archived_at: Mapped[datetime] = _ts()
+
+
+class TrackEventArchive(Base):
+    """埋点事件归档（track_event_archive）：源 track_event，按月分区。"""
+
+    __tablename__ = "track_event_archive"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    event: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger)
+    device_id: Mapped[str | None] = mapped_column(String(64))
+    platform: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    properties: Mapped[dict | None] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), primary_key=True, nullable=False
+    )
+    archived_at: Mapped[datetime] = _ts()
+
+
+class AiDialogArchive(Base):
+    """AI 对话流水归档（ai_dialog_archive）：源 ai_dialog，按月分区。"""
+
+    __tablename__ = "ai_dialog_archive"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
+    session_id: Mapped[Uuid | None] = mapped_column(  # type: ignore[valid-type]
+        Uuid, server_default=text("uuid_generate_v4()")
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    intent: Mapped[str | None] = mapped_column(String(64))
+    tokens: Mapped[int | None] = mapped_column(Integer)
+    model: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), primary_key=True, nullable=False
+    )
+    archived_at: Mapped[datetime] = _ts()
+
+
 __all__ = [
     "AdminUser",
     "AiDialog",
+    "AiDialogArchive",
     "AiKnowledge",
     "Base",
     "Battle",
@@ -858,27 +1164,41 @@ __all__ = [
     "CommunityPost",
     "Coupon",
     "CouponPool",
+    "DailyCheckin",
     "DailySnapshot",
+    "DailySnapshotArchive",
+    "ExclusiveOffer",
     "Food",
     "FoodAlias",
     "Invite",
     "Leaderboard",
     "MealRecord",
+    "MealRecordArchive",
     "Merchant",
+    "MerchantAccount",
     "MerchantSku",
     "Order",
     "OrderItem",
     "PlanOrder",
+    "PointsLog",
     "RedeemLog",
+    "ReportExport",
     "Review",
     "SportRecord",
+    "SportRecordArchive",
     "StepRecord",
+    "StepRecordArchive",
     "Subscription",
     "Supervise",
     "SkuCatalog",
     "TrackEvent",
+    "TrackEventArchive",
     "User",
     "UserAuth",
     "UserBenefit",
+    "UserPoints",
+    "UserPrivacy",
+    "UserTask",
     "WeightRecord",
+    "WeightRecordArchive",
 ]

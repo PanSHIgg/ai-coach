@@ -4,8 +4,8 @@
 
 口径与默认决策：
 - 视觉客户端抽象见 `app/ai/base.py`；本服务不绑定厂商，客户端可由调用方注入（测试/降级）。
-- 匹配优先级：`food.name` 精确 → `food.name` ILIKE → `food_alias.alias` ILIKE（仅 status=1），
-  写法对齐 `record_service.search_food`（Chinese 场景不切词，靠 ILIKE 子串兜底）。
+- 匹配优先级：`food.name` / `food_alias.alias` 的 ILIKE 子串命中（pg_trgm），
+  以 name/alias `similarity()` 排序取首位；与 `record_service.search_food`（G10）同口径。
 - 热量：命中 → `food.calories_100g × amount_g / 100`；未命中 → 模型给的 `kcal_100g`（缺失时兜底
   `FALLBACK_KCAL_100G`）。两者均 round 1 位，与 `record_service._nutrition` 一致。
 - need_confirm：任一条 `confidence < AI_CONFIDENCE_THRESHOLD`（默认 0.7）**或**未匹配到 food
@@ -22,7 +22,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import VisionClient
@@ -32,7 +32,7 @@ from app.core.errors import AppException
 from app.models import Food, FoodAlias
 from app.schemas.common import ErrorCode
 from app.schemas.record import RecognizeData, RecognizedItem
-from app.services.ai_service import _OpenAICompatVLM
+from app.services.ai_service import _OpenAICompatVLM, _escape_like
 
 MAX_ITEMS = 5
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5MB（契约/任务书口径）
@@ -153,33 +153,40 @@ def resolve_need_confirm(items: list[RecognizedItem], threshold: float) -> bool:
 # ---------------------------------------------------------------------------
 
 
-async def _lookup_food(
-    session: AsyncSession, *conds, join_alias: bool = False
-) -> MatchedFood | None:
-    """按条件取一条 status=1 的食物（id 最小者），未命中返回 None。"""
-    stmt = select(Food.id, Food.name, Food.calories_100g).where(Food.status == 1, *conds)
-    if join_alias:
-        stmt = stmt.join(FoodAlias, FoodAlias.food_id == Food.id)
-    row = (await session.execute(stmt.order_by(Food.id).limit(1))).first()
-    if row is None:
-        return None
-    return MatchedFood(id=int(row[0]), name=row[1], calories_100g=float(row[2]))
-
-
 async def match_food(session: AsyncSession, name: str) -> MatchedFood | None:
-    """食物名 → food 表行：name 精确 → name ILIKE → alias ILIKE。"""
+    """食物名 → food 表行：name/别名 ILIKE 命中 + similarity 排序取首位（pg_trgm，G10）。
+
+    与 `record_service.search_food` 同口径：精确名/别名相似度为 1.0，自然排首位；
+    未命中返回 None（调用方据此置 need_confirm）。
+    """
     kw = (name or "").strip()
     if not kw:
         return None
-    for conds, join_alias in (
-        ((Food.name == kw), False),
-        ((Food.name.ilike(f"%{kw}%")), False),
-        ((FoodAlias.alias.ilike(f"%{kw}%"), True)),
-    ):
-        matched = await _lookup_food(session, conds, join_alias=join_alias)
-        if matched is not None:
-            return matched
-    return None
+    pattern = f"%{_escape_like(kw)}%"
+    alias_sim = (
+        select(func.max(func.similarity(FoodAlias.alias, kw)))
+        .where(FoodAlias.food_id == Food.id)
+        .scalar_subquery()
+    )
+    score = func.greatest(func.similarity(Food.name, kw), func.coalesce(alias_sim, 0.0))
+    stmt = (
+        select(Food.id, Food.name, Food.calories_100g)
+        .where(
+            Food.status == 1,
+            or_(
+                Food.name.ilike(pattern, escape="\\"),
+                Food.id.in_(
+                    select(FoodAlias.food_id).where(FoodAlias.alias.ilike(pattern, escape="\\"))
+                ),
+            ),
+        )
+        .order_by(score.desc(), Food.id)
+        .limit(1)
+    )
+    row = (await session.execute(stmt)).first()
+    if row is None:
+        return None
+    return MatchedFood(id=int(row[0]), name=row[1], calories_100g=float(row[2]))
 
 
 # ---------------------------------------------------------------------------

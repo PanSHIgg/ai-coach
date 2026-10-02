@@ -1,8 +1,9 @@
 """记录域服务（BE3）：食物搜索、饮食记录 CRUD、运动记录。
 
 口径与默认决策：
-- 食物搜索：food.search_vec（tsvector, 'simple'）精确词元匹配 + name ILIKE 子串 + food_alias ILIKE
-  子串联合去重；仅 status=1。Chinese 场景 'simple' 不切词，故补 name/alias 子串兜底。
+- 食物搜索：pg_trgm 中文可用检索——name / food_alias.alias 的 ILIKE 子串命中（GIN trgm
+  索引可加速，见 0010 迁移）+ `similarity()` 排序；仅 status=1。弃用 `to_tsvector('simple')`
+  （不切中文，会漏中文子串）；ILIKE 对中文/英文/拼音同样有效。
 - 饮食写入：calories = food.calories_100g × amount_g/100，蛋白/脂/碳同理；热量 round 1 位、
   营养素 round 2 位；保存 food_name_snapshot 快照；record_date 默认当日（UTC+8）。
 - 运动消耗【假设】= MET × 体重(kg) × 时长(h)；体重取 body_profile.current_weight，缺失默认 60kg；
@@ -105,39 +106,42 @@ def _visible_clause(user_id: int):
     return or_(Food.owner_user_id.is_(None), Food.owner_user_id == user_id)
 
 
-async def _search_by_ts(
-    session: AsyncSession, user_id: int, keyword: str, limit: int
-) -> list[Food]:
-    ts_query = func.plainto_tsquery("simple", keyword)
-    rows = await session.execute(
-        select(Food)
-        .where(Food.status == 1, _visible_clause(user_id), Food.search_vec.op("@@")(ts_query))
-        .order_by(Food.id)
-        .limit(limit)
+def _escape_like(value: str) -> str:
+    """转义 LIKE 通配符：关键词里的 % / _ 当字面量处理（搭配 ilike(escape="\\\\")）。"""
+    for old, new in (("\\", "\\\\"), ("%", "\\%"), ("_", "\\_")):
+        value = value.replace(old, new)
+    return value
+
+
+def _food_match_clause(keyword: str):
+    """命中条件：name 或别名 ILIKE 子串（pg_trgm GIN 索引可加速）。"""
+    pattern = f"%{_escape_like(keyword)}%"
+    return or_(
+        Food.name.ilike(pattern, escape="\\"),
+        Food.id.in_(
+            select(FoodAlias.food_id).where(FoodAlias.alias.ilike(pattern, escape="\\"))
+        ),
     )
-    return list(rows.scalars().all())
 
 
-async def _search_by_name(
-    session: AsyncSession, user_id: int, keyword: str, limit: int
-) -> list[Food]:
-    rows = await session.execute(
-        select(Food)
-        .where(Food.status == 1, _visible_clause(user_id), Food.name.ilike(f"%{keyword}%"))
-        .order_by(Food.id)
-        .limit(limit)
+def _food_score(keyword: str):
+    """排序分：name 与别名三元组相似度的较大者（精确/更接近者靠前，G10）。"""
+    alias_sim = (
+        select(func.max(func.similarity(FoodAlias.alias, keyword)))
+        .where(FoodAlias.food_id == Food.id)
+        .scalar_subquery()
     )
-    return list(rows.scalars().all())
+    return func.greatest(func.similarity(Food.name, keyword), func.coalesce(alias_sim, 0.0))
 
 
-async def _search_by_alias(
+async def _search_by_trgm(
     session: AsyncSession, user_id: int, keyword: str, limit: int
 ) -> list[Food]:
+    """pg_trgm 检索：ILIKE 命中 + similarity 排序，去重由单次查询天然完成。"""
     rows = await session.execute(
         select(Food)
-        .join(FoodAlias, FoodAlias.food_id == Food.id)
-        .where(Food.status == 1, _visible_clause(user_id), FoodAlias.alias.ilike(f"%{keyword}%"))
-        .order_by(Food.id)
+        .where(Food.status == 1, _visible_clause(user_id), _food_match_clause(keyword))
+        .order_by(_food_score(keyword).desc(), Food.id)
         .limit(limit)
     )
     return list(rows.scalars().all())
@@ -146,32 +150,19 @@ async def _search_by_alias(
 async def search_food(
     session: AsyncSession, user_id: int, keyword: str, limit: int = 20
 ) -> FoodSearchData:
-    """tsvector + name + alias 联合检索，去重后按命中优先级返回。
+    """pg_trgm 中文检索：name/别名 ILIKE 命中 + similarity 排序。
 
     结果含平台食物 + 本人自定义食物（owner_user_id = user_id），不含他人自定义食物。
     """
     kw = keyword.strip()
     if not kw:
         return FoodSearchData(items=[], total=0)
-    candidates: list[Food] = []
-    candidates += await _search_by_ts(session, user_id, kw, limit)
-    candidates += await _search_by_name(session, user_id, kw, limit)
-    candidates += await _search_by_alias(session, user_id, kw, limit)
-    merged: dict[int, Food] = {}
-    for food in candidates:
-        merged.setdefault(food.id, food)
-    items = [_food_item(f) for f in list(merged.values())[:limit]]
-    # total 取真实命中总数（单独 count，不受 limit 截断）；条件与三段检索并集一致
-    ts_query = func.plainto_tsquery("simple", kw)
-    match_any = or_(
-        Food.search_vec.op("@@")(ts_query),
-        Food.name.ilike(f"%{kw}%"),
-        Food.id.in_(select(FoodAlias.food_id).where(FoodAlias.alias.ilike(f"%{kw}%"))),
-    )
+    items = [_food_item(f) for f in await _search_by_trgm(session, user_id, kw, limit)]
+    # total 取真实命中总数（单独 count，不受 limit 截断）；条件与检索一致
     total = await session.scalar(
         select(func.count())
         .select_from(Food)
-        .where(Food.status == 1, _visible_clause(user_id), match_any)
+        .where(Food.status == 1, _visible_clause(user_id), _food_match_clause(kw))
     )
     return FoodSearchData(items=items, total=int(total or 0))
 
