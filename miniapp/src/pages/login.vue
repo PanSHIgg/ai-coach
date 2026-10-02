@@ -68,8 +68,18 @@ async function onLogin() {
       code = await new Promise<string>((resolve, reject) => {
         uni.login({
           provider: 'weixin',
-          success: (res) => resolve(res.code || ''),
-          fail: reject,
+          success: (res) => {
+            if (res.code) return resolve(res.code)
+            // code 为空：无任何 toast 的盲区（游客模式受限/授权异常），必须可见
+            const err = `wx.login 未返回 code：${res.errMsg || 'unknown'}`
+            toast.error({ title: '获取微信登录凭证失败' })
+            reject(new Error(err))
+          },
+          fail: (err) => {
+            // uni.login 本身失败此前被外层静默吞掉，点登录无反馈难排查
+            toast.error({ title: `微信登录调用失败：${err.errMsg || 'unknown'}` })
+            reject(new Error(err.errMsg || 'uni.login fail'))
+          },
         })
       })
     }
