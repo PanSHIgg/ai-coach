@@ -187,6 +187,15 @@ jobs:
           docker exec ai-coach-postgres psql -U postgres -d ai_coach -tAc \
             "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" \
             | awk '{ if ($1 < 30) exit 1 }'
+          # 5. 种子导入生效（migrate 服务）：食物库可检索命中
+          TOKEN=$(curl -fsS -X POST http://127.0.0.1/api/auth/login \
+            -H 'Content-Type: application/json' -d '{"code":"ci-seed-check"}' \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
+          curl -fsS -X POST http://127.0.0.1/api/food/search \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            -d '{"keyword":"鸡胸肉"}' | grep -q '"items":\[{'
+          # 6. alembic 版本已对齐（migrate 服务 stamp/upgrade）
+          docker exec ai-coach-migrate sh -c "cd /app && alembic current" | grep -q "(head)"
 
       - name: Verify monitoring (prometheus scrape + grafana provisioning)
         run: |

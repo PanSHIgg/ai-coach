@@ -83,9 +83,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Migration (先测后 prod：staging 先跑 alembic)
+        # compose 的 migrate 服务在 up 时自动执行 alembic upgrade head + 种子导入；
+        # api/worker 依赖其成功退出后才启动，无需单独跑迁移。
         run: |
-          echo "在 staging 执行：docker compose exec -T api alembic upgrade head"
-          # ssh $STAGING_HOST "cd /srv/ai-coach && docker compose -f deploy/docker-compose.yml exec -T api alembic upgrade head"
+          echo "docker compose up -d 时 migrate 服务已自动执行 alembic upgrade head"
+          echo "如需单独重跑：ssh \$STAGING_HOST \"cd /srv/ai-coach && docker compose -f deploy/docker-compose.yml run --rm migrate\""
+          # ssh $STAGING_HOST "cd /srv/ai-coach && docker compose -f deploy/docker-compose.yml run --rm migrate"
 
       - name: Roll out new image
         run: |
@@ -112,8 +115,11 @@ jobs:
           # ssh $PROD_HOST "pg_dump ... > /backup/ai_coach_$(date +%F_%H%M).sql"
 
       - name: Migration (prod)
+        # 生产先设 LOAD_SEEDS=false（避免种子 TRUNCATE 重灌覆盖运营数据），
+        # 迁移本身只加字段不改删列（§10.6），由 up 时 migrate 服务自动执行。
         run: |
-          echo "在 prod 执行：alembic upgrade head（只加字段，保证可回滚）"
+          echo "ssh \$PROD_HOST \"cd /srv/ai-coach && LOAD_SEEDS=false GIT_SHA=... docker compose up -d\""
+          echo "迁移日志：docker logs ai-coach-migrate"
 
       - name: Canary rollout (10% → 100%)
         run: |

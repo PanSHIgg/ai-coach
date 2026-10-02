@@ -1,9 +1,11 @@
 # ============================================================
 # AI 饮食管控教练 · 本地开发/部署编排（P0-g）
-# 启动：在 code/ 根目录执行
-#   cp .env.example .env
-#   GIT_SHA=$(git rev-parse --short HEAD) \
-#     docker compose -f deploy/docker-compose.yml up -d --build
+# 启动：在本目录执行
+#   cp ../.env.example ../.env   # 可选
+#   docker compose up -d --build
+# 一键语义：migrate 服务自动执行 alembic 迁移 + 种子导入，
+#   api/worker 等其成功退出后才启动；up 结束即可访问 localhost。
+# 生产关闭种子重灌：LOAD_SEEDS=false docker compose up -d
 # 镜像 tag 由 GIT_SHA 决定（§10.6 回滚：切回上一 sha 镜像即可）
 # ============================================================
 name: ai-coach
@@ -46,6 +48,54 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # 一次性初始化：alembic 版本对齐 + 种子数据。api/worker 依赖其成功退出后启动，
+  # 实现「docker compose up 即可用」。
+  # 建表分工：表结构由 postgres 的 initdb.d（001_schema.sql）创建；
+  # 本服务只在库中无 alembic 版本记录时 stamp 对齐 head（不重复建 DDL），
+  # 已有版本记录则正常增量 upgrade head。种子默认 TRUNCATE 后重灌（幂等），
+  # 生产环境如不允许覆盖参考数据，设 LOAD_SEEDS=false。
+  migrate:
+    image: ai-coach-api:${GIT_SHA:-latest}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: ai-coach-migrate
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      ALEMBIC_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
+      SEED_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
+      LOAD_SEEDS: ${LOAD_SEEDS:-true}
+    volumes:
+      # 种子 CSV/JSONL 在仓库根 data/，后端镜像不含，只读挂载
+      - ../data:/app/data:ro
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        cur="$(alembic current 2>/dev/null | grep -oE '^[0-9a-f]{4,}' || true)"
+        if [ -n "$$cur" ]; then
+          alembic upgrade head
+        else
+          echo "库中无 alembic 版本记录（initdb.d 已建表）→ stamp 对齐 head"
+          alembic stamp head
+        fi
+        if [ "$$LOAD_SEEDS" = "true" ]; then
+          python data/load_seeds.py --dsn "$$SEED_DSN" \
+            --file food:data/seeds/food_full.csv \
+            --file food_alias:data/seeds/food_alias_full.csv \
+            --file sku_catalog:data/seeds/standard_sku.sample.csv \
+            --file ai_knowledge:data/seeds/rag_knowledge.sample.jsonl
+        else
+          echo "LOAD_SEEDS=false：跳过种子导入"
+        fi
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   api:
     image: ai-coach-api:${GIT_SHA:-latest}
     build:
@@ -71,6 +121,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     # 容器内无 curl，用 python urllib 探活；端口与 Dockerfile CMD（8000）一致
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)"]
@@ -114,6 +166,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     logging:
       driver: json-file
       options:
