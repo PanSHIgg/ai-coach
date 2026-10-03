@@ -282,11 +282,26 @@ jobs:
           set -e
           curl -fsS http://127.0.0.1:9090/-/ready
           curl -fsS http://127.0.0.1:3000/api/health
-          # 等首个采集周期（scrape_interval 15s）后断言 api target UP
-          sleep 20
-          curl -fsS 'http://127.0.0.1:9090/api/v1/query' \
-            --get --data-urlencode 'query=up{job="ai-coach-api"}' \
-            | grep -qE '"value":\[[0-9.]+,"1"\]'
+          # 等首个采集周期（scrape_interval 15s）后断言 api target UP。
+          # 带重试 + 诊断输出：GitHub runner 首轮实测 sleep 20 后 query 打出 404
+          # （/-/ready 却 200），真凶未知，失败时回显完整响应头/容器状态/容器日志。
+          ok=""
+          for i in 1 2 3; do
+            sleep 15
+            echo "--- prometheus query attempt $i ---"
+            code=$(curl -sS -o /tmp/prom_query.json -w '%{http_code}' \
+              'http://127.0.0.1:9090/api/v1/query' \
+              --get --data-urlencode 'query=up{job="ai-coach-api"}') || true
+            echo "query http=$code body=$(head -c 400 /tmp/prom_query.json 2>/dev/null)"
+            if [ "$code" = "200" ] && grep -qE '"value":\[[0-9.]+,"1"\]' /tmp/prom_query.json; then
+              ok=1; break
+            fi
+            echo "--- diagnostics ---"
+            env | grep -i proxy || echo "(no proxy env)"
+            docker ps --format '{{.Names}}  {{.Status}}  {{.Ports}}' | grep -E 'prometheus|nginx' || true
+            docker logs --tail 15 ai-coach-prometheus 2>&1 || true
+          done
+          [ "$ok" = "1" ] || { echo "::error::prometheus up 查询未通过"; exit 1; }
           # Grafana 数据源与看板自动装配（uid 与 dashboard.json 引用一致）
           curl -fsS -u admin:admin http://127.0.0.1:3000/api/datasources/prometheus/uid | grep -q prometheus
 
