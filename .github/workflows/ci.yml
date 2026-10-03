@@ -23,11 +23,11 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: ai_coach
+          POSTGRES_DB: ai_coach_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d ai_coach"
+          --health-cmd "pg_isready -U postgres -d ai_coach_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -43,7 +43,7 @@ jobs:
 
     env:
       # 指向 service 容器（端口映射到 runner 的 localhost）
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach_test
       REDIS_URL: redis://127.0.0.1:6379/0
       PGPASSWORD: postgres
 
@@ -65,7 +65,7 @@ jobs:
       - name: Load DB schema
         # schema 位于仓库根 data/，此处覆盖 job 默认工作目录
         working-directory: .
-        run: psql -h 127.0.0.1 -U postgres -d ai_coach -v ON_ERROR_STOP=1 -f data/sql/001_schema.sql
+        run: psql -h 127.0.0.1 -U postgres -d ai_coach_test -v ON_ERROR_STOP=1 -f data/sql/001_schema.sql
 
       - name: Load reference seeds
         # 参照数据是大量用例的前置：sku_catalog（如 code=FD-001）、食物库与别名、RAG 知识库。
@@ -74,7 +74,7 @@ jobs:
         working-directory: .
         run: |
           python data/load_seeds.py \
-            --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach" \
+            --dsn "postgresql://postgres:postgres@127.0.0.1:5432/ai_coach_test" \
             --file food:data/seeds/food_full.csv \
             --file food_alias:data/seeds/food_alias_full.csv \
             --file sku_catalog:data/seeds/standard_sku.sample.csv \
@@ -262,6 +262,8 @@ jobs:
           [ "$anon" = "401" ]
           grep -q '"code":1001' /tmp/anon.json
           # 6. PostGIS 就位（0008 依赖）：geometry 扩展存在
+          #    注意：这三行查的是 compose 部署栈自己的库（POSTGRES_DB 默认 ai_coach），
+          #    与上方 backend job 的 CI 测试库（ai_coach_test）无关。
           docker exec ai-coach-postgres psql -U postgres -d ai_coach -tAc \
             "SELECT extname FROM pg_extension WHERE extname='postgis'" | grep -q postgis
           # 7. schema 自动初始化生效：核心表存在
@@ -319,22 +321,22 @@ jobs:
           docker rm -f ai-coach-test-pg >/dev/null 2>&1 || true
           docker run -d --name ai-coach-test-pg \
             -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_DB=ai_coach_test \
+            -e POSTGRES_DB=ai_coach_test_test \
             -v "$(pwd)/data/sql/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro" \
             -p 5433:5432 postgis/postgis:16-3.4
           # 就绪判定：连续两次查询成功（跨过初始化后的重启）
           ok=0
           for i in $(seq 1 60); do
-            if docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test -tAc "SELECT 1" >/dev/null 2>&1; then
+            if docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test_test -tAc "SELECT 1" >/dev/null 2>&1; then
               sleep 3
-              if docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test -tAc "SELECT 1" >/dev/null 2>&1; then
+              if docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test_test -tAc "SELECT 1" >/dev/null 2>&1; then
                 echo "PG ready after ${i} tries"; ok=1; break
               fi
             fi
             sleep 2
           done
           [ "$ok" = "1" ] || { docker logs --tail 30 ai-coach-test-pg; exit 1; }
-          docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test -tAc \
+          docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test_test -tAc \
             "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
 
       - name: Load reference seeds (test DB)
@@ -345,7 +347,7 @@ jobs:
             -v "$(pwd)/data:/app/data:ro" -w /app \
             "ai-coach-api:${GIT_SHA}" \
             python data/load_seeds.py \
-              --dsn "postgresql://postgres:postgres@127.0.0.1:5433/ai_coach_test" \
+              --dsn "postgresql://postgres:postgres@127.0.0.1:5433/ai_coach_test_test" \
               --file food:data/seeds/food_full.csv \
               --file food_alias:data/seeds/food_alias_full.csv \
               --file sku_catalog:data/seeds/standard_sku.sample.csv \
@@ -359,7 +361,7 @@ jobs:
           set -e
           docker run --rm --network=host -w /repo/backend \
             -v "$(pwd):/repo:ro" \
-            -e DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/ai_coach_test" \
+            -e DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/ai_coach_test_test" \
             "ai-coach-api:${GIT_SHA}" \
             sh -c "pip install -q pytest pytest-asyncio \
                    -i https://pypi.tuna.tsinghua.edu.cn/simple/ \

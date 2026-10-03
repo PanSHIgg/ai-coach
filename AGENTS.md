@@ -122,12 +122,19 @@
        $(git rev-parse --show-toplevel) 取得，不写死绝对路径
 Python：要求 >=3.12（不限定 venv/目录；venv/conda/pyenv/系统均可）；解释器路径不写死，
        经 PY 变量指定或按 dev_env.md §1.1 探测（如 command -v python3.12 || command -v python3）
-后端测试：cd <repo-root>/backend && DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach" \
-          "${PY:-python3.12}" -m pytest -q   # PY=你的 >=3.12 解释器；基线：以当次实跑为准，
-          # 最近一次全量实测 666 passed + 0 failed（2026-10-02 UTC，develop 240d27f，库 ai_coach 与
-          #    ai_coach_r2 两个隔离槽各跑一次结果一致）
-          # ⚠️ 注意 DB-5：tests/conftest.py 的 TRUNCATE 含 food/food_alias，跑完全量后种子被清空，
-          #    任何依赖食物库匹配的验证（RAG/AI 识别/ILIKE 回落）必须先重跑 data/load_seeds.py，否则会误判为代码缺陷。
+后端测试：先确保本机存在**测试库**（与部署库同实例、不同名；一次性建好）：
+          docker exec ai-coach-postgres psql -U postgres -c 'CREATE DATABASE ai_coach_test'
+          docker exec -i ai-coach-postgres psql -U postgres -d ai_coach_test < data/sql/001_schema.sql
+          （参照种子按需灌：docker run --rm --network=ai-coach_default -v <repo>/data:/app/data:ro -w /app \
+             ai-coach-api:latest python data/load_seeds.py --dsn postgresql://postgres:postgres@postgres:5432/ai_coach_test ...）
+          然后：cd <repo-root>/backend && "${PY:-python3.12}" -m pytest -q
+          # PY=你的 >=3.12 解释器；conftest 默认即指向 ai_coach_test，**无须**再传 DATABASE_URL；
+          # 基线：以当次实跑为准（2026-10-03 实测 711 passed / 11 failed——11 个失败为 content_security/
+          #    community/smoke 内容审核链路 + upload 环境依赖的**既有问题**，与本轮改动无关）
+          # ⚠️ DB-5 防护已落地（2026-10-03 事故复盘）：conftest 会 TRUNCATE 30+ 张业务表，此前默认 DSN
+          #    直指部署库 ai_coach，一次全量 pytest 即清空用户建档/记录数据。现 conftest 加 fail-fast 守卫：
+          #    库名不以 _test 结尾直接拒绝运行；默认 DSN 已改 ai_coach_test。跑完全量后测试库种子可能被清，
+          #    依赖食物库匹配的验证先对 ai_coach_test 重灌种子；**部署库 ai_coach 从此与测试彻底隔离**。
 PostgreSQL：127.0.0.1:5432  user=postgres password=postgres  db=ai_coach
             建表：psql -f data/sql/001_schema.sql（36 表；Alembic 0001 与之同源，二者择一）
 Redis：127.0.0.1:6379

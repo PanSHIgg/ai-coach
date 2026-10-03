@@ -21,6 +21,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # 防本机 env 干扰（pydantic-settings 会读 os.environ）。
@@ -30,8 +31,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 for _k in ("WECHAT_APPID", "WECHAT_SECRET", "JWT_SECRET", "JWT_ALGORITHM"):
     os.environ.pop(_k, None)
 
-# Phase 1：DB 基建指向本地 PG（真实 schema），可用环境变量覆盖。
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach")
+# Phase 1：DB 基建指向本地 PG **测试库**（ai_coach_test，非部署库！），可用环境变量覆盖。
+# 部署库防误伤守卫见下方 DB_URL 检查（库名不带 _test 后缀直接拒绝运行）。
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach_test"
+)
 # Phase 5：测试进程内禁用连接池。app 引擎是**进程级单例**，而 pytest 每个用例独立事件循环；
 # 一旦引擎以带池方式创建（如某用例走默认 Settings），该池即绑定到那个 loop，后续用例复用会报
 # 「attached to a different loop」。此处用环境变量兜住所有 Settings 构造路径（含默认 Settings）。
@@ -53,6 +57,23 @@ from app.main import create_app  # noqa: E402
 from app.models import User, UserBenefit  # noqa: E402
 
 DB_URL = os.environ["DATABASE_URL"]
+
+# ---- 部署库防误伤守卫（DB-5 复发防护，2026-10-03）----
+# 测试对每个用例执行 TRUNCATE 30+ 张业务表（含 body_profile/"user"/"order" 等真实数据表）。
+# 本机跑 pytest 时若 DSN 指向部署库（与 compose 部署库同名的 ai_coach），建档/记录数据会被
+# 整库清空且不可恢复（已实际发生一次）。故强制：**测试库名必须带 _test 后缀**，否则收集
+# 阶段直接失败并给出处置指引——宁可测试跑不起来，也绝不清掉真实数据。
+_parsed_db_url = make_url(DB_URL)
+if not _parsed_db_url.database.endswith("_test"):
+    raise RuntimeError(
+        f"\n拒绝运行测试：DATABASE_URL 指向的库不是测试库（{_parsed_db_url.database!r}）。\n"
+        "TRUNCATE 防护（DB-5）：测试会清空 30+ 张业务表，禁止指向部署库。\n"
+        "处置：本机先建一次性测试库并显式指定，例如\n"
+        "  docker exec ai-coach-postgres psql -U postgres -c 'CREATE DATABASE ai_coach_test'\n"
+        "  DATABASE_URL='postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/ai_coach_test' \\\n"
+        "    ./.venv/Scripts/python.exe -m pytest -q backend\n"
+        "（CI 由 workflow 注入 ai_coach_test，无需手动。）"
+    )
 
 # 函数级清空的业务表（Phase 1 + Phase 3 域）；RESTART IDENTITY 保证 id 从 1 起。
 # CASCADE 使外键顺序无关；"order" 为保留字需引号；sku_catalog 为参照数据不清。
