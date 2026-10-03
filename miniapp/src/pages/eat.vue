@@ -23,6 +23,9 @@
           {{ voiceLabel }}
         </CButton>
       </view>
+      <!-- 语音链路常驻提示（useVoice.notice）：toast 1.5s 即消失，「语音录入暂未支持 / 请手动输入」
+           这类结论要留在页面上，否则用户只会反复点同一个没接 ASR 的按钮（G4 异常恢复口径） -->
+      <text v-if="voice.notice.value" class="eat__entry-notice">{{ voice.notice.value }}</text>
     </view>
 
     <!-- 3. 识别结果区（§5.2-3）：来自页面内状态，拍照页返回 / 路由参数带回 -->
@@ -460,7 +463,7 @@ async function addStandard(meal: StandardMeal, index: number) {
   try {
     const count = await recordCombo(meal.name, meal.calories)
     if (!count) {
-      toast.info({ title: '该套餐暂未接入食物库，可手动录入' })
+      toast.info({ title: '该套餐暂不在食物库，可手动录入' })
       return
     }
     toast.success({ title: '已加入今日摄入' })
@@ -495,9 +498,9 @@ function onAskCoach() {
   uni.navigateTo({ url: '/pages/ai/chat' })
 }
 
-/** 查看全部标准餐占位（Phase 3 接 SKU 列表） */
+/** 查看全部标准餐占位（待接入 SKU 列表） */
 function onMoreStandard() {
-  toast.info({ title: '全部标准餐（Phase 3 接入）' })
+  toast.info({ title: '全部标准餐即将上线' })
 }
 
 /** 商家已从 Tab 降为普通页（§3.2），由吃什么页保留入口（§5.2-7） */
@@ -614,6 +617,14 @@ onUnmounted(() => {
 
   &__entry-btn {
     flex: 1;
+  }
+
+  // 语音链路常驻提示（useVoice.notice）
+  &__entry-notice {
+    display: block;
+    margin-top: $space-sm;
+    font-size: $t-22;
+    color: $warn;
   }
 
   // 3. 识别结果区

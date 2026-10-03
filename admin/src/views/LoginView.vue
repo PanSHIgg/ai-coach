@@ -2,7 +2,7 @@
   <div class="login-wrapper">
     <div class="login-card">
       <h1 class="login-title">AI 饮食管控教练</h1>
-      <p class="login-subtitle">Phase 3 独立管理后台</p>
+      <p class="login-subtitle">管理后台</p>
 
       <el-form label-position="top" @submit.prevent="onSubmit">
         <el-form-item label="账号">
@@ -15,15 +15,6 @@
           登 录
         </el-button>
       </el-form>
-
-      <el-divider />
-      <div class="seed-box">
-        <div class="seed-title">演示种子账号（点击填充）</div>
-        <div v-for="s in seeds" :key="s.username" class="seed-item" @click="fill(s)">
-          <span>{{ s.label }}</span>
-          <span class="seed-account">{{ s.username }} / {{ s.password }}</span>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -40,17 +31,6 @@ const router = useRouter()
 
 const form = reactive({ username: '', password: '' })
 const loading = ref(false)
-
-const seeds = [
-  { label: '超管', username: 'admin', password: 'Admin@123456' },
-  { label: '运营', username: 'ops', password: 'Admin@123456' },
-  { label: '商家', username: 'merchant1', password: 'Merchant@123' },
-]
-
-function fill(s: { username: string; password: string }): void {
-  form.username = s.username
-  form.password = s.password
-}
 
 async function onSubmit(): Promise<void> {
   if (!form.username || !form.password) {
@@ -75,30 +55,4 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <style scoped>
-.seed-box {
-  font-size: 13px;
-}
-
-.seed-title {
-  color: #6b7280;
-  margin-bottom: 8px;
-}
-
-.seed-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: #374151;
-}
-
-.seed-item:hover {
-  background: #ecfbf2;
-}
-
-.seed-account {
-  color: #9ca3af;
-  font-family: monospace;
-}
 </style>
