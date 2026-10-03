@@ -70,3 +70,6 @@ desktop.ini
 
 # Phase 5：性能脚本运行产物（seed_bulk.py 自动生成，可删）
 perf/seed_ids.json
+
+lan-proxy.exe
+lan-proxy.go
