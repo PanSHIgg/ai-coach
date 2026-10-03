@@ -1,12 +1,17 @@
 # ============================================================
-# CD · 构建镜像（git short sha 打标）→ 推送占位 → 分环境部署 + 回滚（F9）
-# 触发：打 tag（v*）自动走 staging；prod 需人工在 Environment 审核后放行。
-# 说明：镜像仓/服务器凭据用占位（secrets + echo），未配置时仅演练不实际推送/部署。
+# CD · push main / tag v* → 构建镜像（git sha 打标）→ compose 真实部署 + 探活冒烟 → prod 放行 + 回滚（F9）
+#
+# 2026-10-03：原 deploy.yml 并入本文件——其 deploy job（compose 构建部署 + 探活 +
+# 冒烟断言）取代本文件原先占位 echo 的 deploy-staging，成为 staging 的真实部署验证；
+# 其 test job（5433 隔离库 pytest 门禁）已并入 ci.yml 的 compose-deploy job（复用
+# 同 job 构建的镜像，不重复构建）。prod 部署/回滚仍为占位，待真实服务器与镜像仓接入。
+# 镜像仓/服务器凭据用占位（secrets + echo），未配置时仅演练不实际推送/部署。
 # ============================================================
 name: CD
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
   workflow_dispatch:
@@ -22,88 +27,161 @@ on:
         default: ""
 
 env:
-  # 占位：替换为真实镜像仓地址
+  # 镜像 tag：与 compose 中 image: ai-coach-api:${GIT_SHA} 对应，便于按 sha 回滚
+  GIT_SHA: ${{ github.sha }}
+  COMPOSE_FILE: deploy/docker-compose.yml
+  # 镜像 tag：与 compose 中 image: ai-coach-api:${GIT_SHA} 对应
   IMAGE_REPO: registry.example.com/ai-coach/api
+  # 沙箱/Gitea host runner 的 9090 曾被占用 → Prometheus 改映射 9091（compose 支持
+  # 环境变量覆盖）。GitHub runner 上 9090 空闲，但保持 9091 与 ci.yml 历史口径一致。
+  PROMETHEUS_PORT: "9091"
+  # 超管凭据：003 种子已不再创建 admin（真源是根 .env，见该种子文件头注释），
+  # 不能再从种子注释 grep。用 workflow 变量注入，生产必须在仓库 Secrets 配同名 secret。
+  # 口令【只有 secret 源】：不配即失败（见下面 Write .env step 的断言），不降级成公开口令。
+  # 用户名不是秘密，且弱口令检查不针对它，故保留字面兜底 deploy-admin。
+  ADMIN_INIT_USERNAME: ${{ secrets.ADMIN_INIT_USERNAME || vars.ADMIN_INIT_USERNAME || 'deploy-admin' }}
+  ADMIN_INIT_PASSWORD: ${{ secrets.ADMIN_INIT_PASSWORD }}
 
 jobs:
-  build:
-    name: Build & push image (git sha)
+  # ---- staging：真实构建 + 部署 + 探活冒烟（原 deploy.yml 的 deploy job）----
+  deploy:
+    name: Build & deploy full stack (staging)
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging') }}
     runs-on: ubuntu-latest
-    outputs:
-      sha: ${{ steps.meta.outputs.sha }}
-      image: ${{ steps.meta.outputs.image }}
+    timeout-minutes: 30
+
     steps:
+      - name: Runner context
+        run: |
+          echo "date      = $(date -Is)"
+          echo "ref       = ${GITHUB_REF}"
+          echo "sha       = ${GITHUB_SHA}"
+          echo "docker    = $(docker --version)"
+          echo "compose   = $(docker compose version)"
+
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Resolve git short sha
-        id: meta
+      # compose 的 migrate 服务按根 .env 建超管（scripts/init_admin.py --optional）。
+      # 这里是【幂等合并】而非覆盖：部署机可能已预置含 WECHAT_APPID/SECRET、
+      # JWT_SECRET、POSTGRES_PASSWORD、COS_* 的 .env，用 `> ` 无条件截断会把它们
+      # 全冲掉 → 真微信登录失效、JWT_SECRET 退回 config.py 的仓库可读硬编码常量
+      #（任何人可伪造 admin token）、DB 口令丢失。故已存在的键一律不覆盖，
+      # 部署机的人工配置优先。
+      - name: Write .env for compose (admin bootstrap)
         run: |
-          SHA="$(git rev-parse --short HEAD)"
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "image=${IMAGE_REPO}:${SHA}" >> "$GITHUB_OUTPUT"
+          set -e
+          # 未配置 secret 必须响亮失败：静默降级成公开口令比失败危险得多。
+          if [ -z "${ADMIN_INIT_PASSWORD}" ]; then
+            echo "::error::未配置 secret ADMIN_INIT_PASSWORD（仓库 Settings → Secrets）。拒绝用公开口令兜底建超管。"
+            exit 1
+          fi
+          umask 077
+          touch .env
+          grep -q '^ADMIN_INIT_USERNAME=' .env || echo "ADMIN_INIT_USERNAME=${ADMIN_INIT_USERNAME}" >> .env
+          grep -q '^ADMIN_INIT_PASSWORD=' .env || echo "ADMIN_INIT_PASSWORD=${ADMIN_INIT_PASSWORD}" >> .env
+          echo ".env 已合并超管凭据（仅追加缺失键；值不回显）"
 
-      - name: Docker build (backend)
+      - name: Build images
+        # compose up 无法透传 --build-arg，故先 build 再 up。
+        # PIP_INDEX_URL 必须覆盖：Dockerfile 默认的 mirrors.tencent.com 在 buildkit 内
+        # 会出现 SSL UNEXPECTED_EOF（实测清华源在 buildkit 内可用）。
         run: |
-          docker build \
-            -f deploy/Dockerfile.backend \
-            -t "${IMAGE_REPO}:${{ steps.meta.outputs.sha }}" \
-            .
-
-      - name: Login registry (占位)
-        # 需在仓库 Secrets 配置 REGISTRY_USERNAME / REGISTRY_PASSWORD
-        run: |
-          echo "docker login ${IMAGE_REPO%%/*} --username \"\$REGISTRY_USERNAME\" --password-stdin"
-          # echo "$REGISTRY_PASSWORD" | docker login "${IMAGE_REPO%%/*}" -u "$REGISTRY_USERNAME" --password-stdin
+          set -e
+          export GIT_SHA="${GITHUB_SHA}"
+          echo "GIT_SHA = $GIT_SHA"
+          docker compose -f "$COMPOSE_FILE" build \
+            --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
+          docker images --format "{{.Repository}}:{{.Tag}}" | grep ai-coach-api
 
       - name: Push image (占位)
+        # 需在仓库 Secrets 配置 REGISTRY_USERNAME / REGISTRY_PASSWORD
         run: |
-          echo "docker push ${IMAGE_REPO}:${{ steps.meta.outputs.sha }}"
-          # docker push "${IMAGE_REPO}:${{ steps.meta.outputs.sha }}"
+          echo "docker push ${IMAGE_REPO}:${GIT_SHA}"
+          # echo "$REGISTRY_PASSWORD" | docker login "${IMAGE_REPO%%/*}" -u "$REGISTRY_USERNAME" --password-stdin
+          # docker push "${IMAGE_REPO}:${GIT_SHA}"
 
-      - name: Save image digest as artifact
+      - name: Deploy (recreate containers)
         run: |
-          echo "image=${IMAGE_REPO}:${{ steps.meta.outputs.sha }}" > image-ref.txt
-          echo "sha=${{ steps.meta.outputs.sha }}" >> image-ref.txt
-          cat image-ref.txt
+          set -e
+          export GIT_SHA="${GITHUB_SHA}"
+          docker compose -f "$COMPOSE_FILE" up -d --force-recreate
+          docker compose -f "$COMPOSE_FILE" ps
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: image-ref
-          path: image-ref.txt
-
-  deploy-staging:
-    name: Deploy → staging
-    needs: build
-    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging') }}
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Migration (先测后 prod：staging 先跑 alembic)
-        # compose 的 migrate 服务在 up 时自动执行 alembic upgrade head + 种子导入；
-        # api/worker 依赖其成功退出后才启动，无需单独跑迁移。
+      - name: Wait for API healthy
         run: |
-          echo "docker compose up -d 时 migrate 服务已自动执行 alembic upgrade head"
-          echo "如需单独重跑：ssh \$STAGING_HOST \"cd /srv/ai-coach && docker compose -f deploy/docker-compose.yml run --rm migrate\""
-          # ssh $STAGING_HOST "cd /srv/ai-coach && docker compose -f deploy/docker-compose.yml run --rm migrate"
+          set -e
+          for i in $(seq 1 60); do
+            s=$(docker inspect -f '{{.State.Health.Status}}' ai-coach-api 2>/dev/null || echo "missing")
+            echo "ai-coach-api health=$s (try $i/60)"
+            [ "$s" = "healthy" ] && exit 0
+            sleep 5
+          done
+          echo "::error::API 未在 5 分钟内进入 healthy"
+          docker compose -f "$COMPOSE_FILE" ps
+          docker compose -f "$COMPOSE_FILE" logs --tail=120
+          exit 1
 
-      - name: Roll out new image
+      - name: Smoke check (nginx → api → db → 鉴权正反对照 → 监控)
+        # 口径对齐仓库 ci.yml（去 Mock 之后）：CI 不建 .env → 无微信凭证 → /api/auth/login
+        # 必须 401 + code 1001；冒烟主线改走管理端超管账号。
         run: |
-          echo "GIT_SHA=${{ needs.build.outputs.sha }} docker compose -f deploy/docker-compose.yml up -d --build"
-          # ssh $STAGING_HOST "cd /srv/ai-coach && GIT_SHA=${{ needs.build.outputs.sha }} docker compose -f deploy/docker-compose.yml pull && GIT_SHA=${{ needs.build.outputs.sha }} docker compose -f deploy/docker-compose.yml up -d"
+          set -e
+          echo "--- 1) nginx /healthz ---"
+          [ "$(curl -fsS http://127.0.0.1/healthz)" = "ok" ] && echo "healthz=ok"
 
-      - name: Smoke check
+          echo "--- 2) C 端登录守卫：无凭证必须 401/1001（新守卫生效证据）---"
+          # 1001 映射 HTTP 401，curl -f 会先非零退出，故取状态码 + 读 body
+          http=$(curl -s -o /tmp/login.json -w '%{http_code}' -X POST http://127.0.0.1/api/auth/login \
+            -H 'Content-Type: application/json' -d '{"code":"ci-compose-smoke"}')
+          echo "auth/login http=$http body=$(head -c 200 /tmp/login.json)"
+          [ "$http" = "401" ] && grep -q '"code":1001' /tmp/login.json
+
+          echo "--- 3) 后台超管登录（凭据来自 workflow env，003 不再创建 admin）---"
+          [ -n "${ADMIN_INIT_USERNAME}" ] && [ -n "${ADMIN_INIT_PASSWORD}" ] \
+            || { echo "未注入 ADMIN_INIT_USERNAME/ADMIN_INIT_PASSWORD"; exit 1; }
+          # 请求体用 json.dumps 结构化构造：直接插值在口令含 / 或引号时会产出非法 JSON（注入面）。
+          ADMIN_TOKEN=$(curl -fsS -X POST http://127.0.0.1/api/admin/login \
+            -H 'Content-Type: application/json' \
+            -d "$(U="$ADMIN_INIT_USERNAME" P="$ADMIN_INIT_PASSWORD" python3 -c 'import json,os;print(json.dumps({"username":os.environ["U"],"password":os.environ["P"]}))')" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
+          [ -n "$ADMIN_TOKEN" ] && echo "admin token 获取成功"
+
+          echo "--- 4) 带 token 真实读库（nginx→api→db + JWT + migrate 种子 三者通）---"
+          curl -fsS http://127.0.0.1/api/admin/sku-catalog \
+            -H "Authorization: Bearer $ADMIN_TOKEN" | grep -q '"code":0' && echo "sku-catalog code=0"
+
+          echo "--- 5) 反向对照：不带 token 必须 401/1001（证明鉴权真在生效）---"
+          anon=$(curl -s -o /tmp/anon.json -w '%{http_code}' http://127.0.0.1/api/admin/sku-catalog)
+          echo "anon http=$anon body=$(head -c 200 /tmp/anon.json)"
+          [ "$anon" = "401" ] && grep -q '"code":1001' /tmp/anon.json
+
+          echo "--- 6) postgis 扩展 + 种子行数 ---"
+          docker exec ai-coach-postgres psql -U postgres -d ai_coach -tAc \
+            "SELECT extname FROM pg_extension WHERE extname='postgis'" | grep -q postgis
+          docker exec ai-coach-postgres psql -U postgres -d ai_coach -tAc \
+            "SELECT count(*) FROM food" | awk '{ print "food rows =", $1; if ($1 < 100) exit 1 }'
+
+          echo "--- 7) 监控栈 ---"
+          curl -fsS http://127.0.0.1:9091/-/ready; echo
+          curl -fsS http://127.0.0.1:3000/api/health; echo
+
+      - name: Deployed image
         run: |
-          echo "curl -fsS https://staging.example.com/healthz"
+          docker images --format "table {{.Repository}}\t{{.Tag}}\{{.CreatedAt}}" | grep ai-coach-api || true
+          docker ps --format "table {{.Names}}\{{.Status}}\{{.Ports}}" | grep ai-coach || true
 
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose -f "$COMPOSE_FILE" ps || true
+          docker compose -f "$COMPOSE_FILE" logs --tail=200 || true
+
+  # ---- prod：仅 tag 发布或手动指定（Environment 需配置审批人）----
   deploy-prod:
     name: Deploy → prod
-    needs: build
-    # 生产仅允许：打 tag 发布，或手动指定 prod 环境（Environment 需配置审批人）
-    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'prod') }}
+    # tag push 时上面的 deploy job 会 skip（其 if 只认 main 分支 / dispatch staging），
+    # 故这里不加 needs，避免 needs 的 skip 级联把 prod 占位也吞掉。
+    if: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.environment == 'prod') }}
     runs-on: ubuntu-latest
     environment: prod
     steps:
@@ -118,7 +196,7 @@ jobs:
         # 生产先设 LOAD_SEEDS=false（避免种子 TRUNCATE 重灌覆盖运营数据），
         # 迁移本身只加字段不改删列（§10.6），由 up 时 migrate 服务自动执行。
         run: |
-          echo "ssh \$PROD_HOST \"cd /srv/ai-coach && LOAD_SEEDS=false GIT_SHA=... docker compose up -d\""
+          echo "ssh \$PROD_HOST \"cd /srv/ai-coach && LOAD_SEEDS=false GIT_SHA=${GITHUB_SHA} docker compose up -d\""
           echo "迁移日志：docker logs ai-coach-migrate"
 
       - name: Canary rollout (10% → 100%)

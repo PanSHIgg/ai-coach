@@ -165,10 +165,12 @@ jobs:
   # ---- compose 自动部署验证：每次 push 真实编排起全栈并探活（部署即验证，F9/§10.7）----
   # 语义：backend/frontend/admin 证明「代码正确」，本 job 证明「编排可部署」——
   # Dockerfile、compose、schema 初始化、nginx、Prometheus 采集、Grafana 装配任一坏掉即红。
+  # 末尾附带原 deploy.yml 的 pytest 门禁（2026-10-03 并入）：复用本 job 构建的
+  # ai-coach-api:${GIT_SHA} 镜像，在 5433 隔离测试库跑全量回归。
   compose-deploy:
     name: Compose deploy & verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       GIT_SHA: ${{ github.sha }}
       # 超管账号凭据：003 种子已不再创建 admin（超管真源是根 .env，见
@@ -286,6 +288,66 @@ jobs:
           # Grafana 数据源与看板自动装配（uid 与 dashboard.json 引用一致）
           curl -fsS -u admin:admin http://127.0.0.1:3000/api/datasources/prometheus/uid | grep -q prometheus
 
+      # ---- 隔离测试库 pytest 门禁（原 deploy.yml test job，2026-10-03 并入）----
+      # conftest.db_session 会 TRUNCATE 大量业务表，因此**绝不能指向上面部署库**：
+      # 在 5433 起一个独立的 PostGIS 测试库跑完即销毁。
+      - name: Start isolated test database
+        # schema 走 /docker-entrypoint-initdb.d 在初始化阶段建表：
+        # 容器启动后 PG 会「初始化 → 重启」一次，此时 psql 导入会被掐断
+        # （FATAL: terminating connection due to administrator command）。
+        run: |
+          set -e
+          docker rm -f ai-coach-test-pg >/dev/null 2>&1 || true
+          docker run -d --name ai-coach-test-pg \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=ai_coach_test \
+            -v "$(pwd)/data/sql/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro" \
+            -p 5433:5432 postgis/postgis:16-3.4
+          # 就绪判定：连续两次查询成功（跨过初始化后的重启）
+          ok=0
+          for i in $(seq 1 60); do
+            if docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test -tAc "SELECT 1" >/dev/null 2>&1; then
+              sleep 3
+              if docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test -tAc "SELECT 1" >/dev/null 2>&1; then
+                echo "PG ready after ${i} tries"; ok=1; break
+              fi
+            fi
+            sleep 2
+          done
+          [ "$ok" = "1" ] || { docker logs --tail 30 ai-coach-test-pg; exit 1; }
+          docker exec ai-coach-test-pg psql -U postgres -d ai_coach_test -tAc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
+
+      - name: Load reference seeds (test DB)
+        # 复用本 job 前面 compose build 出的后端镜像（依赖齐全），宿主只读挂载 data/
+        run: |
+          set -e
+          docker run --rm --network=host \
+            -v "$(pwd)/data:/app/data:ro" -w /app \
+            "ai-coach-api:${GIT_SHA}" \
+            python data/load_seeds.py \
+              --dsn "postgresql://postgres:postgres@127.0.0.1:5433/ai_coach_test" \
+              --file food:data/seeds/food_full.csv \
+              --file food_alias:data/seeds/food_alias_full.csv \
+              --file sku_catalog:data/seeds/standard_sku.sample.csv \
+              --file ai_knowledge:data/seeds/rag_knowledge.sample.jsonl
+
+      - name: Pytest (isolated test DB)
+        # 挂载仓库源码跑测试（镜像只提供依赖环境）：部分用例
+        # （test_contract_consistency）按 __file__.parents[2] 定位仓库根的
+        # contracts/openapi.yaml、miniapp/src/types/api.d.ts，镜像内只有 backend/ 会 FileNotFoundError。
+        run: |
+          set -e
+          docker run --rm --network=host -w /repo/backend \
+            -v "$(pwd):/repo:ro" \
+            -e DATABASE_URL="postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/ai_coach_test" \
+            "ai-coach-api:${GIT_SHA}" \
+            sh -c "pip install -q pytest pytest-asyncio \
+                   -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
+                   && python -m pytest -q -p no:cacheprovider"
+
       - name: Teardown
         if: always()
-        run: docker compose -f deploy/docker-compose.yml down -v --remove-orphans
+        run: |
+          docker rm -f ai-coach-test-pg >/dev/null 2>&1 || true
+          docker compose -f deploy/docker-compose.yml down -v --remove-orphans
