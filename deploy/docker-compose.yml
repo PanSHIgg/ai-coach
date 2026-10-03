@@ -67,6 +67,13 @@ services:
       ALEMBIC_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
       SEED_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
       LOAD_SEEDS: ${LOAD_SEEDS:-true}
+      # LOAD_SEEDS 走插值（同 api 段注释的机制），与 PAY_MOCK_MODE 那类坑的区别：
+      # 它的真源本就是「命令行/shell 或 deploy/.env」——文件头与 .github/workflows/cd.yml
+      # 都用 `LOAD_SEEDS=false docker compose up` 关闭种子重灌，这条路是通的。
+      # ⚠️ 反过来：把它写进根 .env **无效**（会被本行 :-true 覆盖）。保持 `true` 默认
+      #    是为了「compose up 即可用」的种子自动导入，故不删本行，只在此立此说明防腐。
+      # ALEMBIC_DATABASE_URL / SEED_DSN 是**有意**覆盖（服务名 postgres + psycopg2/asyncpg
+      # 双协议串，根 .env 的本机 DATABASE_URL 不适用），与 api/worker 同口径。
       # 超管账号的唯一真源是根 .env，由上面的 env_file 注入容器环境。
       # 这里【不要】再声明 ADMIN_INIT_USERNAME / ADMIN_INIT_PASSWORD：
       # environment 的优先级高于 env_file，用 ${VAR:-} 插出的空串会把 .env 里的
@@ -123,12 +130,31 @@ services:
       - path: ../.env
         required: false
     environment:
-      # 容器网络内固定指向服务名，覆盖 .env 中的本机调试值
+      # ============================================================
+      # 本块里只有「有意的覆盖」，其余一律交给 env_file(../.env)。
+      # 机制提醒（P0 事故根因，AGENTS.md §7.1 记的 required:false 是同族坑）：
+      #   ① environment: 的优先级**高于** env_file:，写在这里的键就是最终值；
+      #   ② 但 ${VAR} 插值读的是 compose project 环境 = shell 环境变量 +
+      #      deploy/.env（**本仓库不存在 deploy/.env**），根 .env **不参与插值**。
+      #   ⇒ 在 environment 里多写一个键 = 用「deploy/.env 的值或 :- 默认值」
+      #     覆盖掉根 .env 的同名值，静默失效且不报错。
+      # 下面 4 行是**故意**覆盖的：POSTGRES_HOST/REDIS_HOST/DATABASE_URL/REDIS_URL
+      # 必须指向 compose 服务名，本机调试值（127.0.0.1）在容器网络内不适用。
+      # ⚠️ 副作用：这 4 行里的 ${POSTGRES_USER/-PASSWORD/-DB} 同样不读根 .env，
+      #    改 DB 口令只能走 shell（`POSTGRES_PASSWORD=x docker compose up`）或
+      #    新建 deploy/.env；且已初始化的 pgdata 卷不会随口令变更（initdb 仅空卷执行），
+      #    postgres 服务那几个键与此处必须一致，否则 api 连不上。
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
       REDIS_URL: redis://redis:6379/0
-      PAY_MOCK_MODE: ${PAY_MOCK_MODE:-false}
+      # PAY_MOCK_MODE 已从本块删除（2026-10-03 P0 修复）：
+      #   原有 `PAY_MOCK_MODE: ${PAY_MOCK_MODE:-false}` 按上述机制恒为 false，
+      #   把根 .env 的 PAY_MOCK_MODE=true 覆盖掉 → pay_order 走真实微信下单分支、
+      #   永不 _mark_paid，订单停在 status=1 / pay_at=NULL / redeem_code=NULL，
+      #   而前端照样 toast「支付成功(模拟)」——静默失效、不报代码错误。
+      #   现由 env_file(../.env) 单源供给：根 .env 写 true 即生效；缺该键时后端
+      #   pydantic 默认 False（app/core/config.py，生产安全侧），不再有第二真源。
     volumes:
       - uploads:/app/uploads
       - logs:/var/log/app          # 日志落盘（§10.7；Cron 打包上传 COS 保留 30 天）
@@ -167,6 +193,10 @@ services:
       - path: ../.env
         required: false
     environment:
+      # 同 api：本块只保留**有意**的服务名覆盖（4 行，机制见 api 段注释）。
+      # 这里没有 PAY_MOCK_MODE 之类的键——worker 不跑支付，其余业务开关
+      # （AI_*/RATE_LIMIT_*/JWT_* 等）一律由 env_file(../.env) 单源供给，
+      # 新增覆盖请先读 api 段那段「environment 优先级高于 env_file」的说明。
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
@@ -302,6 +332,13 @@ services:
     image: grafana/grafana:11.2.0
     container_name: ai-coach-grafana
     environment:
+      # ⚠️ 同 api 段那个坑的**未修复孪生**（2026-10-03 记录）：grafana 服务**没有 env_file**，
+      #    本行只靠 compose 插值，而插值只认 shell 环境变量 / deploy/.env（后者不存在）——
+      #    根 .env 里的 GRAFANA_ADMIN_PASSWORD 走到这里必然落空（当前根 .env 也确实没这个键），
+      #    实测 GF_SECURITY_ADMIN_PASSWORD 落默认值 admin。
+      #    正确用法：GRAFANA_ADMIN_PASSWORD=xxx docker compose up -d grafana（.env.example:97
+      #    把它写成根 .env 的键，属文档误导；.env.example 不在本次可写范围，未改）。
+      #    本次只重建 api/worker/nginx，未动 grafana，故此处只留说明不改语义。
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
