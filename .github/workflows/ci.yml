@@ -302,8 +302,10 @@ jobs:
             docker logs --tail 15 ai-coach-prometheus 2>&1 || true
           done
           [ "$ok" = "1" ] || { echo "::error::prometheus up 查询未通过"; exit 1; }
-          # Grafana 数据源与看板自动装配（uid 与 dashboard.json 引用一致）
-          curl -fsS -u admin:admin http://127.0.0.1:3000/api/datasources/prometheus/uid | grep -q prometheus
+          # Grafana 数据源自动装配：按 provisioning 的 uid 查（datasources.yml 里
+          # uid: prometheus / name: Prometheus）。原三段式 /api/datasources/prometheus/uid
+          # 不是 Grafana 路由（GitHub runner 实测 404）。
+          curl -fsS -u admin:admin http://127.0.0.1:3000/api/datasources/uid/prometheus | grep -q '"uid":"prometheus"'
 
       # ---- 隔离测试库 pytest 门禁（原 deploy.yml test job，2026-10-03 并入）----
       # conftest.db_session 会 TRUNCATE 大量业务表，因此**绝不能指向上面部署库**：
