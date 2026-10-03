@@ -28,10 +28,64 @@
             </view>
           </view>
           <CButton type="secondary" block :loading="syncing" @click="onSync">同步步数</CButton>
+          <!-- 步数来源如实说明（§2.4：取不到按 PAL 估算并提示；未授权时给「去开启微信运动」引导入口，不阻断） -->
+          <view v-if="stepsSource" class="sport-tab__source">
+            <text class="sport-tab__source-text">{{ stepsSource }}</text>
+            <text v-if="stepsGuide" class="sport-tab__source-link" @tap="guideToWeRunSetting">
+              去开启微信运动 ›
+            </text>
+          </view>
         </template>
       </CCard>
 
-      <!-- 2. AI 建议：吃多后运动强提醒（§5.3-2，仅超标时出现） -->
+      <!-- 2. 近 31 天步数曲线（数据源 GET /api/steps/trend）
+           纯 view 拼柱状图，照抄 pages/account.vue 的「不引新依赖/图表库」做法；
+           后端不补零 → 横轴按本地日期连续铺满，缺记录的日子画「未同步」占位，绝不当 0 步。 -->
+      <CCard :title="trendTitle" class="sport-tab__card">
+        <template #extra>
+          <text v-if="trendCovered" class="sport-tab__hint">
+            已记录 {{ trendCovered }}/{{ STEPS_TREND_MAX_DAYS }} 天
+          </text>
+        </template>
+
+        <!-- §5.8 四态：骨架屏 / 错误+重试 / 空态引导 / 曲线 -->
+        <CSkeleton v-if="trendLoading && !trendLoaded" type="line" :rows="4" />
+        <CError v-else-if="trendError && !trendLoaded" @retry="fetchTrend" />
+        <CEmpty
+          v-else-if="!trendCovered"
+          icon="empty-sport"
+          text="还没有步数记录，同步微信运动后生成曲线"
+          button-text="同步步数"
+          @action="onSync"
+        />
+        <template v-else>
+          <view class="trend__legend">
+            <view class="trend__key"><view class="trend__mark trend__mark--bar" />有记录</view>
+            <view class="trend__key"><view class="trend__mark trend__mark--zero" />0 步</view>
+            <view class="trend__key"><view class="trend__mark trend__mark--none" />未同步</view>
+          </view>
+          <view class="trend">
+            <view v-for="d in trendDays" :key="d.date" class="trend__slot">
+              <view v-if="d.state === 'value'" class="trend__bar" :style="{ height: d.height }" />
+              <view v-else-if="d.state === 'zero'" class="trend__zero" />
+              <view v-else class="trend__missing" />
+            </view>
+          </view>
+          <view class="trend__axis">
+            <text
+              v-for="d in trendTicks"
+              :key="`tick-${d.date}`"
+              class="trend__tick"
+              :style="{ left: d.left }"
+            >{{ d.label }}</text>
+          </view>
+          <text class="trend__note">
+            柱高按区间最大步数归一；虚线空位＝该日无记录（未同步），实心圆点＝当天确实 0 步。
+          </text>
+        </template>
+      </CCard>
+
+      <!-- 3. AI 建议：吃多后运动强提醒（§5.3-2，仅超标时出现） -->
       <CCard v-if="excess > 0" title="AI 建议" class="sport-tab__card">
         <text class="advice__text">
           今天吃多了 {{ excess }} kcal，建议{{ advice.name }} {{ advice.min }} 分钟，
@@ -53,7 +107,7 @@
         </view>
       </CCard>
 
-      <!-- 3. 运动记录（今日）+ 添加运动（§5.3-3/4/5，标准项目见添加页） -->
+      <!-- 4. 运动记录（今日）+ 添加运动（§5.3-3/4/5，标准项目见添加页） -->
       <CCard title="运动记录" class="sport-tab__card">
         <template #extra>
           <text class="sport-tab__link" @tap="goSportRecords">全部记录 ›</text>
@@ -76,7 +130,7 @@
         </template>
       </CCard>
 
-      <!-- 4. 周期管理（§5.3-7，跳转挑战赛页 §5.6） -->
+      <!-- 5. 周期管理（§5.3-7，跳转挑战赛页 §5.6） -->
       <CCard title="周期管理" class="sport-tab__card">
         <view class="plan">
           <text class="plan__desc">21 天挑战 / 90 天计划</text>
@@ -84,7 +138,7 @@
         </view>
       </CCard>
 
-      <!-- 5. 附近运动场馆（§5.3-6，商家列表页已含健身房类目筛选） -->
+      <!-- 6. 附近运动场馆（§5.3-6，商家列表页已含健身房类目筛选） -->
       <CCard title="附近场馆" class="sport-tab__card">
         <view class="plan">
           <text class="plan__desc">羽毛球 / 游泳 / 健身房 / 瑜伽，标准项目比价</text>
@@ -101,7 +155,10 @@
  * 依据：docs/split/01 §3.1 #12（步数、AI 建议、运动记录、标准项目、场馆）
  *      docs/split/03 §5.3（原型图 + 交互）、§5.6（周期管理 → 挑战赛页）
  * 【假设】聚合现有能力最简实现：
- *   - 步数/消耗复用 account store；同步调 syncStepsFromWeRun（优先真实微信运动，取不到按 PAL 估算）；
+ *   - 步数/消耗复用 account store；同步先预检 scope.werun 授权再取微信运动数据，
+ *     提示文案以后端 steps_source 为真源（仅 1 才宣称真实步数），未授权只引导开启不阻断（§2.4）；
+ *   - 今日运动下方补「近 31 天步数曲线」（数据源 /api/steps/trend），同 account.vue 用纯 view 拼图，
+ *     不引图表库；点「同步步数」成功后与 onShow 一并重拉曲线；
  *   - AI 建议仅超标时展示（§5.3「吃多后运动强提醒」），一键写入走 createSport；
  *   - 运动列表仅今日，历史日期切换见 /pages/record/sport；
  *   - 标准运动项目在添加运动页（sport-add）内选择，此处给入口；
@@ -113,9 +170,17 @@ import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
 import { useAccountStore } from '@/stores/account'
-import { createSport, listSports, syncStepsFromWeRun } from '@/api/records'
+import {
+  createSport,
+  describeStepsSync,
+  getStepsTrend,
+  guideToWeRunSetting,
+  listSports,
+  STEPS_TREND_MAX_DAYS,
+  syncStepsFromWeRun,
+} from '@/api/records'
 import { useToast } from '@/composables/useToast'
-import type { SportRecordOut } from '@/types/api'
+import type { SportRecordOut, StepTrendItem } from '@/types/api'
 
 const userStore = useUserStore()
 const accountStore = useAccountStore()
@@ -128,18 +193,126 @@ function fmt(n: number): string {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
-function todayStr(): string {
-  const d = new Date()
+/** 本地时区 YYYY-MM-DD（toISOString 是 UTC，UTC+8 凌晨会错切一天，与 api/account.ts 同口径） */
+function fmtDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function todayStr(): string {
+  return fmtDay(new Date())
 }
 
 /* ---------- 今日运动（步数 / 消耗 / 同步） ---------- */
 const accountError = ref(false)
 const syncing = ref(false)
+/** 步数来源说明（同步后按后端 steps_source 如实展示；空串=本次会话尚未同步过） */
+const stepsSource = ref('')
+/** 未授权 scope.werun → 展示「去开启微信运动」引导入口 */
+const stepsGuide = ref(false)
 const burnt = computed(() => Math.round(accountStore.today?.calories_burnt ?? 0))
 
 /** 超标量 = 「吃多了多少」=-left（left 为负表示超标，§5.1 today_left 口径） */
 const excess = computed(() => (accountStore.overBudget ? Math.round(-accountStore.left) : 0))
+
+/* ---------- 近 31 天步数曲线（/api/steps/trend · 纯 view 拼柱状图，不引图表库） ---------- */
+
+/** 横轴标签密度：每 5 天出一个（从今日往前数，今日必出）——31 个标签排不下，其余留空 */
+const TREND_LABEL_EVERY = 5
+
+/**
+ * 单日格子的三态（后端不补零 ⇒ 缺记录 ≠ 0 步，必须分开画）：
+ * - value   有记录且步数>0：实心柱，高度按区间最大值归一
+ * - zero    有记录且确实 0 步：实心小圆点（"今天没走路"是事实，不是占位）
+ * - missing 后端没返回该日：虚线空心空位＝未同步，不参与归一、不冒充 0 步
+ */
+type TrendState = 'value' | 'zero' | 'missing'
+
+interface TrendDay {
+  date: string
+  state: TrendState
+  /** 柱高百分比，仅 state==='value' 使用 */
+  height: string
+  /** 横轴标签 MM-DD，空串=该格不出标签 */
+  label: string
+  /** 标签中心位置（百分比 + translateX(-50%) 绝对定位，避免 31 格挤压换行） */
+  left: string
+}
+
+const trendItems = ref<StepTrendItem[]>([])
+const trendLoading = ref(false)
+const trendError = ref(false)
+/** 本次会话是否成功拿到过曲线数据（拿到过之后刷新失败只提示不清图，与 account.vue 同口径） */
+const trendLoaded = ref(false)
+
+const trendTitle = computed(() => `近 ${STEPS_TREND_MAX_DAYS} 天步数`)
+
+/**
+ * items → 连续 STEPS_TREND_MAX_DAYS 格横轴（今日往前推，本地时区）。
+ * 窗口外的记录一律忽略（不硬塞进图、不参与归一）；
+ * 非法条目（日期非字符串 / 步数非有限数 / 负数）直接丢弃 —— 宁可显示「未同步」也不造数。
+ */
+const trendDays = computed<TrendDay[]>(() => {
+  const byDate = new Map<string, number>()
+  for (const it of trendItems.value) {
+    const date = typeof it?.date === 'string' ? it.date.slice(0, 10) : ''
+    const raw = it?.steps
+    const value = typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? Math.round(raw) : null
+    if (date && value !== null) byDate.set(date, value)
+  }
+
+  const today = new Date()
+  const dates: string[] = []
+  const values: (number | null)[] = []
+  for (let back = STEPS_TREND_MAX_DAYS - 1; back >= 0; back -= 1) {
+    const d = new Date(today)
+    d.setDate(d.getDate() - back)
+    const key = fmtDay(d)
+    const hit = byDate.get(key)
+    dates.push(key)
+    values.push(hit === undefined ? null : hit)
+  }
+
+  // 归一基准＝区间内最大步数；0 步不计入，无正值时取 1 防除零
+  const peak = Math.max(1, ...values.filter((v): v is number => v !== null && v > 0))
+
+  return dates.map((date, i): TrendDay => {
+    const v = values[i]
+    const state: TrendState = v === null ? 'missing' : v === 0 ? 'zero' : 'value'
+    let height = '0%'
+    if (v !== null && v > 0) height = `${Math.max(4, Math.round((v / peak) * 100))}%`
+    return {
+      date,
+      state,
+      height,
+      label: (STEPS_TREND_MAX_DAYS - 1 - i) % TREND_LABEL_EVERY === 0 ? date.slice(5) : '',
+      left: `${(((i + 0.5) / STEPS_TREND_MAX_DAYS) * 100).toFixed(3)}%`,
+    }
+  })
+})
+
+/** 有记录的天数（真实柱子 + 零点），既作空态判据也作「已记录 N/31 天」文案 */
+const trendCovered = computed(() => trendDays.value.filter((d) => d.state !== 'missing').length)
+/** 出标签的格子（每 5 天一个，含今日） */
+const trendTicks = computed(() => trendDays.value.filter((d) => d.label !== ''))
+
+/**
+ * 拉取步数曲线。
+ * 失败 → 错误态 + 重试；成功但无记录 → 空态引导「同步微信运动后生成曲线」；
+ * 两种情况都不画假柱子（后端不补零，前端也不补）。
+ */
+async function fetchTrend() {
+  trendLoading.value = true
+  trendError.value = false
+  try {
+    const data = await getStepsTrend(STEPS_TREND_MAX_DAYS)
+    trendItems.value = Array.isArray(data?.items) ? data.items : []
+    trendLoaded.value = true
+  } catch (e) {
+    trendError.value = true
+  } finally {
+    trendLoading.value = false
+  }
+}
 
 /* ---------- AI 建议（吃多后强提醒）：两档建议轮换 ---------- */
 const ADVICES = [
@@ -160,6 +333,7 @@ onShow(() => {
   if (!userStore.isLogined) return
   loadAccount()
   reload()
+  fetchTrend()
 })
 
 async function loadAccount() {
@@ -185,20 +359,23 @@ async function reload() {
 }
 
 /**
- * 同步当日步数（F-09）：优先真实微信运动数据，取不到则报 0 → 后端按 PAL 估算。
+ * 同步当日步数（F-09）：先预检 scope.werun 授权 → 取微信运动加密数据交后端解密。
+ * 提示真源＝后端 steps_source（仅 1 才能说"已同步微信运动 N 步"），未授权/取不到一律说"按活动水平估算"；
+ * backfilled_days>0 的「已回填最近 M 天历史」措辞同样由 describeStepsSync 生成（文案单一真源）。
+ * 同步返回后重拉今日账户 + 步数曲线（回填的历史只有曲线能看出来）。
+ * 未授权时给「去开启微信运动」引导（openSetting），估算值照常入库，不阻断本次流程（§2.4）。
  * 严禁伪造步数常量（原 8000 mock 兜底已移除）。
  */
 async function onSync() {
   if (syncing.value) return
   syncing.value = true
   try {
-    const { data, gotWeRunData } = await syncStepsFromWeRun(todayStr())
-    if (gotWeRunData) {
-      toast.success({ title: `同步成功，校准 +${Math.round(data.delta_calories)} kcal` })
-    } else {
-      toast.info({ title: '未获取到步数，已按活动水平估算' })
-    }
-    await loadAccount()
+    const msg = describeStepsSync(await syncStepsFromWeRun(todayStr()))
+    toast[msg.tone]({ title: msg.title })
+    stepsSource.value = msg.sourceLabel
+    stepsGuide.value = msg.needGuide
+    if (msg.needGuide) guideToWeRunSetting()
+    await Promise.all([loadAccount(), fetchTrend()])
   } catch (e) {
     // 错误信息已由 request 封装 toast
   } finally {
@@ -289,9 +466,35 @@ function onNotice() {
     color: $brand;
   }
 
+  // 曲线卡右上「已记录 N/31 天」：只数后端真有记录的日子（缺失的日子不算）
+  &__hint {
+    font-size: $t-22;
+    color: $text-3;
+  }
+
   &__add {
     margin-top: $space-sm;
     align-self: flex-end;
+  }
+
+  // 步数来源说明 + 未授权引导入口（§2.4 引导开启、不阻断）
+  &__source {
+    margin-top: $space-sm;
+  }
+
+  &__source-text {
+    display: block;
+
+    font-size: $t-22;
+    color: $text-2;
+  }
+
+  &__source-link {
+    display: block;
+
+    margin-top: $space-xs;
+    font-size: $t-22;
+    color: $brand;
   }
 }
 
@@ -315,6 +518,116 @@ function onNotice() {
   &__label {
     font-size: $t-22;
     color: $text-2;
+  }
+}
+
+// 近 31 天步数曲线（照 account.vue .chart 的做法：flex + 百分比柱高，纯 view 拼，不引图表库）
+.trend {
+  display: flex;
+  align-items: flex-end;
+  height: 200rpx;
+
+  &__slot {
+    flex: 1;
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  // 有记录且 >0：实心柱
+  &__bar {
+    width: 12rpx;
+    border-radius: 4rpx 4rpx 0 0;
+    background: $brand;
+    transition: height $duration-base $ease-out;
+  }
+
+  // 有记录但确实是 0 步：实心圆点（"值就是 0"，与"没有值"两种事实）
+  &__zero {
+    width: 10rpx;
+    height: 10rpx;
+    border-radius: 50%;
+    background: $brand;
+  }
+
+  // 该日后端没返回＝未同步：透明底 + 虚线空心框，绝不当 0 步画
+  &__missing {
+    box-sizing: border-box;
+    width: 14rpx;
+    height: 16rpx;
+    border: 2rpx dashed $border;
+    border-radius: 2rpx;
+    background: transparent;
+  }
+
+  &__axis {
+    position: relative;
+
+    height: 28rpx;
+    margin-top: $space-xs;
+  }
+
+  // 标签绝对定位居中（每 5 天一个），避免 20rpx 宽的格子把 MM-DD 挤到换行
+  &__tick {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+
+    font-size: $t-22;
+    color: $text-3;
+    white-space: nowrap;
+  }
+
+  &__legend {
+    display: flex;
+    gap: $space-md;
+    margin-bottom: $space-sm;
+  }
+
+  &__key {
+    display: flex;
+    align-items: center;
+
+    font-size: $t-22;
+    color: $text-2;
+  }
+
+  &__mark {
+    margin-right: $space-xs;
+    background: $brand;
+
+    &--bar {
+      width: 10rpx;
+      height: 18rpx;
+      border-radius: 3rpx 3rpx 0 0;
+    }
+
+    &--zero {
+      width: 10rpx;
+      height: 10rpx;
+      border-radius: 50%;
+    }
+
+    &--none {
+      box-sizing: border-box;
+      width: 12rpx;
+      height: 14rpx;
+      border: 2rpx dashed $border;
+      border-radius: 2rpx;
+      background: transparent;
+    }
+  }
+
+  &__note {
+    display: block;
+
+    margin-top: $space-sm;
+    font-size: $t-22;
+    line-height: 1.5;
+    color: $text-3;
   }
 }
 

@@ -16,6 +16,9 @@
     <!-- 2. Mock 兜底标注（后端未部署/请求失败时展示内置示例数据） -->
     <view v-if="isMock" class="merchant__mock-tip">示例数据 · 后端暂未连接</view>
 
+    <!-- 2b. 自动带券提示（§3.3 不限商家券从此页自选商家下单，券随跳转透传） -->
+    <view v-if="couponId" class="merchant__coupon-tip">已带优惠券 · 选商家后自动带入下单页</view>
+
     <!-- 3. 商家列表：名称/类目/评分/距离（§5.1 商家比价入口） -->
     <CSkeleton v-if="loading && !list.length" type="card" />
     <CEmpty
@@ -74,6 +77,7 @@
 /**
  * FE4 · 商家列表（tab 壳页）— Phase 3 (M3)
  * 依据：docs/split/03-页面布局与交互说明.md §5.1 商家比价 / 首页·券提醒 [去使用] 落地页
+ *       §3.3 券包 → 不限商家可用券落此页自选商家：读 coupon_id 并透传给详情页
  * 契约：GET /api/merchant/list（MerchantPageData）
  * 【假设】后端尚未部署联调：请求失败（开发态无后端）时回退内置示例数据并标注，
  *         保证页面结构与双端 build 完整；联调后自然切换为真数据。
@@ -107,8 +111,19 @@ const loading = ref(false)
 const isMock = ref(false)
 const userLat = ref<number | null>(null)
 const userLng = ref<number | null>(null)
+/**
+ * 券包带过来的券 id（§3.3「券包 → 点击可用券 → 下单页（自动带券）」）：
+ * 不限商家券落到本页自选商家，此处只负责读取 + 继续透传给详情页，不做可用性判断。
+ */
+const couponId = ref<number | null>(null)
 
 /* ---------- 工具 ---------- */
+
+/** 解析 coupon_id：缺失 / 非数字 / 非正数 → null（退化为「未带券」的正常流程，不崩不白屏） */
+function parseCouponId(raw?: string): number | null {
+  const n = Number(raw)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
 
 /** 距离格式化：米 <1000 显示 m，否则 km（字段可空） */
 function fmtDist(distanceM?: number | null): string {
@@ -160,12 +175,16 @@ function switchCategory(cat: string) {
 }
 
 function goDetail(id: number) {
-  uni.navigateTo({ url: `/pages/merchant/detail?id=${id}` })
+  const parts = [`id=${id}`]
+  // 自动带券（§3.3）：券 id 继续往详情页透传，最终由订单确认页选中/灰显
+  if (couponId.value != null) parts.push(`coupon_id=${couponId.value}`)
+  uni.navigateTo({ url: `/pages/merchant/detail?${parts.join('&')}` })
 }
 
 /* ---------- 生命周期 ---------- */
 
-onLoad(() => {
+onLoad((options) => {
+  couponId.value = parseCouponId((options as { coupon_id?: string } | undefined)?.coupon_id)
   // 尝试取定位（gcj02；fail 静默降级为无坐标查询），成败都先加载列表
   uni.getLocation({
     type: 'gcj02',
@@ -220,6 +239,17 @@ onReachBottom(() => {
     color: $warn;
     text-align: center;
     background: rgba($warn, 0.1);
+    border-radius: $radius-sm;
+  }
+
+  // 2b. 自动带券提示（§3.3 不限商家券：本页自选商家，券随跳转透传到下单页）
+  &__coupon-tip {
+    padding: $space-sm $space-md;
+    margin-bottom: $space-md;
+    font-size: $t-22;
+    color: $brand-dark;
+    text-align: center;
+    background: rgba($brand, 0.1);
     border-radius: $radius-sm;
   }
 

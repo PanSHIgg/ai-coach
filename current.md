@@ -124,6 +124,7 @@
 | `docs/AI饮食管控教练_全栈开发交付文档.md:1620`、`docs/split/08-部署与运维.md:25` | `Dockerfile.miniapp`：node:20 编译 → nginx 托管静态 H5 | `deploy/Dockerfile.miniapp` **已删除**（零引用孤儿）；`deploy/nginx.conf` 的 server 级 `root`、静态缓存正则、`location /` SPA 回退三段亦删除——本项目只交付微信小程序，H5 不进部署面 | 换版时删该行或改写为"H5 仅本地视觉回归通道"；**当前不改基线** |
 | 接口计数口径（`miniapp/README.md` 曾写 34、`AGENTS.md §7.2` 曾写 78 ops、被删的 `contracts/mock/routes.mjs:1` 曾写 116） | 各文档各写一个数 | **权威值已定：109 路径 / 118 ops**——`contracts/README.md:4` 与 `backend/tests/test_contract_consistency.py` 的 `FROZEN_PATH_COUNT=109 / FROZEN_OP_COUNT=118` 两处一致，且该测试把**契约侧与后端实际注册路由侧同时钉住**（漂移即红）。`AGENTS.md §7.2` 已按此刷新，`miniapp/README.md` 的 34 已删 | 已收口；后续换版由主 Agent 同步 openapi.yaml + 测试常量 + `contracts/README.md` 三处，子代理不得各自数各自写 |
 | `AGENTS.md §7.1` 种子行 vs `deploy/docker-compose.yml:90` | 文档命令导 `data/seeds/ai_knowledge_full.jsonl`（50 条） | compose 的 migrate 服务导 `data/seeds/rag_knowledge.sample.jsonl`（本机 2026-10-02 实测打印"已导入 ai_knowledge: 3 行"）——两者不同源，容器起来后 RAG 语料只有 3 条 | 已在 `AGENTS.md §7.1` 加警示；若要容器即全量，需改 compose 的 `--file` 指向全量文件（属部署口径，待拍板） |
+| 基线文档 §6.3.3「步数校准 NEAT」+ §7.2 `step_record.hourly_json` + §8.4.5 示例 | 「按每小时步频映射 MET（散步 2.5 / 快走 4.3 / 跑步 8.0），**逐时累加**得 NEAT_calibrated」，并为此设计逐时步数字段与请求体 | **微信运动不提供逐时数据**：`wx.getWeRunData` 解密后是 `stepInfoList` **固定 31 条按天记录**（index 0=30 天前，index 30=今天），官方口径无小时粒度。因此 `hourly_json` 在微信运动数据源下**永远为空**，§6.3.3 的逐时累加公式不可实现；现实现退化为"按当日总步数估算 MET" | 属**数据源能力冲突**，不是代码缺陷：要么把 §6.3.3 改写为"按日粒度校准，逐时版依赖穿戴设备（§6.3.3 第四层/二期）"，要么明确 `hourly_json` 只由智能手环写入。**换版需产品拍板，当前不改基线** |
 
 
 ---
@@ -133,6 +134,7 @@
 - [x] H5 **本地浏览器**渲染 / 控制台核对（agent-browser 实测 2026-10-02：登录页渲染正常、控制台零报错）。**口径修正**：这不是"H5 真机/线上验收"——本项目 H5 不进部署面（`deploy/Dockerfile.miniapp` 与 nginx 的 SPA root/静态缓存/`location /` 回退三段已删），H5 只是 `#ifdef H5` 分支的本地视觉回归通道；`scripts/h5-compat-check.sh` 现**只跑 admin**，小程序 H5 需按 `dev_env.md §6` 手动起 `dev:h5`/`build:h5` 核对
 - [x] 微信开发者工具小程序验收（本机已具备该工具，此前"无该工具"的记载过期）：真微信登录实测通过——解 JWT 得真实 `openid`（`oCPjzxZ-…`，非 `mock-` 前缀）；假 code 返回 `1001 + "invalid code, rid:…"`。工具加载 `miniapp/dist/build/mp-weixin`，**外部重建不会自动生效，须 `cli quit` + `cli open`**（见 `AGENTS.md §7.1`）
 - [ ] 小程序**真机**预览（`http://localhost` 真机不可达，且默认要求 https 合法域名；需局域网 IP 或穿透）
+- [ ] **微信运动步数只能真机验**（2026-10-03 官方口径查证 + 本机 E2E 实测）：开发者工具模拟器没有真实计步数据源，`wx.getWeRunData` 必走 fail → 前端 `steps:0` → 后端按 PAL 估算，因此 `steps_source=1` 这条分支**在模拟器里永远不可达**，不是代码缺陷。后端链路（登录持久化 session_key → 按用户解密 → watermark.appid 校验）已用密文构造在隔离库测通；剩余待验项＝真机端到端。测试方案 §9.x 应补一句"步数校准须真机用例"，避免后来者把模拟器取不到报成 bug
 - [ ] 性能压测 / 兼容性 / E2E 端到端（不在本轮核对范围，`perf/` 有独立报告）
 - [x] admin H5 端到端交互（agent-browser 已实测，2026-10-02：登录→看板全流程正常、控制台零报错）
 

@@ -1,4 +1,4 @@
-"""微信登录服务：code2session（httpx）+ 用户/身份/权益 upsert + JWT 签发。"""
+"""微信登录服务：code2session（httpx）+ 用户/身份/权益 upsert + JWT 签发 + session_key 持久化。"""
 
 import httpx
 from sqlalchemy import select
@@ -9,6 +9,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppException
 from app.core.logging import get_logger
 from app.core.security import create_access_token, create_refresh_token, decode_token
+from app.db.redis import get_redis
 from app.models import BodyProfile, User, UserAuth, UserBenefit
 from app.schemas.auth import LoginData, RefreshData, UserBrief
 from app.schemas.common import ErrorCode
@@ -23,6 +24,54 @@ INIT_AI_TIMES = 10  # 新用户初始 AI 对话次数（user_benefit.ai_times_le
 # 无微信凭证属**部署缺陷**，不该把配置项名投给终端用户：该 message 经 envelope 直达
 # login.vue 的 toast.error(e.message)。故对外只给通用文案，缺哪个变量只写进日志。
 LOGIN_UNAVAILABLE_MSG = "登录服务未就绪，请稍后重试"
+
+# ---- 微信运动 session_key 持久化（F-09 解密链路的唯一合法密钥来源）----
+# 官方口径：session_key 来自 code2Session，**会话态**、每次 wx.login 都会换发新的，
+# 解密敏感数据必须用"同一次登录"拿到的 key，且服务端绝不可下发给客户端。
+# TTL 取 24h 的理由：
+#   1) 微信运动是**按天**数据（stepInfoList 固定 31 条按天记录，无逐时），一次登录到
+#      当次 /api/steps/sync 落在同一自然日内，24h 已覆盖真实使用窗口；
+#   2) 每次登录都会覆盖写新值，所以 TTL 只决定"用户不再登录时旧 key 还能被读多久"——
+#      key 一旦被微信轮换，旧值只会让解密失败（无正确性收益、只有长期存密钥的风险）；
+#   3) 上限按任务口径压到 ≤24h，与 access(2h)/refresh(7d) 相比取"一天"这个数据粒度。
+SESSION_KEY_TTL_SECONDS = 24 * 3600
+SESSION_KEY_REDIS_PREFIX = "wx:session_key"
+
+
+def session_key_redis_key(user_id: int) -> str:
+    """按用户存取的 Redis 键名（user_id 维度：与 openid 一对一，解密侧只拿得到 user_id）。"""
+    return f"{SESSION_KEY_REDIS_PREFIX}:{user_id}"
+
+
+async def store_session_key(user_id: int, session_key: str) -> None:
+    """登录后按用户持久化 session_key，供微信运动步数解密读取。
+
+    敏感凭据：**只落 Redis，绝不下发客户端、绝不写进日志**（日志只记失败原因）。
+    Redis 不可用 / 写失败一律吞掉并 warning——不能因为存不下 key 就把用户挡在登录外
+    （步数解密会明确降级为客户端传入值，见 `app/services/steps.py`）。
+    """
+    if not session_key:
+        return  # code2session 未返回 key（微信侧异常/测试桩），无值可存
+    try:
+        redis = await get_redis()
+        if redis is None:
+            logger.warning("Redis 不可用，session_key 未持久化（微信步数解密将明确降级为传入值）")
+            return
+        await redis.set(session_key_redis_key(user_id), session_key, ex=SESSION_KEY_TTL_SECONDS)
+    except Exception as exc:  # Redis 异常一律降级，不影响登录
+        logger.warning("session_key 持久化失败，登录不受影响", extra={"reason": str(exc)})
+
+
+async def get_session_key(user_id: int) -> str:
+    """取该用户最近一次登录的 session_key；无值 / 已过期 / Redis 不可用 → 返回 ""（调用方降级）。"""
+    try:
+        redis = await get_redis()
+        if redis is None:
+            return ""
+        return await redis.get(session_key_redis_key(user_id)) or ""
+    except Exception as exc:  # 读取失败按"无 key"处理，由调用方明确降级
+        logger.warning("session_key 读取失败，按无 key 降级", extra={"reason": str(exc)})
+        return ""
 
 
 async def code2session(code: str, settings: Settings | None = None) -> dict:
@@ -116,6 +165,11 @@ async def login(session: AsyncSession, code: str, settings: Settings | None = No
     need_profile = profile is None
 
     await session.commit()
+
+    # 官方口径：微信运动等敏感数据的解密必须用**同一次** code2Session 的 session_key，
+    # 而它每次 wx.login 都会轮换 —— 故登录成功后立刻按用户持久化（Redis + TTL，见上）。
+    # 放在 commit 之后：用户行没落盘就先存密钥会留下无主 key；持久化失败不影响登录。
+    await store_session_key(user.id, session_data.get("session_key") or "")
 
     return LoginData(
         token=create_access_token(str(user.id), s, openid=openid),

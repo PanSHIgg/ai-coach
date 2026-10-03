@@ -1,7 +1,7 @@
 # contracts · API 契约（P0-d）
 
 前后端并行的唯一真源（接口清单来源 `docs/split/05-API接口文档.md` §8.3）。
-当前冻结基线：**109 条路径 / 118 个 operation**（GET 53 · POST 56 · PUT 4 · DELETE 5）。
+当前冻结基线：**110 条路径 / 119 个 operation**（GET 54 · POST 56 · PUT 4 · DELETE 5）。
 
 ## 文件结构
 

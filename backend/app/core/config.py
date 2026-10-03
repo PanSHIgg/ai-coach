@@ -52,9 +52,12 @@ class Settings(BaseSettings):
     WECHAT_SUBSCRIBE_TEMPLATE_IDS: str = ""
 
     # ---- 微信运动步数解密（F-09）----
-    # uni.getWeRunData 的 encryptedData 解密所需 session_key（AES-128-CBC 密钥，base64）。
-    # 真实实现应由 code2session 获取并按用户落库读取；骨架阶段以可选配置占位，默认空
-    # → 无凭证时明确降级（不伪造步数，由前端回退传 0 → 后端按 PAL 估算 NEAT）。
+    # 主路径：session_key 由 code2session 在登录时取得，按用户存 Redis（见
+    #   app/services/auth_service.store_session_key，TTL 24h），解密时按当前用户读取；
+    #   原因：session_key 每次 wx.login 都会轮换、只对"该用户本次登录"有效，静态配置无法承载。
+    # 本键**仅作本地调试兜底**：Redis 无该用户 key 时才读它，且整进程只 warning 一次。
+    #   正常部署请留空——填了又忘了清，等于用一个早已过期的会话密钥去解密。
+    # 三者皆不可用时明确降级（不伪造步数：前端回退传 0 → 后端按 PAL 估算 NEAT）。
     WECHAT_STEPS_SESSION_KEY: str = ""
 
     # ---- 腾讯云 COS（公开读 / 私有写；小程序直传）----

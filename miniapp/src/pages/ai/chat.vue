@@ -67,10 +67,20 @@
         <text class="chips__item chips__item--sos" @tap="openRescue">饥饿急救</text>
       </view>
 
-      <!-- 次数提示（06 §1.5：次数用完时输入框上方展示，无法发送） -->
-      <view class="quota" :class="{ 'quota--zero': timesLeft === 0 }">
+      <!-- 次数提示（06 §1.5：次数用完时无法发送；拉取失败给可重试入口，且不放行发送） -->
+      <view
+        class="quota"
+        :class="{ 'quota--zero': timesLeft === 0, 'quota--error': timesLoaded && timesLeft === null }"
+      >
         <text class="quota__text">{{ quotaText }}</text>
-        <text v-if="timesLeft === 0" class="quota__link" @tap="onInvite">邀请好友解锁 ›</text>
+        <text
+          v-if="timesLoaded && timesLeft === null"
+          class="quota__link"
+          @tap="loadTimes"
+        >
+          重试 ›
+        </text>
+        <text v-else-if="timesLeft === 0" class="quota__link" @tap="onInvite">邀请好友解锁 ›</text>
       </view>
 
       <view class="chat__input">
@@ -175,17 +185,25 @@ const rescueVisible = ref(false)
 /** scroll-view 锚点：滚到最后一条 */
 const anchorId = ref('')
 
-/** 未拉到次数时按"有次数"放行，避免网络抖动直接锁死输入框 */
+/**
+ * 能否发送：
+ * - 加载中（未拉到且未失败）：按 draft 放行，避免网络抖动直接锁死输入框
+ * - 加载失败（timesLoaded 已 true 但 timesLeft 仍为 null）：次数不可信 → 不放行，须先点「重试」
+ * - 已拉到次数：非 0 且有内容才放行
+ */
 const canSend = computed(() => {
   if (sending.value) return false
+  if (timesLoaded.value && timesLeft.value === null) return false
   if (!timesLoaded.value) return !!draft.value.trim()
   return timesLeft.value !== 0 && !!draft.value.trim()
 })
 
 const quotaText = computed(() => {
   if (!timesLoaded.value) return '次数加载中…'
+  // 拉取失败：timesLeft=null，不再直出「今日剩余 null 次」，给出可重试提示
+  if (timesLeft.value === null) return '次数获取失败，点击重试'
   if (timesLeft.value === 0) return '今日剩余 0 次，邀请好友解锁'
-  if (timesLeft.value !== null && timesLeft.value < 0) return '今日不限次' // -1=终身版不限次
+  if (timesLeft.value < 0) return '今日不限次' // -1=终身版不限次
   return `今日剩余 ${timesLeft.value} 次`
 })
 
@@ -302,9 +320,9 @@ function askCoachFromRescue() {
   draft.value = '我现在很饿，能吃什么？'
 }
 
-/** 次数用尽后的邀请入口（邀请裂变为 Phase 3，暂无落地页） */
+/** 次数用尽后的邀请入口：真实跳转邀请页（pages/invite 已存在于 pages.json，非 Tab 页用 navigateTo） */
 function onInvite() {
-  toast.info({ title: '邀请好友解锁（Phase 3 接入）' })
+  uni.navigateTo({ url: '/pages/invite' })
 }
 
 /* ---------- 生命周期 ---------- */
@@ -508,6 +526,11 @@ onShow(() => {
   // 次数用尽（06 §1.5 验收项）
   &--zero .quota__text {
     color: $danger;
+  }
+
+  // 次数拉取失败（null）：警示色 + 可重试
+  &--error .quota__text {
+    color: $warn;
   }
 }
 

@@ -122,6 +122,8 @@ async def test_recognize_matches_food_table(db_client, db_session, authed, monke
         (rice.id, "米饭", 116.0),
     ]
     assert data["need_confirm"] is False
+    # 契约口径：已自动命中的条目 candidates 恒为空数组（内部召回行只用于判并列，不外泄）
+    assert [(i["ambiguous"], i["candidates"]) for i in data["items"]] == [(False, [])] * 2
 
 
 async def test_recognize_matches_food_alias(db_client, db_session, authed, monkeypatch):
@@ -152,6 +154,42 @@ async def test_recognize_unmatched_item_needs_confirm(db_client, db_session, aut
     item = body["items"][0]
     assert item["food_id"] is None  # 未命中 food 表 → null（契约 nullable）
     assert item["calories"] == 480.0  # 回落模型估算
+    assert body["need_confirm"] is True
+    # 库里连近似行都没有（本用例不播食物数据）→ 不是"等用户确认"，走 §2.4 手动搜索/自定义食物
+    assert item["ambiguous"] is False
+    assert item["candidates"] == []
+
+
+async def test_recognize_ambiguous_item_carries_candidates(
+    db_client, db_session, authed, monkeypatch
+):
+    """召回到近似行但不确定 → `ambiguous=true` + `candidates` 必须进响应体（§6.3.2 让用户选）。
+
+    分层（§2.9）：反例行为本身（清蒸姜/清蒸葱 抢答、阈值 0.5）已在
+    `test_recognize_matching.py` 的决策层与 DB 层各测一次，此处只测**响应投影**——
+    `MatchOutcome.candidates` → `RecognizedItem.candidates`（`id` 改名 `food_id`）这条新链路，
+    别的层次看不到。
+    """
+    ginger = await _seed_food(db_session, "清蒸姜", 41.0)
+    scallion = await _seed_food(db_session, "清蒸葱", 33.0)
+    _patch_vlm(
+        monkeypatch,
+        items=[{"name": "清蒸鱼", "confidence": 0.95, "portion_g": 100, "kcal_100g": 105}],
+    )
+    body = (
+        await db_client.post("/api/meal/recognize", headers=authed["headers"], files=_upload())
+    ).json()["data"]
+    item = body["items"][0]
+    assert item["food_id"] is None
+    assert item["ambiguous"] is True
+    assert {c["food_id"]: c["name"] for c in item["candidates"]} == {
+        ginger.id: "清蒸姜",
+        scallion.id: "清蒸葱",
+    }
+    assert {c["calories_100g"] for c in item["candidates"]} == {41.0, 33.0}
+    # 候选分数全部低于自动采纳阈值——否则它们早该被采纳，而不是让用户选
+    assert all(0 <= c["score"] < rs.AUTO_ACCEPT_SIMILARITY for c in item["candidates"])
+    assert item["calories"] == 105.0  # 未采纳 → 仍按模型估算，need_confirm 为 True
     assert body["need_confirm"] is True
 
 

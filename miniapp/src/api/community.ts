@@ -33,14 +33,30 @@ import type {
 } from '@/types/api'
 import { request } from './request'
 
+/**
+ * 小程序运行时没有浏览器那套查询串参数构造（实测同步抛 ReferenceError），
+ * 这里手工拼接查询串，语义与原实现完全等价：
+ * - falsy（undefined/null/''/0/NaN/false）参数一律跳过（对齐原 `if (params.x)` 真值判断）
+ * - 参数顺序由调用处数组顺序决定，与原实现的插入顺序一致
+ * - 键/值均用 encodeURIComponent 编码（小程序可用）
+ */
+function buildQuery(fields: Array<[string, string | number | undefined | null]>): string {
+  const parts: string[] = []
+  for (const [key, value] of fields) {
+    if (!value) continue
+    parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+  }
+  return parts.join('&')
+}
+
 /* ---------- 动态 ---------- */
 
 export function listPosts(params: { page?: number; page_size?: number; post_type?: 1 | 2 | 3 } = {}) {
-  const q = new URLSearchParams()
-  if (params.page) q.set('page', String(params.page))
-  if (params.page_size) q.set('page_size', String(params.page_size))
-  if (params.post_type) q.set('post_type', String(params.post_type))
-  const qs = q.toString()
+  const qs = buildQuery([
+    ['page', params.page],
+    ['page_size', params.page_size],
+    ['post_type', params.post_type],
+  ])
   return request<PostPageData>(`/api/community/post/list${qs ? `?${qs}` : ''}`)
 }
 
@@ -65,10 +81,10 @@ export function unlikePost(id: number) {
 }
 
 export function listComments(postId: number, params: { page?: number; page_size?: number } = {}) {
-  const q = new URLSearchParams()
-  if (params.page) q.set('page', String(params.page))
-  if (params.page_size) q.set('page_size', String(params.page_size))
-  const qs = q.toString()
+  const qs = buildQuery([
+    ['page', params.page],
+    ['page_size', params.page_size],
+  ])
   return request<CommentPageData>(
     `/api/community/post/${postId}/comment/list${qs ? `?${qs}` : ''}`,
   )
@@ -82,10 +98,10 @@ export function createComment(postId: number, data: CommunityCommentIn) {
 }
 
 export function listExperience(params: { page?: number; page_size?: number } = {}) {
-  const q = new URLSearchParams()
-  if (params.page) q.set('page', String(params.page))
-  if (params.page_size) q.set('page_size', String(params.page_size))
-  const qs = q.toString()
+  const qs = buildQuery([
+    ['page', params.page],
+    ['page_size', params.page_size],
+  ])
   return request<ExperiencePageData>(`/api/community/experience/list${qs ? `?${qs}` : ''}`)
 }
 
@@ -110,10 +126,10 @@ export function superviseRecords(id: number) {
 /* ---------- 兴趣社群 ---------- */
 
 export function listGroups(params: { page?: number; page_size?: number } = {}) {
-  const q = new URLSearchParams()
-  if (params.page) q.set('page', String(params.page))
-  if (params.page_size) q.set('page_size', String(params.page_size))
-  const qs = q.toString()
+  const qs = buildQuery([
+    ['page', params.page],
+    ['page_size', params.page_size],
+  ])
   return request<GroupPageData>(`/api/community/group/list${qs ? `?${qs}` : ''}`)
 }
 
@@ -138,12 +154,12 @@ export function createBattle(data: BattleCreateIn) {
 export function listBattles(
   params: { city?: string; status?: number; page?: number; page_size?: number } = {},
 ) {
-  const q = new URLSearchParams()
-  if (params.city) q.set('city', params.city)
-  if (params.status) q.set('status', String(params.status))
-  if (params.page) q.set('page', String(params.page))
-  if (params.page_size) q.set('page_size', String(params.page_size))
-  const qs = q.toString()
+  const qs = buildQuery([
+    ['city', params.city],
+    ['status', params.status],
+    ['page', params.page],
+    ['page_size', params.page_size],
+  ])
   return request<BattlePageData>(`/api/community/battle/list${qs ? `?${qs}` : ''}`)
 }
 
@@ -154,10 +170,10 @@ export function joinBattle(data: { battle_id: number }) {
 /* ---------- 挑战赛 ---------- */
 
 export function listChallenges(params: { page?: number; page_size?: number } = {}) {
-  const q = new URLSearchParams()
-  if (params.page) q.set('page', String(params.page))
-  if (params.page_size) q.set('page_size', String(params.page_size))
-  const qs = q.toString()
+  const qs = buildQuery([
+    ['page', params.page],
+    ['page_size', params.page_size],
+  ])
   return request<ChallengePageData>(`/api/community/challenge/list${qs ? `?${qs}` : ''}`)
 }
 
@@ -176,9 +192,9 @@ export function challengeLeaderboard(id: number) {
 /* ---------- 热量控制榜 ---------- */
 
 export function getLeaderboard(params: { period_type?: number; period_key?: string } = {}) {
-  const q = new URLSearchParams()
-  if (params.period_type) q.set('period_type', String(params.period_type))
-  if (params.period_key) q.set('period_key', params.period_key)
-  const qs = q.toString()
+  const qs = buildQuery([
+    ['period_type', params.period_type],
+    ['period_key', params.period_key],
+  ])
   return request<LeaderboardData>(`/api/community/leaderboard${qs ? `?${qs}` : ''}`)
 }

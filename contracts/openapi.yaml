@@ -570,6 +570,46 @@ paths:
           $ref: '#/components/responses/Validation422'
         '500':
           $ref: '#/components/responses/ServerError'
+  /api/steps/trend:
+    get:
+      tags: [记录]
+      summary: 步数历史曲线（直读 step_record）
+      description: |
+        步数曲线的唯一数据源。微信运动一次返回 31 条按天记录，同步成功即回填进 step_record，
+        本接口按天读出供前端拼柱状图。
+        【为什么不复用 /api/account/trend】那条曲线的数据源是 daily_snapshot，且明确"无快照的日期不造数"；
+        历史日期大多没有快照，若为画步数而补快照，会把 intake/tee/deficit 一并写成 0 —— 属于伪造热量账户历史。
+        故摄入/TEE 曲线与步数曲线分开：前者读快照，后者读 step_record。
+      operationId: getStepsTrend
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 31
+            default: 31
+          description: 回看天数；上限 31 与微信运动 stepInfoList 的条数一致
+      responses:
+        '200':
+          description: 按天步数序列（无记录的日期不出现，不补零）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/StepsTrendData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
   /api/ai/chat:
     post:
       tags: [AI]
@@ -4055,6 +4095,14 @@ components:
         name: { type: string }
         calories_100g: { type: number, description: 每 100g 热量 kcal }
         audit_status: { type: integer, enum: [0, 1, 2], description: '0待审 1通过 2驳回；新建恒为 0' }
+    MatchCandidate:
+      type: object
+      required: [food_id, name, calories_100g, score]
+      properties:
+        food_id: { type: integer }
+        name: { type: string, example: 清蒸鲈鱼 }
+        calories_100g: { type: number, description: 每 100g 热量 kcal }
+        score: { type: number, description: 相似度（pg_trgm similarity 或别名精确命中=1.0） }
     RecognizedItem:
       type: object
       required: [food_id, name, confidence, amount_g, calories]
@@ -4064,6 +4112,13 @@ components:
         confidence: { type: number, description: 置信度；<0.7 需用户确认 }
         amount_g: { type: number, description: 估计分量 g }
         calories: { type: number, description: kcal }
+        ambiguous: { type: boolean, default: false, description: 'true=召回到了但不确定（分数不足/并列），应让用户从 candidates 中选；false 且 food_id=null=库里确实没有' }
+        candidates:
+          type: array
+          default: []
+          description: 待用户选择的候选食物；food_id 已自动命中时为空数组
+          items:
+            $ref: '#/components/schemas/MatchCandidate'
     RecognizeData:
       type: object
       required: [request_id, items, need_confirm]
@@ -4189,11 +4244,56 @@ components:
           description: 微信运动加密初始向量（与 encrypted_data 成对出现）
     StepsSyncData:
       type: object
-      required: [neat_calibrated, met, delta_calories]
+      required: [neat_calibrated, met, delta_calories, steps, steps_source]
       properties:
         neat_calibrated: { type: number }
         met: { type: number }
         delta_calories: { type: number }
+        steps:
+          type: integer
+          description: |
+            实际入库的步数。注意：解密成功但 stepInfoList 里没有目标日期的记录时，
+            绝不借用其它日期的步数顶替（那会把 30 天前的数字当成今天，直接污染热量账户），
+            而是按 steps_source 如实降级。
+        steps_source:
+          type: integer
+          enum: [1, 2, 3]
+          description: |
+            步数真源，前端据此决定文案，不得凭"getWeRunData 成功"自行推断：
+            1=微信运动解密成功（session_key 命中且 watermark.appid 校验通过）；
+            2=采用客户端传入的 steps（无加密数据/未授权/解密失败/目标日期缺记录）；
+            3=完全未取到步数（steps=0，按活动水平 PAL 估算 NEAT）
+        backfilled_days:
+          type: integer
+          minimum: 0
+          default: 0
+          description: |
+            本次同步顺带回填进 step_record 的**历史天数**（不含当天）。
+            只有 steps_source=1 才可能 >0：解密拿到的 stepInfoList 是 31 条按天记录，
+            一次同步即可填满近 31 天曲线；降级路径一律为 0（绝不拿假数据填历史）。
+    StepTrendItem:
+      type: object
+      required: [date, steps]
+      properties:
+        date: { type: string, format: date }
+        steps: { type: integer, minimum: 0 }
+        source:
+          type: integer
+          enum: [1, 2]
+          description: |
+            沿用 `step_record.source` 的既有列语义（001_schema.sql：1微信 2手环），
+            **不表示"是否解密成功"**——当前同步与回填一律写 1（微信侧数据），2 留给二期手环。
+            步数真源（解密成功/客户端传入/未取到）请看 `StepsSyncData.steps_source`，
+            不要用本字段推断。
+    StepsTrendData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          description: 按日期升序；**没有记录的日期不出现**（不补零，避免把"没同步过"画成"走了 0 步"）
+          items:
+            $ref: '#/components/schemas/StepTrendItem'
     AiChatIn:
       type: object
       required: [session_id, message]
@@ -4409,6 +4509,10 @@ components:
         status: { $ref: '#/components/schemas/CouponStatus' }
         valid_from: { type: string, format: date-time, nullable: true }
         valid_to: { type: string, format: date-time, nullable: true }
+        used_at: { type: string, format: date-time, nullable: true, description: 真正核销/消费时刻；未消费为 null }
+        order_id: { type: integer, nullable: true, description: 占用该券的订单 id；下单即回填 }
+        # 前端据此区分三态：status=2 且 (used_at=null 且 order_id!=null) → 「已占用/待核销」，
+        # used_at 非空 → 「已使用」；不再把锁定中的券谎报成「已使用/已过期」。
     CouponPageData:
       type: object
       required: [items, page]

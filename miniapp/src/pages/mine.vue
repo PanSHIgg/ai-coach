@@ -52,6 +52,11 @@
           <text class="me__item-label">我的订阅</text>
           <text class="me__item-arrow">›</text>
         </view>
+        <!-- 我的订单（§3.1 页面 11 入口=「我的/券包」：此前仅支付后 redirectTo 可达，核销码无从找回） -->
+        <view class="me__item" @tap="goOrders">
+          <text class="me__item-label">我的订单</text>
+          <text class="me__item-arrow">›</text>
+        </view>
         <!-- 券包 / 专属优惠（§5.5-4/7：吃的券·动的券·异业联盟券） -->
         <view class="me__item" @tap="goCoupon">
           <text class="me__item-label">我的券包</text>
@@ -213,6 +218,10 @@ function goInvite() {
 /** 我的订阅（G2）：会员档位 / 权益 / 订阅订单 */
 function goPlan() {
   uni.navigateTo({ url: '/pages/plan/index' })
+}
+/** 我的订单（§3.1 页面 11）：待支付 / 待核销（含核销码）/ 已完成 */
+function goOrders() {
+  uni.navigateTo({ url: '/pages/order/list' })
 }
 /** 我的券包 / 专属优惠（§5.5-4/7）：券包明细页（含异业联盟券分组） */
 function goCoupon() {

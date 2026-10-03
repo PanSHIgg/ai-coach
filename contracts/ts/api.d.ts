@@ -185,12 +185,21 @@ export interface FoodCustomData {
   audit_status: 0 | 1 | 2; // 0待审 1通过 2驳回；新建恒为 0
 }
 
+export interface MatchCandidate {
+  food_id: number;
+  name: string;
+  calories_100g: number;
+  score: number; // 相似度；别名精确命中=1.0
+}
+
 export interface RecognizedItem {
   food_id: number | null; // 未匹配到食物库时为 null（此时 need_confirm=true）
   name: string;
   confidence: number; // <0.7 需确认
   amount_g: number;
   calories: number;
+  ambiguous?: boolean; // true=召回到候选但不确定，应让用户从 candidates 中选
+  candidates?: MatchCandidate[]; // food_id 已自动命中时为空数组
 }
 
 export interface RecognizeData {
@@ -307,6 +316,23 @@ export interface StepsSyncData {
   neat_calibrated: number;
   met: number;
   delta_calories: number;
+  steps: number; // 实际入库步数
+  /** 1=微信运动解密成功 2=用客户端传入 steps 3=未取到，按活动水平估算 */
+  steps_source: 1 | 2 | 3;
+  /** 本次顺带回填的历史天数（不含当天）；仅 steps_source=1 可能 >0 */
+  backfilled_days?: number;
+}
+
+export interface StepTrendItem {
+  date: string;
+  steps: number;
+  /** 沿用 step_record.source 列语义：1微信 2手环（不表示是否解密成功，真源看 steps_source） */
+  source?: 1 | 2;
+}
+
+export interface StepsTrendData {
+  /** 按日期升序；无记录的日期不出现（不补零） */
+  items: StepTrendItem[];
 }
 
 /* ---------- AI ---------- */
@@ -466,6 +492,8 @@ export interface CouponOut {
   status: 1 | 2 | 3 | 4; // 1未用 2已用 3过期 4作废
   valid_from?: string | null;
   valid_to?: string | null;
+  used_at?: string | null; // 真核销时刻；null=尚未消费
+  order_id?: number | null; // 占用该券的订单；status=2 且 used_at=null → 仅被锁定
 }
 
 export type CouponPageData = PageData<CouponOut>;

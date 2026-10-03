@@ -171,9 +171,14 @@ const voiceLabel = computed(() => {
   return voice.recording.value ? '录音中…点击结束' : '按住说 / 点击开始语音描述'
 })
 
-const voiceHint = computed(() =>
-  voiceText.value ? `已识别：${voiceText.value}，可修改下方信息` : '例如「快走30分钟」「今天爬楼20分钟」',
-)
+const voiceHint = computed(() => {
+  // 常驻提示优先用 useVoice 的 notice：toast 1.5s 即消失，而「语音录入暂未支持」这类结论
+  // 需要留在页面上，否则用户只会反复按同一个没接 ASR 的按钮
+  if (voice.notice.value) return voice.notice.value
+  return voiceText.value
+    ? `已识别：${voiceText.value}，可修改下方信息`
+    : '例如「快走30分钟」「今天爬楼20分钟」'
+})
 
 function onVoice() {
   voice.toggle()

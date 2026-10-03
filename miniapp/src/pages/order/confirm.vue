@@ -20,6 +20,8 @@
     <view class="card">
       <view class="card__title">选择优惠券</view>
       <view v-if="isMock" class="card__mock">示例数据 · 后端暂未连接</view>
+      <!-- 自动带券结果明示（§3.3 带券 + §2.4 不可用不隐藏）：没抵扣时必须说清为什么 -->
+      <view v-if="presetTip" class="card__preset-tip">{{ presetTip }}</view>
 
       <CSkeleton v-if="couponLoading" :rows="3" />
       <CEmpty v-else-if="!coupons.length" icon="empty-coupon" text="暂无可用券" button-text="" />
@@ -85,6 +87,8 @@
 /**
  * FE4 · 订单确认 — Phase 3 (M3)
  * 依据：docs/split/03-页面布局与交互说明.md §5.2-7 商家卡 [预约] → 确认订单
+ *       §3.3 商家详情 → 订单确认（带商家 ID、SKU ID、默认选中券）：读 coupon_id 并默认选中
+ *       §2.4 券过期/不可用 → 下单页灰显该券并标注原因，不隐藏、不静默不抵扣
  * 契约：POST /api/order（OrderCreatedData）→ POST /api/order/{id}/pay（PayData）
  *       GET /api/coupon/list?status=1（CouponPageData）
  * 【假设】① 后端尚未部署：券请求失败时回退内置示例券并标注；
@@ -101,6 +105,9 @@ import { track } from '@/utils/track'
 import type { CouponOut } from '@/types/api'
 
 const SCOPE_TEXT: Record<number, string> = { 1: '吃', 2: '动', 3: '异业', 4: '通用' }
+
+/** 券分页取契约上限（components/parameters/PageSize maximum=100），带券校验尽量覆盖更多券 */
+const COUPON_PAGE_SIZE = 100
 
 /** detail 页带来的购物项（sku_id + 展示字段；提交仅传 sku_id/qty） */
 interface CartItem {
@@ -127,10 +134,16 @@ const merchantId = ref(0)
 const merchantCategory = ref('')
 const items = ref<CartItem[]>([])
 const coupons = ref<CouponOut[]>([])
+/** 可用券总数（page.total）：用于区分「券不可用」与「只是没翻到那一页」 */
+const couponsTotal = ref(0)
 const couponLoading = ref(true)
 const isMock = ref(false)
 const couponId = ref<number | null>(null)
 const submitting = ref(false)
+/** 上游（券包 → 商家详情/列表）带过来的券 id：可用则默认选中 */
+const presetCouponId = ref<number | null>(null)
+/** 带券未能抵扣时的说明（§2.4 不许静默：明确告诉用户为什么没用上） */
+const presetTip = ref('')
 
 const totalQty = computed(() => items.value.reduce((sum, it) => sum + it.qty, 0))
 const totalAmount = computed(() =>
@@ -211,16 +224,54 @@ function toggleCoupon(c: CouponOut) {
 async function loadCoupons() {
   couponLoading.value = true
   try {
-    const data = await getCoupons({ status: 1, page_size: 50 })
+    // page_size 取契约上限 100（components/parameters/PageSize maximum=100）：
+    // 带券要按 id 在列表里精查，列表越长越不容易「查不到」（GET /api/coupon/list 无 id 过滤参数）
+    const data = await getCoupons({ status: 1, page_size: COUPON_PAGE_SIZE })
     coupons.value = data?.items ?? []
+    couponsTotal.value = data?.page?.total ?? coupons.value.length
     isMock.value = false
   } catch (e) {
     // request 层已统一 toast；兜底内置示例券
     coupons.value = MOCK_COUPONS
+    couponsTotal.value = MOCK_COUPONS.length
     isMock.value = true
   } finally {
     couponLoading.value = false
   }
+  applyPresetCoupon()
+}
+
+/**
+ * 自动带券（§3.3 券包 → 下单页 → 默认选中券）：
+ * 只在「确实可用」时选中——未过期、满足门槛（按本页订单金额）、属于本商家或不限商家、
+ * 适用范围匹配；判定复用 reasonOf（与灰显同一套口径，不另立规则）。
+ * 不可用绝不静默吞掉：券本身按 §2.4 灰显留在列表里并带原因，此处再于卡顶明示未抵扣；
+ * 列表里查不到该券要说清两种可能：真的不可用（已用 / 已过期 / 不属于本账号），
+ * 或**只是没落在最近这一页里**（接口不支持按 id 查，只能取 status=1 的前 COUPON_PAGE_SIZE 张）。
+ */
+function applyPresetCoupon() {
+  presetTip.value = ''
+  const want = presetCouponId.value
+  if (want == null) return
+  const hit = coupons.value.find((c) => c.id === want)
+  if (!hit) {
+    if (isMock.value) {
+      presetTip.value = '后端未连接，无法校验带过来的优惠券，本次未抵扣'
+      return
+    }
+    // total 大于本页条数 = 还有没翻到的券，不能断言「这张券不可用」，只能说「没出现在最近 N 张里」
+    const truncated = couponsTotal.value > coupons.value.length
+    presetTip.value = truncated
+      ? `带过来的优惠券未抵扣：它不在最近 ${coupons.value.length} 张可用券里（共 ${couponsTotal.value} 张可用），或已使用 / 已过期 / 不属于当前账号`
+      : '带过来的优惠券不可用（已使用 / 已过期 / 不属于当前账号），本次未抵扣'
+    return
+  }
+  const reason = reasonOf(hit)
+  if (reason) {
+    presetTip.value = `带过来的优惠券不可用：${reason}，本次未抵扣`
+    return
+  }
+  couponId.value = hit.id
 }
 
 /* ---------- 提交：createOrder → payOrder → 模拟支付成功 ---------- */
@@ -254,12 +305,28 @@ async function submit() {
 
 /* ---------- 生命周期 ---------- */
 
+/**
+ * 解析带过来的 coupon_id（参数名沿用契约 OrderCreateIn.coupon_id）：
+ * 缺失 / 非数字 / 非正数 → null，退化成「未带券」的正常流程（不崩、不白屏）。
+ */
+function parseCouponId(raw?: string): number | null {
+  const n = Number(raw)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
 onLoad((options) => {
   const opt = (options as
-    | { merchant_id?: string; merchant_name?: string; category?: string; items?: string }
+    | {
+        merchant_id?: string
+        merchant_name?: string
+        category?: string
+        items?: string
+        coupon_id?: string
+      }
     | undefined) || {}
   merchantId.value = Number(opt.merchant_id) || 0
   merchantCategory.value = opt.category ? decodeURIComponent(opt.category) : ''
+  presetCouponId.value = parseCouponId(opt.coupon_id)
   try {
     const parsed = JSON.parse(decodeURIComponent(opt.items || '[]')) as CartItem[]
     items.value = Array.isArray(parsed)
@@ -305,6 +372,16 @@ onLoad((options) => {
     color: $warn;
     text-align: center;
     background: rgba($warn, 0.1);
+    border-radius: $radius-sm;
+  }
+
+  // 自动带券说明（左对齐便于读完整原因，与灰显卡片同色系但更醒目的 danger 文案）
+  &__preset-tip {
+    padding: $space-xs $space-sm;
+    margin-bottom: $space-sm;
+    font-size: $t-22;
+    color: $danger;
+    background: rgba($danger, 0.08);
     border-radius: $radius-sm;
   }
 

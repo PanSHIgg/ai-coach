@@ -49,7 +49,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
 import { useAccountStore } from '@/stores/account'
-import { syncStepsFromWeRun } from '@/api/records'
+import { describeStepsSync, guideToWeRunSetting, syncStepsFromWeRun } from '@/api/records'
 import { useToast } from '@/composables/useToast'
 
 const userStore = useUserStore()
@@ -101,19 +101,18 @@ async function reload() {
 }
 
 /**
- * 同步当日步数（F-09）：优先真实微信运动数据，取不到则报 0 → 后端按 PAL 估算。
+ * 同步当日步数（F-09）：先预检 scope.werun 授权 → 取微信运动加密数据交后端解密。
+ * 提示真源＝后端 steps_source（仅 1 才能说"已同步微信运动 N 步"），未授权/取不到一律说"按活动水平估算"；
+ * 未授权时附「去开启微信运动」引导（openSetting），估算值照常入库，不阻断本次流程（§2.4）。
  * 严禁伪造步数常量（原 8000 mock 兜底已移除）。
  */
 async function onSyncSteps() {
   if (syncing.value) return
   syncing.value = true
   try {
-    const { data, gotWeRunData } = await syncStepsFromWeRun(todayStr())
-    if (gotWeRunData) {
-      toast.success({ title: `同步成功，校准 +${Math.round(data.delta_calories)} kcal` })
-    } else {
-      toast.info({ title: '未获取到步数，已按活动水平估算' })
-    }
+    const msg = describeStepsSync(await syncStepsFromWeRun(todayStr()))
+    toast[msg.tone]({ title: msg.title })
+    if (msg.needGuide) guideToWeRunSetting()
     await reload()
   } catch (e) {
     // 错误信息已由 request 封装 toast

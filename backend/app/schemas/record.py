@@ -73,6 +73,17 @@ class FoodCustomData(BaseModel):
 # ---- 拍照识别 ----
 
 
+class MatchCandidate(BaseModel):
+    """识别响应里的召回候选（契约组件名逐字对齐 openapi.yaml 与两份 TS 副本）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    food_id: int
+    name: str
+    calories_100g: float
+    score: float
+
+
 class RecognizedItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -82,6 +93,10 @@ class RecognizedItem(BaseModel):
     confidence: float  # <0.7 需用户确认
     amount_g: float
     calories: float
+    # ambiguous=True 且 food_id=None：召回到候选但不确定，应让用户从 candidates 里选；
+    # ambiguous=False 且 food_id=None：库里确实没有（§2.4 回落手动录入/自定义食物）
+    ambiguous: bool = False
+    candidates: list[MatchCandidate] = []
 
 
 class RecognizeData(BaseModel):
@@ -208,6 +223,10 @@ class StepsSyncIn(BaseModel):
     date: date
     steps: int = Field(ge=0, le=200000)  # 上界防 DB 溢出 → 422/2001
     hourly: dict[str, int] | None = None  # 键为 0-23 小时、值为非负整数步数
+    # 微信运动加密数据（uni.getWeRunData）：两者成对出现，后端用**该用户本次登录**的
+    # session_key 解密；缺任一或解密/校验失败 → 明确降级按 steps 计（不伪造，见 steps_source）
+    encrypted_data: str | None = None
+    iv: str | None = None
 
     @field_validator("hourly")
     @classmethod
@@ -234,3 +253,22 @@ class StepsSyncData(BaseModel):
     neat_calibrated: float
     met: float
     delta_calories: float
+    steps: int  # 实际入库步数；目标日期无微信记录时不得借用其它日期顶替
+    steps_source: int  # 1=微信运动解密成功 2=客户端传入值 3=未取到，按 PAL 估算
+    # 本次顺带回填的历史天数（不含当天）；仅 steps_source=1 可能 >0，降级路径恒 0
+    backfilled_days: int = 0
+
+
+class StepTrendItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    date: date
+    steps: int
+    source: int  # 1=微信运动解密回填 2=客户端传入/手动
+
+
+class StepsTrendData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    # 按日期升序；无记录的日期不出现（不补零，避免把"没同步过"画成"走了 0 步"）
+    items: list[StepTrendItem]

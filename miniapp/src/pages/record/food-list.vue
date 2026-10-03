@@ -56,16 +56,52 @@
           <text class="sheet__close" @tap="closePanel">✕</text>
         </view>
 
-        <!-- 新增：先搜索食物 -->
+        <!-- 新增：先搜索食物；查不到时给 §2.4 出路（手动填热量 / 先跳过） -->
         <template v-if="panelMode === 'add' && !selectedFood">
-          <CField label="搜索食物" required>
+          <CField label="搜索食物" required hint="食物库里查不到？下方可手动填热量新建">
             <CInput v-model="keyword" placeholder="如：清蒸鱼" @confirm="onSearch" />
           </CField>
           <CButton block :loading="searching" @click="onSearch">搜索</CButton>
+
+          <!-- 搜到结果：沿用原选择列表 -->
           <view v-if="results.length" class="sheet__results">
             <view v-for="f in results" :key="f.id" class="sheet__result" @tap="selectFood(f)">
               <text class="sheet__result-name">{{ f.name }}</text>
               <text class="sheet__result-kcal">{{ Math.round(f.calories_100g) }} kcal/100g</text>
+            </view>
+          </view>
+
+          <!-- 搜过但零结果：不再只有一句瞬时 toast，明确给「这是新菜？」出路（§2.4） -->
+          <view v-else-if="noResult" class="sheet__fallback">
+            <text class="sheet__fallback-title">没找到「{{ lastKeyword }}」，这是新菜？</text>
+            <text class="sheet__fallback-text">
+              手动填热量建个自定义食物（仅本人可见、待审核），或先跳过这条。
+            </text>
+            <view class="sheet__row">
+              <CButton size="sm" @click="openCustom">手动填热量新建</CButton>
+              <CButton size="sm" type="ghost" @click="closePanel">先跳过</CButton>
+            </view>
+          </view>
+
+          <!-- 常驻入口：还没搜 / 搜过没结果都能直接手动新建 -->
+          <CButton v-if="!customMode" type="ghost" block @click="openCustom">
+            食物库查不到？手动填热量新建
+          </CButton>
+
+          <!--
+            手动填热量 → 建自定义食物。与 pages/record/camera.vue 空态的自定义表单同口径，
+            此处按任务约束内联最小实现（components/ 不在本轮可写范围），重复逻辑已登记汇报。
+          -->
+          <view v-if="customMode" class="sheet__custom">
+            <CField label="食物名称" required :error="cName.trim() ? '' : '请填写名称'">
+              <CInput v-model="cName" placeholder="如：自制牛油果沙拉" :maxlength="128" />
+            </CField>
+            <CField label="热量 (kcal/100g)" required :error="kcalError" hint="对齐后端：0 &lt; 热量 ≤ 1000">
+              <CInput v-model="cCalories" type="digit" placeholder="如：88" />
+            </CField>
+            <view class="sheet__row">
+              <CButton :loading="savingCustom" @click="onCreateCustom">建为自定义食物</CButton>
+              <CButton type="ghost" @click="customMode = false">收起</CButton>
             </view>
           </view>
         </template>
@@ -112,7 +148,7 @@ import { ref, computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
-import { searchFood, createMeal, updateMeal, deleteMeal, listMeals } from '@/api/records'
+import { searchFood, createMeal, updateMeal, deleteMeal, listMeals, createCustomFood } from '@/api/records'
 import { useToast } from '@/composables/useToast'
 import type { FoodItem, MealRecordOut } from '@/types/api'
 
@@ -125,6 +161,9 @@ const MEAL_TYPES = [
 
 /** 分量上界（对齐后端 MealCreateIn/MealUpdateIn：amount_g > 0 且 ≤ 10000） */
 const AMOUNT_MAX = 10000
+
+/** 自定义食物每 100g 热量上界（对齐后端 FoodCustomIn：0 < calories_100g ≤ 1000） */
+const KCAL_MAX = 1000
 
 const userStore = useUserStore()
 const toast = useToast()
@@ -165,6 +204,23 @@ const formMealType = ref<1 | 2 | 3 | 4>(1)
 const formAmount = ref('')
 const saving = ref(false)
 
+// ---- 搜索零结果的出路（§2.4：手动填热量建自定义食物 / 先跳过）----
+/** 上一次搜索的词与是否零结果（用于「没找到「X」，这是新菜？」文案） */
+const noResult = ref(false)
+const lastKeyword = ref('')
+const customMode = ref(false)
+const cName = ref('')
+const cCalories = ref('')
+const savingCustom = ref(false)
+
+const kcalError = computed(() => {
+  if (!customMode.value) return ''
+  const kcal = Number(cCalories.value)
+  if (!kcal || kcal <= 0) return '请填写热量'
+  if (kcal > KCAL_MAX) return `热量需在 0~${KCAL_MAX} kcal/100g`
+  return ''
+})
+
 onShow(() => {
   if (userStore.isLogined) reload()
 })
@@ -200,6 +256,9 @@ function openAdd() {
   selectedFood.value = null
   formMealType.value = 1
   formAmount.value = '100'
+  noResult.value = false
+  lastKeyword.value = ''
+  resetCustom()
   panelOpen.value = true
 }
 
@@ -213,7 +272,13 @@ async function onSearch() {
   try {
     const res = await searchFood({ keyword: kw, limit: 20 })
     results.value = res.items
-    if (!res.items.length) toast.info({ title: '没找到，试试其他关键词' })
+    lastKeyword.value = kw
+    noResult.value = !res.items.length
+    if (noResult.value) {
+      // 出路在弹层里常驻展示（下方「这是新菜？」块），toast 只做一次性提醒
+      if (!cName.value.trim()) cName.value = kw
+      toast.info({ title: '没找到，可换个关键词，或手动填热量新建' })
+    }
   } catch (e) {
     // 错误信息已由 request 封装 toast
   } finally {
@@ -224,6 +289,49 @@ async function onSearch() {
 function selectFood(f: FoodItem) {
   selectedFood.value = f
   formAmount.value = '100'
+}
+
+function resetCustom() {
+  customMode.value = false
+  cName.value = ''
+  cCalories.value = ''
+}
+
+/** 展开手动新建表单；名称预填当前/上次搜索词，减少一次输入 */
+function openCustom() {
+  customMode.value = true
+  if (!cName.value.trim()) cName.value = lastKeyword.value || keyword.value.trim()
+}
+
+/**
+ * 建自定义食物（仅本人可见、待审核），建好即作为「已选食物」进入既有的餐次/分量表单，
+ * 复用同一条 createMeal 入账链路——不为「搜不到」另开第二条写账路径。
+ */
+async function onCreateCustom() {
+  const name = cName.value.trim()
+  const kcal = Number(cCalories.value)
+  if (!name) {
+    toast.error({ title: '请填写食物名称' })
+    return
+  }
+  if (!kcal || kcal <= 0 || kcal > KCAL_MAX) {
+    toast.error({ title: `热量需在 0~${KCAL_MAX} kcal/100g` })
+    return
+  }
+  savingCustom.value = true
+  try {
+    const food = await createCustomFood({ name, calories_100g: kcal })
+    selectedFood.value = { id: food.id, name: food.name, calories_100g: food.calories_100g }
+    customMode.value = false
+    noResult.value = false
+    results.value = []
+    formAmount.value = '100'
+    toast.success({ title: '已新建自定义食物，待审核' })
+  } catch (e) {
+    // 错误信息已由 request 封装 toast
+  } finally {
+    savingCustom.value = false
+  }
 }
 
 // ---- 编辑 ----
@@ -242,6 +350,9 @@ function closePanel() {
   selectedFood.value = null
   editing.value = null
   results.value = []
+  noResult.value = false
+  lastKeyword.value = ''
+  resetCustom()
 }
 
 async function onSubmit() {
@@ -433,6 +544,42 @@ function goLogin() {
 
   &__results {
     margin-top: $space-md;
+  }
+
+  // 搜索零结果的出路块（§2.4「这是新菜？手动填热量或先跳过」）
+  &__fallback {
+    margin-top: $space-md;
+    padding: $space-sm $space-md;
+    background: rgba($warn, 0.1);
+    border-radius: $radius-sm;
+  }
+
+  &__fallback-title {
+    display: block;
+    font-size: $t-26;
+    font-weight: 500;
+    color: $text-1;
+  }
+
+  &__fallback-text {
+    display: block;
+    margin-top: 2rpx;
+    font-size: $t-22;
+    color: $text-2;
+  }
+
+  &__custom {
+    margin-top: $space-md;
+    padding-top: $space-md;
+
+    @include hairline(top);
+  }
+
+  &__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $space-sm;
+    margin-top: $space-sm;
   }
 
   &__result {

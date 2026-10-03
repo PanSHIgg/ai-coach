@@ -87,9 +87,23 @@
       </template>
 
       <CSkeleton v-if="accountStore.loading && !accountStore.today" type="card" />
-      <CError v-else-if="accountStore.error && !accountStore.today" @retry="accountStore.refresh" />
+      <!-- 未建档优先于错误态：未建档时 GET /api/account/today 返回 404 会置 error，
+           不能让 CError 抢在建档引导前（§5.1 要求未建档时显示建档引导卡）。
+           profileLoaded 兜住同类竞态：档案没回来之前不渲染错误卡（账户请求也已收口到档案之后，
+           见 loadAccountAfterProfile），渲染顺序永远是「引导卡 → 错误卡」。 -->
       <CEmpty
-        v-else-if="userStore.needProfile || !accountStore.today"
+        v-else-if="userStore.needProfile"
+        icon="empty-food"
+        text="建档后展示今日热量账户"
+        button-text="去建档"
+        @action="goEditProfile"
+      />
+      <CError
+        v-else-if="accountStore.error && !accountStore.today && userStore.profileLoaded"
+        @retry="accountStore.refresh"
+      />
+      <CEmpty
+        v-else-if="!accountStore.today"
         icon="empty-food"
         text="建档后展示今日热量账户"
         button-text="去建档"
@@ -688,6 +702,22 @@ const services = [
 /** 首次进入首页标记：区分冷启动与从子页返回（app_open 的 from 口径） */
 let firstShow = true
 
+/**
+ * 账户请求收口到「档案就绪」之后（冷启动竞态修复）。
+ * 未建档时根本不该发 GET /api/account/today（后端 404 → accountStore.error），
+ * 而 needProfile 初值是 false、fetchProfile 是异步的：老写法在档案回来前就把账户请求发出去了，
+ * 404 若先落地，首页会先闪一次红色错误卡，才切到建档引导卡（§5.1 要求的是后者）。
+ * fetchProfile 内部 catch 一切异常并在 finally 置 profileLoaded，所以这里不会卡住页面：
+ * 档案请求失败时 needProfile 保持原值 → 账户请求照旧发出，真故障仍由 CError + toast 呈现。
+ */
+async function loadAccountAfterProfile() {
+  if (!userStore.profileLoaded) await userStore.fetchProfile()
+  if (userStore.needProfile) return
+  await accountStore.refresh()
+  // 刷新账户后按需弹「今天什么状态」（未建档 / 已选 / 今日已弹过则跳过）
+  maybePromptStatus()
+}
+
 onShow(() => {
   if (!userStore.isLogined) {
     redirectToLogin()
@@ -696,10 +726,8 @@ onShow(() => {
   // 活跃埋点：进入首页（日活 / 留存判定）
   track('app_open', { from: firstShow ? 'cold_start' : 'back' })
   firstShow = false
-  if (!userStore.detail) userStore.fetchMe()
-  if (!userStore.profileLoaded) userStore.fetchProfile()
-  // 刷新账户后按需弹「今天什么状态」（未建档 / 已选 / 今日已弹过则跳过）
-  accountStore.refresh().then(maybePromptStatus)
+  if (!userStore.detail) void userStore.fetchMe()
+  void loadAccountAfterProfile()
   loadAiTimes()
   loadCoupons()
   loadRecentMeal()

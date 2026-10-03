@@ -20,6 +20,13 @@
             </view>
           </view>
           <CButton type="secondary" block :loading="syncing" @click="onSync">同步步数</CButton>
+          <!-- 步数来源如实说明（§2.4：取不到按 PAL 估算并提示；未授权时给「去开启微信运动」引导入口，不阻断） -->
+          <view v-if="stepsSource" class="sport__source">
+            <text class="sport__source-text">{{ stepsSource }}</text>
+            <text v-if="stepsGuide" class="sport__source-link" @tap="guideToWeRunSetting">
+              去开启微信运动 ›
+            </text>
+          </view>
         </template>
       </CCard>
 
@@ -61,7 +68,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
 import { useAccountStore } from '@/stores/account'
-import { listSports, syncStepsFromWeRun } from '@/api/records'
+import { listSports, describeStepsSync, guideToWeRunSetting, syncStepsFromWeRun } from '@/api/records'
 import { useToast } from '@/composables/useToast'
 import type { SportRecordOut } from '@/types/api'
 
@@ -85,6 +92,10 @@ const sports = ref<SportRecordOut[]>([])
 
 const accountError = ref(false)
 const syncing = ref(false)
+/** 步数来源说明（同步后按后端 steps_source 如实展示；空串=本次会话尚未同步过） */
+const stepsSource = ref('')
+/** 未授权 scope.werun → 展示「去开启微信运动」引导入口 */
+const stepsGuide = ref(false)
 
 /* ---------- 数字千分位格式化（小程序 toLocaleString 分组不可靠，手写兜底） ---------- */
 function fmt(n: number): string {
@@ -130,19 +141,20 @@ function onDateChange(e: { detail: { value: string } }) {
 }
 
 /**
- * 同步当日步数（F-09）：优先真实微信运动数据，取不到则报 0 → 后端按 PAL 估算。
+ * 同步当日步数（F-09）：先预检 scope.werun 授权 → 取微信运动加密数据交后端解密。
+ * 提示真源＝后端 steps_source（仅 1 才能说"已同步微信运动 N 步"），未授权/取不到一律说"按活动水平估算"。
+ * 未授权时给「去开启微信运动」引导（openSetting），估算值照常入库，不阻断本次流程（§2.4）。
  * 严禁伪造步数常量（原 8000 mock 兜底已移除）。
  */
 async function onSync() {
   if (syncing.value) return
   syncing.value = true
   try {
-    const { data, gotWeRunData } = await syncStepsFromWeRun(fmtDate())
-    if (gotWeRunData) {
-      toast.success({ title: `同步成功，校准 +${Math.round(data.delta_calories)} kcal` })
-    } else {
-      toast.info({ title: '未获取到步数，已按活动水平估算' })
-    }
+    const msg = describeStepsSync(await syncStepsFromWeRun(fmtDate()))
+    toast[msg.tone]({ title: msg.title })
+    stepsSource.value = msg.sourceLabel
+    stepsGuide.value = msg.needGuide
+    if (msg.needGuide) guideToWeRunSetting()
     await loadAccount()
   } catch (e) {
     // 错误信息已由 request 封装 toast
@@ -187,6 +199,26 @@ function goLogin() {
   &__stat-label {
     font-size: $t-22;
     color: $text-2;
+  }
+
+  // 步数来源说明 + 未授权引导入口（§2.4 引导开启、不阻断）
+  &__source {
+    margin-top: $space-sm;
+  }
+
+  &__source-text {
+    display: block;
+
+    font-size: $t-22;
+    color: $text-2;
+  }
+
+  &__source-link {
+    display: block;
+
+    margin-top: $space-xs;
+    font-size: $t-22;
+    color: $brand;
   }
 
   &__date {

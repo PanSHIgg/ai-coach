@@ -91,6 +91,7 @@
         <view class="detail__bar-main">
           <text class="detail__bar-count">已选 {{ totalQty }} 件</text>
           <text class="detail__bar-total">¥{{ totalAmount.toFixed(2) }}</text>
+          <text v-if="couponId" class="detail__bar-coupon">已带优惠券 · 下单页可改</text>
         </view>
         <CButton size="md" :disabled="!totalQty" @click="goConfirm">去下单</CButton>
       </view>
@@ -103,6 +104,7 @@
 /**
  * FE4 · 商家详情 — Phase 3 (M3)
  * 依据：docs/split/03-页面布局与交互说明.md §5.2-7 商家卡 [查看详情] 落地页
+ *       §3.3 券包 → 可用券 → 对应商家下单页（自动带券）：本页读 coupon_id 并透传下单页
  * 契约：GET /api/merchant/{id}（MerchantDetail，含在售 SKU）
  * 【假设】后端尚未部署联调：请求失败时回退内置示例商家（与列表页 mock 同源 id），
  *         保证页面结构与双端 build 完整。
@@ -147,6 +149,11 @@ const loading = ref(true)
 const isMock = ref(false)
 /** sku_id → qty 的已选映射 */
 const selected = ref<Record<number, number>>({})
+/**
+ * 券包带过来的券 id（§3.3「券包 → 下单页（自动带券）」）：
+ * 本页不校验可用性（需订单金额才能判门槛），只负责透传给订单确认页。
+ */
+const couponId = ref<number | null>(null)
 
 const totalQty = computed(() =>
   Object.values(selected.value).reduce((sum, n) => sum + n, 0),
@@ -160,6 +167,15 @@ const totalAmount = computed(() => {
 })
 
 /* ---------- 工具 ---------- */
+
+/**
+ * 解析带过来的 coupon_id：缺失 / 非数字 / 非正数 → null（退化成「未带券」的正常流程）。
+ * 参数名沿用契约 OrderCreateIn.coupon_id，不自创。
+ */
+function parseCouponId(raw?: string): number | null {
+  const n = Number(raw)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
 
 function qtyOf(skuId: number): number {
   return selected.value[skuId] || 0
@@ -205,20 +221,23 @@ function goConfirm() {
   const items = mer.value.skus
     .filter((sku) => qtyOf(sku.id) > 0)
     .map((sku) => ({ sku_id: sku.id, name: sku.name, price: sku.price, qty: qtyOf(sku.id) }))
-  const query = [
+  const parts = [
     `merchant_id=${mer.value.id}`,
     `merchant_name=${encodeURIComponent(mer.value.name)}`,
     `category=${encodeURIComponent(mer.value.category)}`,
     `items=${encodeURIComponent(JSON.stringify(items))}`,
-  ].join('&')
-  uni.navigateTo({ url: `/pages/order/confirm?${query}` })
+  ]
+  // 自动带券（§3.3）：有券才带上，缺省时下游行为与改造前一致
+  if (couponId.value != null) parts.push(`coupon_id=${couponId.value}`)
+  uni.navigateTo({ url: `/pages/order/confirm?${parts.join('&')}` })
 }
 
 /* ---------- 生命周期 ---------- */
 
 onLoad((options) => {
-  const opt = options as { id?: string; scene?: string } | undefined
+  const opt = options as { id?: string; scene?: string; coupon_id?: string } | undefined
   const id = Number(opt?.id) || MOCK_DETAILS[0].id
+  couponId.value = parseCouponId(opt?.coupon_id)
   // 扫码转化率（分母）：扫码（商家码/券码）进入，带 merchant_id + scene
   if (opt?.scene) {
     track('scan_in', { merchant_id: id, scene: decodeURIComponent(opt.scene) })
@@ -293,6 +312,14 @@ onLoad((options) => {
     font-size: $t-num-lg;
     font-weight: 700;
     color: $brand;
+  }
+
+  // 自动带券提示（§3.3 仅告知「券已带上」，可用性由下单页判定并灰显原因）
+  &__bar-coupon {
+    display: block;
+    margin-top: 2rpx;
+    font-size: $t-22;
+    color: $brand-dark;
   }
 }
 

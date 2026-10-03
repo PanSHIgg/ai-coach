@@ -22,6 +22,10 @@ class CouponOut(BaseModel):
     status: int  # 1未用 2已用 3过期 4作废
     valid_from: Optional[datetime] = None
     valid_to: Optional[datetime] = None
+    # status=2 需靠这两个字段区分「下单锁定」与「真已消费」：
+    # order_id 非空且 used_at 为空 = 被订单占用、尚可取消回滚；used_at 非空 = 已核销/已消费。
+    used_at: Optional[datetime] = None
+    order_id: Optional[int] = None
 
 
 class CouponPageData(BaseModel):
