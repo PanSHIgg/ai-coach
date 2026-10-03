@@ -47,8 +47,20 @@
       <template v-else-if="post">
         <view class="post-card">
           <view class="post-card__head">
-            <text class="post-card__name">{{ post.user.nickname }}</text>
-            <text class="post-card__time">{{ fmtTime(post.created_at) }}</text>
+            <image
+              v-if="!post.anonymous && post.user.avatar_url && !avatarFail[post.user.id]"
+              class="post-card__avatar"
+              :src="post.user.avatar_url"
+              mode="aspectFill"
+              @error="avatarFail[post.user.id] = true"
+            />
+            <view v-else class="post-card__avatar post-card__avatar--ph">
+              <text class="post-card__avatar-txt">{{ avatarText(post.anonymous ? '匿' : post.user.nickname) }}</text>
+            </view>
+            <view class="post-card__meta">
+              <text class="post-card__name">{{ post.anonymous ? '匿名' : post.user.nickname }}</text>
+              <text class="post-card__time">{{ fmtTime(post.created_at) }}</text>
+            </view>
           </view>
           <text v-if="post.title" class="post-card__title">{{ post.title }}</text>
           <text class="post-card__content">{{ post.content }}</text>
@@ -74,7 +86,6 @@
               <image class="post-card__act-icon" src="/static/icons/ic-chat.png" mode="aspectFit" />
               {{ post.comment_count }}
             </text>
-            <text v-if="post.anonymous" class="post-card__time">匿名</text>
           </view>
         </view>
 
@@ -82,8 +93,20 @@
           <text class="post__section">评论</text>
           <CEmpty v-if="!comments.length" icon="empty-chat" text="还没有评论" button-text="" />
           <view v-for="c in comments" :key="c.id" class="comment">
-            <text class="comment__name">{{ c.user.nickname }}</text>
-            <text class="comment__content">{{ c.content }}</text>
+            <image
+              v-if="!c.anonymous && c.user.avatar_url && !avatarFail[c.user.id]"
+              class="comment__avatar"
+              :src="c.user.avatar_url"
+              mode="aspectFill"
+              @error="avatarFail[c.user.id] = true"
+            />
+            <view v-else class="comment__avatar comment__avatar--ph">
+              <text class="comment__avatar-txt">{{ avatarText(c.anonymous ? '匿' : c.user.nickname) }}</text>
+            </view>
+            <view class="comment__body">
+              <text class="comment__name">{{ c.anonymous ? '匿名' : c.user.nickname }}</text>
+              <text class="comment__content">{{ c.content }}</text>
+            </view>
           </view>
         </view>
 
@@ -146,10 +169,17 @@ const post = ref<CommunityPostOut | null>(null)
 const comments = ref<CommunityCommentOut[]>([])
 const draft = ref('')
 const commenting = ref(false)
+/** 头像加载失败的用户 id → 回退首字占位圆 */
+const avatarFail = ref<Record<number, boolean>>({})
 
 function fmtTime(iso: string): string {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString()
+}
+
+/** 头像占位：取昵称首字符 */
+function avatarText(nickname: string): string {
+  return nickname ? nickname.slice(0, 1) : '友'
 }
 
 function onAnonymous(e: Event) {
@@ -274,6 +304,7 @@ onLoad((options?: Record<string, string>) => {
   &__compose {
     padding: $space-md;
     background: $card;
+    border: 1rpx solid $disabled; // 比 $border 深一档：卡片边界更明显
     border-radius: $radius;
     box-shadow: $shadow;
   }
@@ -364,7 +395,11 @@ onLoad((options?: Record<string, string>) => {
   }
 
   &__comments {
+    padding: $space-md;
     margin-top: $space-md;
+    background: $card;
+    border: 1rpx solid $disabled; // 比 $border 深一档：卡片边界更明显
+    border-radius: $radius;
   }
 
   &__section {
@@ -388,7 +423,7 @@ onLoad((options?: Record<string, string>) => {
     padding: 0 $space-sm;
     font-size: $t-26;
     background: $card;
-    border: 1rpx solid $border;
+    border: 1rpx solid $disabled; // 比 $border 深一档：卡片边界更明显
     border-radius: $radius-sm;
   }
 }
@@ -396,19 +431,52 @@ onLoad((options?: Record<string, string>) => {
 .post-card {
   padding: $space-md;
   background: $card;
+  border: 1rpx solid $disabled; // 比 $border 深一档：卡片边界更明显
   border-radius: $radius;
   box-shadow: $shadow;
 
   &__head {
-    @include flex-between;
+    display: flex;
+    align-items: center;
+    gap: $space-sm;
+    margin-bottom: $space-sm;
+  }
 
-    margin-bottom: $space-xs;
+  &__avatar {
+    flex-shrink: 0;
+    width: 80rpx;
+    height: 80rpx;
+    background: $bg;
+    border-radius: 50%;
+
+    &--ph {
+      @include flex-center;
+
+      background: rgba($brand, 0.15);
+    }
+  }
+
+  &__avatar-txt {
+    font-size: $t-28;
+    font-weight: 600;
+    color: $brand-dark;
+  }
+
+  &__meta {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2rpx;
+    min-width: 0;
   }
 
   &__name {
-    font-size: $t-26;
-    font-weight: 500;
-    color: $text-1;
+    font-size: $t-24;
+    font-weight: 600;
+    color: $text-2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__time {
@@ -426,7 +494,8 @@ onLoad((options?: Record<string, string>) => {
 
   &__content {
     display: block;
-    font-size: $t-26;
+    font-size: $t-28;
+    line-height: 1.6;
     color: $text-1;
   }
 
@@ -464,18 +533,48 @@ onLoad((options?: Record<string, string>) => {
 }
 
 .comment {
+  display: flex;
+  gap: $space-sm;
   padding: $space-sm 0;
   border-top: 1rpx solid $border;
 
+  &__avatar {
+    flex-shrink: 0;
+    width: 56rpx;
+    height: 56rpx;
+    background: $bg;
+    border-radius: 50%;
+
+    &--ph {
+      @include flex-center;
+
+      background: rgba($brand, 0.15);
+    }
+  }
+
+  &__avatar-txt {
+    font-size: $t-22;
+    font-weight: 600;
+    color: $brand-dark;
+  }
+
+  &__body {
+    flex: 1;
+    min-width: 0;
+  }
+
   &__name {
     display: block;
-    font-size: $t-24;
+    margin-bottom: 4rpx;
+    font-size: $t-22;
+    font-weight: 600;
     color: $text-2;
   }
 
   &__content {
     display: block;
     font-size: $t-26;
+    line-height: 1.6;
     color: $text-1;
   }
 }

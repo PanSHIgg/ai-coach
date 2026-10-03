@@ -73,3 +73,5 @@ perf/seed_ids.json
 
 lan-proxy.exe
 lan-proxy.go
+# ---- WorkBuddy 工作区数据（Agent 记忆/日志，不入库）----
+.workbuddy/

@@ -28,6 +28,7 @@ withDefaults(defineProps<Props>(), {
 <style lang="scss" scoped>
 .c-card {
   background: $card;
+  border: 1rpx solid $disabled; // 比 $border 深一档：用户反馈仅淡阴影卡片区分不明显
   border-radius: $radius;
   box-shadow: $shadow;
   padding: $space-lg;

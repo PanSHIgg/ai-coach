@@ -597,7 +597,7 @@ onUnmounted(() => {
     padding: $space-md;
     margin-bottom: $space-md;
     background: $card;
-    border: 1rpx solid $border;
+    border: 1rpx solid $disabled; // 比 $border 深一档：卡片边界更明显
     border-radius: $radius-lg;
     box-shadow: $shadow;
   }
@@ -632,6 +632,7 @@ onUnmounted(() => {
     padding: $space-lg;
     margin-bottom: $space-md;
     background: $card;
+    border: 1rpx solid $disabled; // 比 $border 深一档：卡片边界更明显
     border-radius: $radius;
     box-shadow: $shadow;
   }
@@ -674,6 +675,7 @@ onUnmounted(() => {
     padding: $space-lg;
     margin-bottom: $space-md;
     background: $card;
+    border: 1rpx solid $disabled; // 比 $border 深一档：卡片边界更明显
     border-radius: $radius;
     box-shadow: $shadow;
   }
@@ -720,6 +722,7 @@ onUnmounted(() => {
   display: flex;
   overflow: hidden;
   background: $bg;
+  border: 1rpx solid $disabled; // 比 $border 深一档：卡片边界更明显
   border-radius: $radius;
 
   // 左侧健康等级色条（§4.12：<60 红 / 60-80 黄 / >80 绿）

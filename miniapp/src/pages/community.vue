@@ -95,14 +95,35 @@
       </CCard>
     </view>
 
-    <!-- 6. 动态 -->
+    <!-- 6. 动态（论坛流：头像 + 昵称 + 正文） -->
     <view v-else class="community__panel">
       <view v-for="p in posts" :key="p.id" class="post-card" @tap="goPost(p.id)">
         <view class="post-card__head">
-          <text class="post-card__name">{{ p.user.nickname }}</text>
-          <text class="post-card__time">{{ fmtTime(p.created_at) }}</text>
+          <image
+            v-if="!p.anonymous && p.user.avatar_url && !avatarFail[p.user.id]"
+            class="post-card__avatar"
+            :src="p.user.avatar_url"
+            mode="aspectFill"
+            @error="avatarFail[p.user.id] = true"
+          />
+          <view v-else class="post-card__avatar post-card__avatar--ph">
+            <text class="post-card__avatar-txt">{{ avatarText(p.anonymous ? '匿' : p.user.nickname) }}</text>
+          </view>
+          <view class="post-card__meta">
+            <text class="post-card__name">{{ p.anonymous ? '匿名' : p.user.nickname }}</text>
+            <text class="post-card__time">{{ fmtTime(p.created_at) }}</text>
+          </view>
         </view>
         <text class="post-card__content">{{ p.content }}</text>
+        <view v-if="p.images?.length" class="post-card__images">
+          <image
+            v-for="(img, i) in p.images.slice(0, 3)"
+            :key="i"
+            class="post-card__image"
+            :src="img"
+            mode="aspectFill"
+          />
+        </view>
         <view class="post-card__foot">
           <text class="post-card__action" @tap.stop="toggleLike(p)">
             <image
@@ -178,6 +199,8 @@ const groups = ref<GroupItem[]>([])
 const battles = ref<BattleItem[]>([])
 const challenges = ref<ChallengeItem[]>([])
 const posts = ref<CommunityPostOut[]>([])
+/** 头像加载失败的用户 id → 回退首字占位圆 */
+const avatarFail = ref<Record<number, boolean>>({})
 
 function go(url: string) {
   uni.navigateTo({ url })
@@ -190,7 +213,15 @@ function goPost(id: number) {
 function fmtTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
-  return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')}`
+  const now = new Date()
+  const sameYear = d.getFullYear() === now.getFullYear()
+  const md = `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')}`
+  return sameYear ? md : `${d.getFullYear()}-${md}`
+}
+
+/** 头像占位：取昵称首字符 */
+function avatarText(nickname: string): string {
+  return nickname ? nickname.slice(0, 1) : '友'
 }
 
 async function reload() {
@@ -256,7 +287,7 @@ onShow(() => {
     font-size: $t-24;
     color: $text-2;
     background: $card;
-    border: 1rpx solid $border;
+    border: 1rpx solid $disabled; // 比 $border 深一档：卡片边界更明显
     border-radius: $radius-sm;
 
     &--active {
@@ -340,19 +371,52 @@ onShow(() => {
   padding: $space-md;
   margin-bottom: $space-md;
   background: $card;
+  border: 1rpx solid $disabled; // 比 $border 深一档：卡片边界更明显
   border-radius: $radius;
   box-shadow: $shadow;
 
   &__head {
-    @include flex-between;
+    display: flex;
+    align-items: center;
+    gap: $space-sm;
+    margin-bottom: $space-sm;
+  }
 
-    margin-bottom: $space-xs;
+  &__avatar {
+    flex-shrink: 0;
+    width: 72rpx;
+    height: 72rpx;
+    background: $bg;
+    border-radius: 50%;
+
+    &--ph {
+      @include flex-center;
+
+      background: rgba($brand, 0.15);
+    }
+  }
+
+  &__avatar-txt {
+    font-size: $t-28;
+    font-weight: 600;
+    color: $brand-dark;
+  }
+
+  &__meta {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2rpx;
+    min-width: 0;
   }
 
   &__name {
-    font-size: $t-26;
-    font-weight: 500;
-    color: $text-1;
+    font-size: $t-24;
+    font-weight: 600;
+    color: $text-2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__time {
@@ -361,9 +425,25 @@ onShow(() => {
   }
 
   &__content {
+    @include ellipsis-multi(6);
+
     display: block;
-    font-size: $t-26;
+    font-size: $t-28;
+    line-height: 1.6;
     color: $text-1;
+  }
+
+  &__images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $space-sm;
+    margin-top: $space-sm;
+  }
+
+  &__image {
+    width: 200rpx;
+    height: 200rpx;
+    border-radius: $radius-sm;
   }
 
   &__foot {
