@@ -171,8 +171,34 @@ jobs:
     timeout-minutes: 20
     env:
       GIT_SHA: ${{ github.sha }}
+      # 超管账号凭据：003 种子已不再创建 admin（超管真源是根 .env，见
+      # data/sql/003_phase3_admin_seed.sql 头注释），故不能再从种子注释 grep 凭据。
+      # 口令【只有 secret 源】：必须在仓库 Settings → Secrets 里配 ADMIN_INIT_PASSWORD。
+      # 这里曾写 `|| 'ci-only-not-a-real-secret-0001'` 兜底，而该串能通过 init_admin.py
+      # 的弱口令校验 → CI 起栈会把超管口令写成仓库里的公开字符串。现改为不配即失败。
+      # 用户名不是秘密，且弱口令检查不针对它，故保留字面兜底 ci-admin。
+      ADMIN_INIT_USERNAME: ${{ secrets.ADMIN_INIT_USERNAME || vars.ADMIN_INIT_USERNAME || 'ci-admin' }}
+      ADMIN_INIT_PASSWORD: ${{ secrets.ADMIN_INIT_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+
+      # compose 的 migrate 服务按 .env 建超管（scripts/init_admin.py --optional）。
+      # CI 需要这个 .env，否则超管不会被创建，冒烟登录就无账号可用。
+      # 【幂等合并】而非覆盖：runner 上若已存在 .env（含 WECHAT_*/JWT_SECRET 等），
+      # `> ` 截断会把它冲掉。故已存在的键一律不覆盖。
+      - name: Write .env for compose (admin bootstrap)
+        run: |
+          set -e
+          # 未配置 secret 必须响亮失败：静默降级成公开口令比失败危险得多。
+          if [ -z "${ADMIN_INIT_PASSWORD}" ]; then
+            echo "::error::未配置 secret ADMIN_INIT_PASSWORD（仓库 Settings → Secrets）。拒绝用公开口令兜底建超管。"
+            exit 1
+          fi
+          umask 077
+          touch .env
+          grep -q '^ADMIN_INIT_USERNAME=' .env || echo "ADMIN_INIT_USERNAME=${ADMIN_INIT_USERNAME}" >> .env
+          grep -q '^ADMIN_INIT_PASSWORD=' .env || echo "ADMIN_INIT_PASSWORD=${ADMIN_INIT_PASSWORD}" >> .env
+          echo ".env 已合并超管凭据（仅追加缺失键；值不回显）"
 
       - name: Build & start full stack
         run: |
@@ -198,9 +224,10 @@ jobs:
           # 1. nginx 探活
           [ "$(curl -fsS http://127.0.0.1/healthz)" = "ok" ]
 
-          # 2. C 端登录守卫（独立断言）：CI 不创建 .env → WECHAT_APPID/WECHAT_SECRET 为空 →
-          #    /api/auth/login 必须失败。原「无凭证时 openid=md5(code)」的 mock 分支已删除
-          #    （它会伪造身份），故此处断言 1001 正是新守卫生效的证据。
+          # 2. C 端登录守卫（独立断言）：上面创建的 .env 只含超管凭据，不含微信凭证
+          #    （WECHAT_APPID/WECHAT_SECRET）→ /api/auth/login 必须失败。原「无凭证时
+          #    openid=md5(code)」的 mock 分支已删除（它会伪造身份），故此处断言 1001
+          #    正是新守卫生效的证据。
           #    注意：1001 映射 HTTP 401，curl -f 会先非零退出，因此这里改用 -w 取状态码 + 读 body。
           http=$(curl -s -o /tmp/login.json -w '%{http_code}' -X POST http://127.0.0.1/api/auth/login \
             -H 'Content-Type: application/json' -d '{"code":"ci-compose-smoke"}')
@@ -208,18 +235,17 @@ jobs:
           [ "$http" = "401" ]
           grep -q '"code":1001' /tmp/login.json
 
-          # 3. 鉴权可用（冒烟主线改走管理端）：migrate 只导参照数据（food/food_alias/sku_catalog/
-          #    ai_knowledge），后台账号在 data/sql/003_phase3_admin_seed.sql（admin_user 表由
-          #    001_schema.sql 建、initdb.d 不含该种子），故此处显式应用该种子，再用种子账号登录。
-          #    凭据不写死在 workflow 里：直接从种子文件头部注释（"账号：admin/<口令>"）解析，
-          #    单一真源；改种子即改 CI，不会出现两处口令漂移。
-          docker exec -i ai-coach-postgres psql -U postgres -d ai_coach -v ON_ERROR_STOP=1 \
-            < data/sql/003_phase3_admin_seed.sql >/dev/null
-          CREDS=$(grep -m1 -oE 'admin/[A-Za-z0-9@#._-]+' data/sql/003_phase3_admin_seed.sql)
-          [ -n "$CREDS" ] || { echo "未能从 003 种子注释解析后台账号"; exit 1; }
+          # 3. 鉴权可用（冒烟主线走管理端）：超管由 compose 的 migrate 服务按 .env
+          #    里的 ADMIN_INIT_USERNAME/ADMIN_INIT_PASSWORD 创建（scripts/init_admin.py），
+          #    003 种子只再建 ops/merchant1，不再创建 admin，故这里**不能**再从 003 注释
+          #    grep 凭据（已 grep 不到）。凭据来自上面注入的 workflow env。
+          #    请求体用 json.dumps 结构化构造：原来的 CREDS="${U}/${P}" + ${CREDS%%/*}
+          #    在口令含 / 时会被截断，且直接插值会产出非法 JSON（引号注入面）。
+          [ -n "${ADMIN_INIT_USERNAME}" ] && [ -n "${ADMIN_INIT_PASSWORD}" ] \
+            || { echo "未注入 ADMIN_INIT_USERNAME/ADMIN_INIT_PASSWORD"; exit 1; }
           ADMIN_TOKEN=$(curl -fsS -X POST http://127.0.0.1/api/admin/login \
             -H 'Content-Type: application/json' \
-            -d "{\"username\":\"${CREDS%%/*}\",\"password\":\"${CREDS##*/}\"}" \
+            -d "$(U="$ADMIN_INIT_USERNAME" P="$ADMIN_INIT_PASSWORD" python3 -c 'import json,os;print(json.dumps({"username":os.environ["U"],"password":os.environ["P"]}))')" \
             | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
           [ -n "$ADMIN_TOKEN" ]
           # 4. 带 token 真实读库：sku-catalog 读的是 migrate 导入的 sku_catalog（5 条），

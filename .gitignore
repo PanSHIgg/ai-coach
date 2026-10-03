@@ -45,6 +45,9 @@ unpackage/
 *.pem
 *.key
 
+# 含明文 API key 的本地笔记，禁止入库（2026-10-03 移除追踪；文件保留在本地）
+ai_api.md
+
 # ---- IDE ----
 .idea/
 .vscode/

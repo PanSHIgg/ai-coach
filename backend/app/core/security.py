@@ -24,16 +24,24 @@ def hash_password(password: str, iterations: int = _PBKDF2_ITERATIONS) -> str:
 
 
 def verify_password(password: str, hashed: str) -> bool:
-    """恒定时间比较，格式不符返回 False。"""
+    """恒定时间比较，格式不符或哈希畸形一律返回 False。
+
+    刻意不抛异常：hash_password 的产物格式固定，但库里的 password_hash 也可能被
+    外部写坏（手工改库/迁移失误/截断），此时登录与初始化脚本应当当作"密码不匹配"
+    降级处理，而不是抛 ValueError/OverflowError/AttributeError 变成 500。
+    """
     try:
         algorithm, iterations, salt_hex, digest_hex = hashed.split("$")
-    except ValueError:
+        if algorithm != "pbkdf2_sha256":
+            return False
+        digest = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), bytes.fromhex(salt_hex), int(iterations)
+        )
+    except (ValueError, TypeError, AttributeError, OverflowError):
+        # ValueError：段数不对、非数字 iterations、坏 hex 盐；
+        # OverflowError：iterations 大到 int 转换溢出（如 1e11）；
+        # AttributeError/TypeError：hashed 为 None 或非字符串。
         return False
-    if algorithm != "pbkdf2_sha256":
-        return False
-    digest = hashlib.pbkdf2_hmac(
-        "sha256", password.encode(), bytes.fromhex(salt_hex), int(iterations)
-    )
     return hmac.compare_digest(digest.hex(), digest_hex)
 
 
