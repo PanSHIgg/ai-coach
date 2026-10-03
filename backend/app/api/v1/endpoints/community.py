@@ -19,6 +19,7 @@ from app.schemas import (
     BattleJoinData,
     BattleJoinIn,
     BattlePageData,
+    BattleQuitData,
     BenefitInfo,
     ChallengeItem,
     ChallengeJoinData,
@@ -398,7 +399,7 @@ async def list_battles(
     session: AsyncSession = Depends(get_db),
     request_id: str | None = Depends(get_request_id),
 ) -> Envelope[BattlePageData]:
-    data = await svc.list_battles(session, city, status, page, page_size)
+    data = await svc.list_battles(session, city, status, page, page_size, user_id=int(user.id))
     return ok(data, request_id=request_id)
 
 
@@ -409,7 +410,18 @@ async def join_battle(
     session: AsyncSession = Depends(get_db),
     request_id: str | None = Depends(get_request_id),
 ) -> Envelope[BattleJoinData]:
-    data = await svc.join_battle(session, payload.battle_id)
+    data = await svc.join_battle(session, payload.battle_id, user_id=int(user.id))
+    return ok(data, request_id=request_id)
+
+
+@router.post("/community/battle/quit", response_model=Envelope[BattleQuitData], summary="退出约战")
+async def quit_battle(
+    payload: BattleJoinIn,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[BattleQuitData]:
+    data = await svc.quit_battle(session, payload.battle_id, user_id=int(user.id))
     return ok(data, request_id=request_id)
 
 

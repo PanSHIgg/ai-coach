@@ -45,7 +45,6 @@
           </view>
         </CCard>
 
-        <!-- 每日趋势 -->
         <CCard title="每日趋势" class="wk__card">
           <view class="wk__head">
             <text class="wk__col wk__col--date">日期</text>
@@ -61,7 +60,6 @@
           </view>
         </CCard>
 
-        <!-- AI 点评 -->
         <CCard title="AI 点评" class="wk__card">
           <text class="wk__comment">{{ report.comment }}</text>
         </CCard>

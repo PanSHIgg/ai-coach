@@ -10,7 +10,7 @@ const CODE_NOT_FOUND = 3001
 /**
  * 未建档的唯一判据文案：backend/app/services/account.py 在「无档案行」与「体重<=0」时
  * 抛 AppException(NOT_FOUND, "尚未创建身体档案") → HTTP 404 + code 3001 + 该 message
- * （见 backend/tests/test_account_api.py:54-56）。request.ts 把它透传成 Error.message。
+ * （见 backend/tests/test_account_api.py）。request.ts 把它透传成 Error.message。
  * 【假设】后端改文案则此处失配 → 退回「照旧 toast」：宁可多提示一次，也不吞掉真故障。
  */
 const NO_PROFILE_MSG = '尚未创建身体档案'

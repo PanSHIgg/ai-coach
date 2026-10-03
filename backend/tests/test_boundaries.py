@@ -38,9 +38,7 @@ async def _seed_food(db_session) -> Food:
     return food
 
 
-# ---------------------------------------------------------------------------
 # 身高边界 (0, 200]
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("height", [0, 250])
@@ -56,9 +54,7 @@ async def test_height_upper_boundary_200_accepted(db_client, authed):
     assert resp.json()["data"]["height_cm"] == 200.0
 
 
-# ---------------------------------------------------------------------------
 # 体重边界 (0, 500]
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("weight", [0, 501])
@@ -74,9 +70,7 @@ async def test_weight_upper_boundary_500_accepted(db_client, authed):
     assert resp.json()["data"]["current_weight"] == 500.0
 
 
-# ---------------------------------------------------------------------------
 # 出生年份异常 → 422/2001（IS-005 修复后不再接受越界值）
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("year", [1900, 1905, 3000, 9999])
@@ -87,9 +81,7 @@ async def test_birth_year_out_of_range_rejected(db_client, authed, year: int):
     assert resp.json()["code"] == 2001
 
 
-# ---------------------------------------------------------------------------
 # 饮食分量边界 amount_g <= 0
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("amount", [0, -5])
@@ -104,9 +96,7 @@ async def test_meal_amount_non_positive_rejected(db_client, db_session, authed, 
     assert resp.json()["code"] == 2001
 
 
-# ---------------------------------------------------------------------------
 # 枚举越界：gender / activity_level / target_type
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

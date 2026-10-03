@@ -21,9 +21,7 @@ from app.models import Merchant, MerchantSku, Order, SkuCatalog, User
 from app.services import wechat_pay as w
 from app.services.order_service import notify_sign
 
-# ---------------------------------------------------------------------------
 # 造数助手（独立于 test_orders，避免耦合）
-# ---------------------------------------------------------------------------
 
 
 async def _seed_merchant(db_session, name="退款测试店", category="轻食", status=1, audit_status=1):
@@ -88,9 +86,7 @@ async def _paid_order(db_client, db_session, authed, stock=-1):
     return m, order
 
 
-# ---------------------------------------------------------------------------
 # 退款
-# ---------------------------------------------------------------------------
 
 
 async def test_refund_paid_order_transitions_2_to_5(db_client, db_session, authed):
@@ -172,9 +168,7 @@ async def test_refunded_order_cannot_be_redeemed(db_client, db_session, authed):
     assert (await _get_order(db_session, order.id)).status == 5
 
 
-# ---------------------------------------------------------------------------
 # 微信支付骨架：测试内自造 RSA 密钥对（纯标准库生成 + DER/PEM 编码）
-# ---------------------------------------------------------------------------
 
 _SMALL_PRIMES = (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37)
 
@@ -271,9 +265,7 @@ def rsa_key() -> dict:
     return {"priv": _private_pem(n, e, d, p, q), "pub": _public_pem(n, e)}
 
 
-# ---------------------------------------------------------------------------
 # 签名 / 验签
-# ---------------------------------------------------------------------------
 
 
 def test_request_authorization_sign_and_verify(rsa_key):
@@ -321,9 +313,7 @@ def test_notify_signature_tampered_body_fails(rsa_key):
     assert w.verify_notify_signature(ts, "n2", body, signature, rsa_key["pub"]) is False
 
 
-# ---------------------------------------------------------------------------
 # AES-256-GCM 解密（NIST AES-256-GCM Test Case 14 向量）
-# ---------------------------------------------------------------------------
 
 
 def test_decrypt_resource_nist_vector_ok():
@@ -351,9 +341,7 @@ def test_decrypt_resource_tampered_tag_fails():
         w.decrypt_resource(ct, nonce, "", key)
 
 
-# ---------------------------------------------------------------------------
 # 无密钥降级 / 配置判定
-# ---------------------------------------------------------------------------
 
 
 def test_config_not_configured_by_default():

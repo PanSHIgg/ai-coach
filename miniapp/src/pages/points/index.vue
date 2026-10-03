@@ -16,7 +16,6 @@
         </template>
       </CCard>
 
-      <!-- 兑换进度 -->
       <CCard title="兑换进度" class="points__card">
         <view v-for="t in thresholds" :key="t.points" class="th">
           <view class="th__head">
@@ -31,7 +30,6 @@
         </view>
       </CCard>
 
-      <!-- 积分明细 -->
       <CCard title="积分明细" class="points__card">
         <CSkeleton v-if="listLoading && !records.length" type="line" :rows="4" />
         <CError v-else-if="listError && !records.length" @retry="() => loadPage(true)" />

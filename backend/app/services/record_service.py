@@ -84,9 +84,7 @@ def _ensure_aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=TZ)
 
 
-# ---------------------------------------------------------------------------
 # 食物搜索
-# ---------------------------------------------------------------------------
 
 
 def _food_item(food: Food) -> FoodItem:
@@ -190,9 +188,7 @@ async def create_custom_food(session: AsyncSession, user_id: int, payload) -> Fo
     )
 
 
-# ---------------------------------------------------------------------------
 # 饮食记录
-# ---------------------------------------------------------------------------
 
 
 async def _get_food(session: AsyncSession, food_id: int) -> Food:
@@ -396,9 +392,7 @@ async def list_meals(
     )
 
 
-# ---------------------------------------------------------------------------
 # 运动记录
-# ---------------------------------------------------------------------------
 
 
 def resolve_met(sport_name: str | None, met: float | None) -> float:

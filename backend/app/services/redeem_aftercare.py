@@ -73,9 +73,7 @@ async def _load_items(session: AsyncSession, order: Order) -> list[OrderItem]:
     )
 
 
-# ---------------------------------------------------------------------------
 # 三件套 ①：摄入记录自动写入
-# ---------------------------------------------------------------------------
 
 
 def write_meal_records(
@@ -101,9 +99,7 @@ def write_meal_records(
     return records
 
 
-# ---------------------------------------------------------------------------
 # 三件套 ②：商家贡献分
-# ---------------------------------------------------------------------------
 
 
 def add_contribution_points(session: AsyncSession, merchant: Merchant) -> int:
@@ -112,9 +108,7 @@ def add_contribution_points(session: AsyncSession, merchant: Merchant) -> int:
     return merchant.contribution_points
 
 
-# ---------------------------------------------------------------------------
 # 三件套 ③：社区经验卡
-# ---------------------------------------------------------------------------
 
 
 def create_experience_card(
@@ -138,9 +132,7 @@ def create_experience_card(
     return post
 
 
-# ---------------------------------------------------------------------------
 # 入口：三件套统一编排（不 commit，由调用方在核销事务末尾统一提交）
-# ---------------------------------------------------------------------------
 
 
 async def apply_redeem_aftercare(session: AsyncSession, order: Order, merchant: Merchant) -> None:

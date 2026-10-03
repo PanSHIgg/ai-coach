@@ -71,8 +71,18 @@ desktop.ini
 # Phase 5：性能脚本运行产物（seed_bulk.py 自动生成，可删）
 perf/seed_ids.json
 
+# ---- 本机局域网联调代理（临时工具，不入库）----
 lan-proxy.exe
 lan-proxy.go
-# ---- WorkBuddy 工作区数据（Agent 记忆/日志，不入库）----
+
+# ---- WorkBuddy / CodeBuddy 工作区数据（Agent 记忆/日志/技能包，不入库）----
 .workbuddy/
-.agents
+.agents/
+
+# ---- 开发过程文档（2026-10-04 移出跟踪；文件保留在本地）----
+# 这四份是本地开发期的协作规则、完成清单、排期与环境笔记，
+# 对 clone 出来的协作者无价值；需求基线在 docs/（入库，只读）。
+AGENTS.md
+current.md
+plan.md
+dev_env.md

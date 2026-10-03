@@ -5,8 +5,6 @@ BE7a 动态、BE7b 五种社交（监督搭子 / 兴趣社群 / 约战 / 挑战�
 不直接对外展示。XSS：入库存原文，由渲染层（前端模板插值自动转义）负责，避免双重转义。
 
 【假设】：
-- battle 表无参与成员表：约战「加入」仅做满员/状态校验 + join_count 原子自增；
-  重复加入由「满员即拒」自然阻断（need_count 达到后后续加入返回 409）。
 - community_group 无成员表：join 仅原子自增 member_count；checkin 以 post_type=3 动态沉淀打卡。
 - leaderboard 有预聚合表但无写入方：读取时按期从 daily_snapshot 现算并 upsert。
 """
@@ -23,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppException
 from app.models import (
     Battle,
+    BattleParticipant,
     Challenge,
     ChallengeJoin,
     CommunityComment,
@@ -43,6 +42,7 @@ from app.schemas.community import (
     BattleItem,
     BattleJoinData,
     BattlePageData,
+    BattleQuitData,
     ChallengeItem,
     ChallengeJoinData,
     ChallengeLeaderboardData,
@@ -76,9 +76,7 @@ _TZ = timezone(timedelta(hours=8))
 ANONYMOUS_BRIEF = UserBrief(id=0, nickname="匿名减友", avatar_url=None)
 
 
-# ---------------------------------------------------------------------------
 # 基础工具
-# ---------------------------------------------------------------------------
 
 
 def _brief(user: User | None) -> UserBrief:
@@ -143,9 +141,7 @@ async def _enqueue_review(
     )
 
 
-# ---------------------------------------------------------------------------
 # BE7a 动态
-# ---------------------------------------------------------------------------
 
 
 async def create_post(
@@ -404,9 +400,7 @@ async def list_experience(session: AsyncSession, page: int, page_size: int) -> E
     )
 
 
-# ---------------------------------------------------------------------------
 # BE7b 监督搭子
-# ---------------------------------------------------------------------------
 
 
 async def _active_supervise(session: AsyncSession, user_id: int) -> Supervise | None:
@@ -552,9 +546,7 @@ async def partner_records(
     return SuperviseRecordsData(supervise_id=sup.id, partner=_brief(partner), items=items)
 
 
-# ---------------------------------------------------------------------------
 # BE7b 兴趣社群
-# ---------------------------------------------------------------------------
 
 
 def _group_out(g: CommunityGroup) -> GroupItem:
@@ -649,12 +641,10 @@ async def checkin_group(
     )
 
 
-# ---------------------------------------------------------------------------
 # BE7b 约战
-# ---------------------------------------------------------------------------
 
 
-def _battle_item(b: Battle) -> BattleItem:
+def _battle_item(b: Battle, joined: bool = False) -> BattleItem:
     return BattleItem(
         id=b.id,
         title=b.title or "",
@@ -666,11 +656,15 @@ def _battle_item(b: Battle) -> BattleItem:
         join_count=b.join_count,
         status=b.status,
         creator_id=b.creator_id,
+        joined=joined,
     )
 
 
 async def create_battle(session: AsyncSession, user_id: int, payload: BattleCreateIn) -> BattleItem:
-    """发起约战（含 LBS city 与关联场馆券 merchant_id）；关联商家不存在 3001。"""
+    """发起约战（含 LBS city 与关联场馆券 merchant_id）；关联商家不存在 3001。
+
+    发起人建战即占 1 位：join_count=1 且写入成员表一行（退出/防重复以此表为准）。
+    """
     if payload.merchant_id is not None:
         merchant = await session.scalar(
             select(Merchant.id).where(Merchant.id == payload.merchant_id)
@@ -689,12 +683,19 @@ async def create_battle(session: AsyncSession, user_id: int, payload: BattleCrea
         status=1,
     )
     session.add(battle)
+    await session.flush()  # 先取 battle.id 再写成员行
+    session.add(BattleParticipant(battle_id=battle.id, user_id=user_id))
     await session.commit()
-    return _battle_item(battle)
+    return _battle_item(battle, joined=True)
 
 
 async def list_battles(
-    session: AsyncSession, city: str | None, status: int | None, page: int, page_size: int
+    session: AsyncSession,
+    city: str | None,
+    status: int | None,
+    page: int,
+    page_size: int,
+    user_id: int | None = None,
 ) -> BattlePageData:
     conds = []
     if city:
@@ -715,21 +716,44 @@ async def list_battles(
         .scalars()
         .all()
     )
+    # 当前用户的已加入集合：成员表命中 ∪ 本人发起（迁移兜底历史数据）
+    joined_ids: set[int] = set()
+    if user_id is not None and rows:
+        ids = [b.id for b in rows]
+        member_ids = set(
+            await session.scalars(
+                select(BattleParticipant.battle_id).where(
+                    BattleParticipant.battle_id.in_(ids),
+                    BattleParticipant.user_id == user_id,
+                )
+            )
+        )
+        joined_ids = member_ids | {b.id for b in rows if b.creator_id == user_id}
     return BattlePageData(
-        items=[_battle_item(b) for b in rows],
+        items=[_battle_item(b, joined=b.id in joined_ids) for b in rows],
         page=PageMeta(page=page, page_size=page_size, total=int(total or 0)),
     )
 
 
-async def join_battle(session: AsyncSession, battle_id: int) -> BattleJoinData:
-    """加入约战：满员/状态校验 + join_count 原子自增（并发安全）。
+async def join_battle(session: AsyncSession, battle_id: int, user_id: int) -> BattleJoinData:
+    """加入约战：一人一位（成员表防重复）+ join_count 原子自增（并发不超员）。
 
-    UPDATE ... WHERE join_count < need_count AND status=1 保证并发下不超员；
-    无参与成员表，重复加入由「满员即拒」自然阻断【假设】。
+    先 INSERT 成员行（唯一约束 battle_id+user_id 兜底并发重复），再原子自增
+    join_count（WHERE status=1 AND join_count < need_count 保证不超员）。
+    任一步失败即抛错且不 commit，本次写入整体回滚，不会出现「计了人数没进成员表」。
     """
-    exists = await session.scalar(select(Battle.id).where(Battle.id == battle_id))
-    if exists is None:
+    battle = await session.get(Battle, battle_id)
+    if battle is None:
         raise AppException(ErrorCode.NOT_FOUND, "约战不存在")
+    # 成员行占位：冲突（已加入）时不写入，据 returning 判定重复
+    inserted = await session.execute(
+        pg_insert(BattleParticipant)
+        .values(battle_id=battle_id, user_id=user_id)
+        .on_conflict_do_nothing(constraint="uq_battle_participant")
+        .returning(BattleParticipant.id)
+    )
+    if inserted.first() is None or battle.creator_id == user_id:
+        raise AppException(ErrorCode.VALIDATION_ERROR, "已加入该约战，不能重复加入")
     row = await session.execute(
         update(Battle)
         .where(
@@ -750,9 +774,40 @@ async def join_battle(session: AsyncSession, battle_id: int) -> BattleJoinData:
     return BattleJoinData(battle_id=battle_id, joined=True, join_count=int(join_count))
 
 
-# ---------------------------------------------------------------------------
+async def quit_battle(session: AsyncSession, battle_id: int, user_id: int) -> BattleQuitData:
+    """退出约战：删成员行 + join_count 原子自减；满员(2)退出后回「招募中(1)」。
+
+    仅招募中/满员（status 1/2）可退出；未加入返回 2001。
+    """
+    battle = await session.get(Battle, battle_id)
+    if battle is None:
+        raise AppException(ErrorCode.NOT_FOUND, "约战不存在")
+    if battle.status not in (1, 2):
+        raise AppException(ErrorCode.VALIDATION_ERROR, "约战已开始或已结束，无法退出")
+    deleted = await session.execute(
+        delete(BattleParticipant).where(
+            BattleParticipant.battle_id == battle_id,
+            BattleParticipant.user_id == user_id,
+        )
+    )
+    if deleted.rowcount == 0:
+        raise AppException(ErrorCode.VALIDATION_ERROR, "尚未加入该约战")
+    row = await session.execute(
+        update(Battle)
+        .where(Battle.id == battle_id, Battle.join_count > 0)
+        .values(
+            join_count=Battle.join_count - 1,
+            # 满员退出后恢复招募；进行中/结束不在此路径（上方已拦）
+            status=1 if battle.status == 2 else battle.status,
+        )
+        .returning(Battle.join_count)
+    )
+    join_count = int(row.scalar_one())
+    await session.commit()
+    return BattleQuitData(battle_id=battle_id, joined=False, join_count=join_count)
+
+
 # BE7b 挑战赛
-# ---------------------------------------------------------------------------
 
 
 def _challenge_item(c: Challenge, joined: bool) -> ChallengeItem:
@@ -870,9 +925,7 @@ async def challenge_leaderboard(
     return ChallengeLeaderboardData(challenge_id=challenge_id, items=items)
 
 
-# ---------------------------------------------------------------------------
 # BE7b 热量控制榜
-# ---------------------------------------------------------------------------
 
 
 def _period_range(period_type: int, period_key: str) -> tuple[date, date]:

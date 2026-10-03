@@ -22,7 +22,6 @@
         </view>
       </CCard>
 
-      <!-- 任务列表 -->
       <CCard title="任务中心" class="task__card">
         <CSkeleton v-if="loading" type="card" />
         <CError v-else-if="error" @retry="load" />

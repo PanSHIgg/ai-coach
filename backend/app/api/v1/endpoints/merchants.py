@@ -81,13 +81,11 @@ async def list_merchants(
     return ok(data, request_id=request_id)
 
 
-# ---------------------------------------------------------------------------
 # G11 商家自助后台
 #
 # 注意：以下静态路径（/merchant/me、/merchant/skus、/merchant/orders、/merchant/stats、
 # /merchant/compare、/merchant/login）必须注册在 GET /merchant/{id} 之前，否则会被
 # `{id}` 路径参数先行匹配（"skus" 转 int 失败 → 422），静态路由永不可达。
-# ---------------------------------------------------------------------------
 
 
 @router.post(

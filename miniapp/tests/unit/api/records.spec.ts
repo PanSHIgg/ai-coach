@@ -1,7 +1,7 @@
 /**
  * api/records · 微信运动步数同步（scope.werun 授权预检 / 后端真源解读 / 文案单一真源）
  *
- * 为什么必须是新文件（AGENTS.md §2.9）：
+ * 为什么必须是新文件：
  *  - tests/unit/api/restApis.spec.ts 的模型是「薄封装 → 断言 request() 调用契约 + 结果原样透传」，
  *    且只覆盖 task/privacy/report；本文件的步数链路含**客户端授权状态机**与**后端 steps_source 解读**，
  *    必须给全局 uni 注入 getSetting/authorize/getWeRunData 三个小程序能力桩并按分支同步回包，

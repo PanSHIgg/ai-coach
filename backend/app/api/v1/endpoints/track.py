@@ -1,7 +1,6 @@
 """埋点上报接口（openapi: /api/track，F3，归属本模块）。
 
-地基由主 Agent 预建并挂入路由（AGENTS.md §4.2）；`track_service.record_events` 的实现
-由 F3 后端子 Agent 填充。
+埋点端点与 `track_service.record_events` 同一模块实现；路由挂载见 `api/v1/router.py`。
 
 允许匿名上报（登录前事件，如扫码进入）：契约侧 `security: []`，带有效 token 时关联 user_id。
 """

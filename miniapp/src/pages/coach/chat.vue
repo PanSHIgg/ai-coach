@@ -37,7 +37,6 @@
         <text class="coach__link" @tap="goTickets">历史问诊 ›</text>
       </view>
 
-      <!-- 消息流 -->
       <scroll-view class="coach__body" scroll-y :scroll-into-view="anchorId" scroll-with-animation>
         <view class="coach__inner">
           <CSkeleton v-if="loading && !messages.length" type="card" />
@@ -69,7 +68,6 @@
         </view>
       </scroll-view>
 
-      <!-- 底部输入区 -->
       <view class="coach__foot">
         <view class="quota">
           <text class="quota__text">{{ quotaText }}</text>

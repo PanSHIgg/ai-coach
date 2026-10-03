@@ -143,9 +143,7 @@ async def test_refresh_with_garbage_token_1001(db_client: AsyncClient):
     assert resp.json()["code"] == 1001
 
 
-# ---------------------------------------------------------------------------
 # F-09：登录持久化 session_key（微信运动步数解密的唯一合法密钥来源）
-# ---------------------------------------------------------------------------
 
 
 class _RecordingRedis:

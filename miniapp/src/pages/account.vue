@@ -1,6 +1,5 @@
 <template>
   <view class="page-shell">
-    <!-- 今日热量构成 -->
     <CCard title="热量构成" class="detail__card">
       <CSkeleton v-if="accountStore.loading && !accountStore.today" type="card" />
       <template v-else-if="accountStore.today">
@@ -32,7 +31,6 @@
       <CError v-else @retry="reload" />
     </CCard>
 
-    <!-- 今日收支 -->
     <CCard v-if="accountStore.today" title="今日收支" class="detail__card">
       <view class="detail__row">
         <text class="detail__label">已摄入</text>

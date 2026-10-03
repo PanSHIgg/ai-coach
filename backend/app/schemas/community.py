@@ -225,6 +225,8 @@ class BattleItem(BaseModel):
     join_count: int
     status: int  # 1招募中 2满员 3进行中 4结束
     creator_id: Optional[int] = None
+    # 当前用户是否已加入（含发起人）；未登录调用恒为 False
+    joined: bool = False
 
 
 class BattlePageData(BaseModel):
@@ -258,6 +260,16 @@ class BattleJoinData(BaseModel):
 
     battle_id: int
     joined: bool = True
+    join_count: int
+
+
+class BattleQuitData(BaseModel):
+    """退出约战结果：joined 恒为 False，join_count 为退出后的最新人数。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    battle_id: int
+    joined: bool = False
     join_count: int
 
 

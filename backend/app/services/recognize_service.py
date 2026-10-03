@@ -1,4 +1,4 @@
-"""拍照识别服务（plan.md BE4a / 06-AI服务.md §2.3、§六）。
+"""拍照识别服务（docs/split/06-AI服务.md §2.3、§六）。
 
 链路：图片字节 → 视觉客户端候选 → 逐条匹配 food 表 → 热量换算 → need_confirm 判定。
 
@@ -112,9 +112,7 @@ class MatchOutcome:
     ambiguous: bool
 
 
-# ---------------------------------------------------------------------------
 # 入参校验
-# ---------------------------------------------------------------------------
 
 
 def ensure_valid_image(image_bytes: bytes, content_type: str | None) -> None:
@@ -127,9 +125,7 @@ def ensure_valid_image(image_bytes: bytes, content_type: str | None) -> None:
         raise AppException(ErrorCode.VALIDATION_ERROR, "图片不能超过 5MB")
 
 
-# ---------------------------------------------------------------------------
 # 纯逻辑（可脱离网络/DB 单测）
-# ---------------------------------------------------------------------------
 
 
 def _as_float(value: object) -> float:
@@ -229,9 +225,7 @@ def resolve_need_confirm(items: list[RecognizedItem], threshold: float) -> bool:
     return any(item.confidence < threshold or item.food_id is None for item in items)
 
 
-# ---------------------------------------------------------------------------
 # food 表匹配
-# ---------------------------------------------------------------------------
 
 
 def recall_terms(kw: str) -> list[str]:
@@ -346,14 +340,12 @@ async def match_food_outcome(session: AsyncSession, name: str) -> MatchOutcome:
     return decide_match(rows)
 
 
-# ---------------------------------------------------------------------------
 # 主流程
-# ---------------------------------------------------------------------------
 
 
 def vision_client_for(s: Settings) -> VisionClient:
     """按 env 装配视觉客户端：VLM_BASE_URL+VLM_API_KEY 齐备 → OpenAI 兼容 VLM；
-    否则落 Mock（明确降级，见 current.md 的 AI 无 Key 降级口径）。
+    否则落 Mock（明确降级，见 app/ai/ 的 AI 无 Key 降级实现）。
     """
     if s.VLM_BASE_URL and s.VLM_API_KEY:
         return _OpenAICompatVLM(s.VLM_BASE_URL, s.VLM_API_KEY, s.VLM_MODEL, timeout=s.AI_TIMEOUT)

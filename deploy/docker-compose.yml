@@ -132,7 +132,8 @@ services:
     environment:
       # ============================================================
       # 本块里只有「有意的覆盖」，其余一律交给 env_file(../.env)。
-      # 机制提醒（P0 事故根因，AGENTS.md §7.1 记的 required:false 是同族坑）：
+      # 机制提醒（P0 事故根因：env_file 标 required:false 时文件缺失会静默跳过，
+      #「改了 .env 却没生效」是同族坑）：
       #   ① environment: 的优先级**高于** env_file:，写在这里的键就是最终值；
       #   ② 但 ${VAR} 插值读的是 compose project 环境 = shell 环境变量 +
       #      deploy/.env（**本仓库不存在 deploy/.env**），根 .env **不参与插值**。

@@ -1,4 +1,4 @@
-"""平台自营会员订阅付费接口（openapi: /api/plan/*，current.md §2.1 G2）。
+"""平台自营会员订阅付费接口（openapi: /api/plan/*）。
 
 **路径族刻意避开 `/api/subscription`（已被「提醒订阅」占用）与 `/api/order`**
 （order 绑定 merchant_id 与核销语义，平台自营无商家），故新建 plan_order 表。
@@ -36,9 +36,7 @@ from app.services import plan_service
 router = APIRouter(tags=["会员套餐"])
 
 
-# ---------------------------------------------------------------------------
 # 套餐与权益
-# ---------------------------------------------------------------------------
 
 
 @router.get("/plan/list", response_model=Envelope[PlanListData], summary="会员档位与价格")
@@ -77,9 +75,7 @@ async def get_plan_benefit(
     )
 
 
-# ---------------------------------------------------------------------------
 # 下单 / 支付 / 回调 / 订单列表
-# ---------------------------------------------------------------------------
 
 
 @router.post("/plan/order", response_model=Envelope[PlanOrderData], summary="创建会员订阅订单")

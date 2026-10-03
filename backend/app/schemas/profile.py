@@ -9,7 +9,7 @@ class BodyProfileIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     gender: int = Field(ge=1, le=2)  # 1男 2女
-    # 校园边界（plan.md §7 QA）：身高 (0,200]、体重 (0,500]；越界 → 422/2001
+    # 边界：身高 (0,200]、体重 (0,500]；越界 → 422/2001
     height_cm: float = Field(gt=0, le=200)
     # IS-005: birth_year 静态边界 1900-9999（与契约 openapi.yaml 对齐）
     # 动态年龄校验见 _validate_birth_year

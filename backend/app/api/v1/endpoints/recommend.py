@@ -1,6 +1,6 @@
 """饭点决策接口（openapi: /api/ai/recommend）——Phase 2 BE4c 实现域。
 
-从 `ai.py` 拆出，避免 BE4b（对话）与 BE4c（推荐）争抢同一文件（AGENTS.md §4.2）。
+从 `ai.py` 拆出，避免对话与推荐两组端点争抢同一文件。
 """
 
 from fastapi import APIRouter, Depends

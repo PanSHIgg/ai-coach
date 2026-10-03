@@ -159,9 +159,7 @@ def _build_messages(message: str, docs: list[AiKnowledge]) -> list[dict]:
     return messages
 
 
-# ---------------------------------------------------------------------------
 # D-09：OpenAI 兼容单一客户端（LLM 与 VLM 共用，POST {base_url}/chat/completions）
-# ---------------------------------------------------------------------------
 
 # 视觉识别提示词：要求纯 JSON 输出，便于后端解析并匹配 food 表
 _VISION_PROMPT = (
@@ -172,6 +170,43 @@ _VISION_PROMPT = (
 )
 
 _JSON_BLOCK = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.DOTALL)
+
+# AI 对话带图：VLM 图片描述提示词（描述结果拼进文字消息再交给 LLM）
+_CHAT_IMAGE_PROMPT = (
+    "请用中文简要描述这张图片的内容；如果图片中有食物，"
+    "请列出食物种类并估计分量与热量。只输出描述文字。"
+)
+
+
+async def _describe_image(image_url: str, s: Settings) -> str | None:
+    """用 VLM 生成图片内容描述（同步客户端放线程池）；未配置/失败返回 None（不阻断对话）。"""
+    if not (s.VLM_BASE_URL and s.VLM_API_KEY):
+        return None
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": image_url}},
+                {"type": "text", "text": _CHAT_IMAGE_PROMPT},
+            ],
+        }
+    ]
+    try:
+        return (
+            await asyncio.to_thread(
+                _openai_compatible_chat,
+                s.VLM_BASE_URL,
+                s.VLM_API_KEY,
+                s.VLM_MODEL,
+                messages,
+                timeout=s.AI_TIMEOUT,
+                temperature=0.3,
+                max_tokens=512,
+            )
+        ) or None
+    except Exception as exc:  # noqa: BLE001 - 图片描述失败降级，不中断对话
+        logger.warning("AI 对话图片描述失败", extra={"reason": str(exc)})
+        return None
 
 
 def _extract_json(text: str) -> Any:
@@ -388,10 +423,16 @@ async def chat(
     user_id: int,
     session_id: str | None,
     message: str,
+    image_url: str | None = None,
     settings: Settings | None = None,
     llm_client: LLMClient | None = None,
 ) -> ChatResult:
-    """一次 AI 对话：限流 → 次数校验 → RAG → LLM（失败 6001）→ 落 ai_dialog → 扣次数。"""
+    """一次 AI 对话：限流 → 次数校验 → RAG → LLM（失败 6001）→ 落 ai_dialog → 扣次数。
+
+    image_url（可选）：随对话上传的图片（COS 公开读）。有图时先用 VLM 生成图片内容
+    描述，再与文字一起拼进用户消息交给 LLM；VLM 未配置/失败时降级为文字继续，
+    不因图片阻断对话。
+    """
     s = settings or get_settings()
     if s.RATE_LIMIT_ENABLED and not await check_rate_limit(
         f"ai:chat:user:{user_id}", s.RATE_LIMIT_AI_PER_MIN, s.RATE_LIMIT_WINDOW_SECONDS
@@ -406,21 +447,38 @@ async def chat(
     ):
         raise AppException(ErrorCode.QUOTA_EXCEEDED, NO_TIMES_MESSAGE)
 
-    intent = classify_intent(message)
-    docs = await retrieve_knowledge(session, message)
+    # 图片内容描述（有图才调 VLM；未配置/失败为 None，消息里如实说明）
+    image_desc = await _describe_image(image_url, s) if image_url else None
+
+    text = (message or "").strip()
+    intent = classify_intent(text) if text else "general"
+    docs = await retrieve_knowledge(session, text) if text else []
     references = [f"knowledge:{d.id}" for d in docs]
+
+    if image_url:
+        suffix = (
+            f"\n\n[用户发来一张图片] 图片内容：{image_desc}"
+            if image_desc
+            else "\n\n[用户发来一张图片，但视觉服务暂不可用，无法识别图片内容]"
+        )
+        text = f"{text}{suffix}".strip()
+    references_out = list(references)
+    if image_url:
+        references_out.append(f"image:{image_url}")
 
     client = llm_client or llm_client_for(s)
     model = str(getattr(client, "model", "") or type(client).__name__)[:64]
     dialog_session_id = _as_uuid(session_id)
-    reply = await generate_reply(client, _build_messages(message, docs), timeout=s.AI_TIMEOUT)
+    reply = await generate_reply(client, _build_messages(text, docs), timeout=s.AI_TIMEOUT)
 
+    # 落库保留图片出处（content 仅文本；图片 URL 拼在用户消息末尾便于回溯）
+    user_content = f"{(message or '').strip()}\n[图片]{image_url}".strip() if image_url else (message or "").strip()
     session.add(
         AiDialog(
             user_id=user_id,
             session_id=dialog_session_id,
             role="user",
-            content=message,
+            content=user_content,
             intent=intent,
             model=model,
         )
@@ -438,12 +496,10 @@ async def chat(
     if ai_quota_for_tier(int(benefit.tier), s.AI_DAILY_TIMES) != -1:
         benefit.ai_times_left = max(0, int(benefit.ai_times_left) - 1)
     await session.commit()
-    return ChatResult(reply, intent, int(benefit.ai_times_left), references)
+    return ChatResult(reply, intent, int(benefit.ai_times_left), references_out)
 
 
-# ---------------------------------------------------------------------------
 # BE7c：AI 周点评（每周热量控制周报）
-# ---------------------------------------------------------------------------
 
 
 class WeekStats(NamedTuple):

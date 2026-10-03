@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 # 场景 → COS 对象键前缀（与 openapi.yaml UploadScene 一一对应）
-UploadScene = Literal["meal", "avatar", "post", "merchant"]
+UploadScene = Literal["meal", "avatar", "post", "merchant", "chat"]
 # 允许的文件扩展名（与 openapi.yaml UploadFileExt 一一对应）
 UploadFileExt = Literal["jpg", "jpeg", "png", "webp"]
 

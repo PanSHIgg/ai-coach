@@ -20,9 +20,7 @@ RE_ORDER_NO = re.compile(r"^DD\d{8}[0-9A-F]{8}$")  # DD + yyyyMMdd + 8 位随机
 RE_REDEEM_CODE = re.compile(r"^RD[A-Z0-9]{10}$")
 
 
-# ---------------------------------------------------------------------------
 # 造数助手
-# ---------------------------------------------------------------------------
 
 
 async def _seed_merchant(db_session, name="轻食一号店", category="轻食", status=1, audit_status=1):
@@ -121,9 +119,7 @@ def _notify_body(order_no: str, amount: float, sign: str | None = None) -> dict:
     return {"order_no": order_no, "amount": amount, "sign": sign or notify_sign(order_no, amount)}
 
 
-# ---------------------------------------------------------------------------
 # 下单
-# ---------------------------------------------------------------------------
 
 
 async def test_create_order_server_recalc(db_client, db_session, authed):
@@ -257,9 +253,7 @@ async def test_create_order_coupon_rejected(db_client, db_session, authed, varia
     assert coupon.order_id is None  # 未被新订单绑定
 
 
-# ---------------------------------------------------------------------------
 # 支付（预下单）
-# ---------------------------------------------------------------------------
 
 
 async def test_pay_mock_mode_advances_order(db_app, db_client, db_session, authed):
@@ -338,9 +332,7 @@ async def test_pay_expired_5003_cancels_and_releases_coupon(db_client, db_sessio
     assert coupon.status == 1 and coupon.order_id is None  # 券释放
 
 
-# ---------------------------------------------------------------------------
 # 回调
-# ---------------------------------------------------------------------------
 
 
 async def test_notify_success_marks_paid(db_client, db_session, authed):
@@ -467,9 +459,7 @@ async def test_notify_stock_shortage_blocks_oversell(db_client, db_session, auth
     assert resp.status_code == 409 and resp.json()["code"] == 4001
 
 
-# ---------------------------------------------------------------------------
 # 核销
-# ---------------------------------------------------------------------------
 
 
 async def _paid_order(db_client, db_session, authed, merchant, stock=-1):
@@ -600,9 +590,7 @@ async def test_redeem_cancelled_or_refunded_5003(
     assert log.result == 2 and reason in log.fail_reason
 
 
-# ---------------------------------------------------------------------------
 # 列表 + 惰性超时
-# ---------------------------------------------------------------------------
 
 
 async def test_order_list_lazy_timeout_and_filter(db_client, db_session, authed):

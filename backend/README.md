@@ -1,7 +1,7 @@
 # AI 饮食管控教练 · 后端（P0-e 脚手架）
 
 FastAPI + pydantic v2 异步后端。**已不是 P0 stub**：`contracts/openapi.yaml` 的全部接口都已挂载并接真实 PostgreSQL 落库，返回统一 envelope。
-~~罐头数据对齐 `contracts/mock/routes.mjs`~~ —— 该 mock 层（server.mjs + routes.mjs）已删除；契约一致性改由 **openapi ↔ FastAPI 实际路由 ↔ 两份 TS 类型** 三方校验承担（`tests/test_contract_consistency.py`）。接口数量各处文档口径不一，**以 openapi.yaml 当次实测为准**（见 `current.md §3.4`）。
+~~罐头数据对齐 `contracts/mock/routes.mjs`~~ —— 该 mock 层（server.mjs + routes.mjs）已删除；契约一致性改由 **openapi ↔ FastAPI 实际路由 ↔ 两份 TS 类型** 三方校验承担（`tests/test_contract_consistency.py`）。接口数量各处文档口径不一，**以 openapi.yaml 当次实测为准**。
 
 ## 本地启动
 
@@ -14,7 +14,7 @@ uvicorn app.main:app --reload --port 8000
 
 - 健康检查：`GET /healthz`（无前缀，`{"status":"ok"}`）
 - 接口文档：`/docs`、OpenAPI：`/openapi.json`
-- **跑测试需要真实 PostgreSQL**（`db_client` / `db_session` 夹具走真库，先按 `dev_env.md §3` 建表 + 导种子；`conftest` 的函数级 `TRUNCATE` 含 `food`/`food_alias`，全量跑完后种子被清空需重导）。**不需要 Redis**——`conftest` 故意把 Redis 指向不可达端口，限流自动降级进程内窗口。
+- **跑测试需要真实 PostgreSQL**（`db_client` / `db_session` 夹具走真库，先按 `deploy/README.md §3` 建表 + `§5` 导种子；`conftest` 的函数级 `TRUNCATE` 含 `food`/`food_alias`，全量跑完后种子被清空需重导）。**不需要 Redis**——`conftest` 故意把 Redis 指向不可达端口，限流自动降级进程内窗口。
 
 ## 环境变量
 

@@ -2,15 +2,24 @@
 
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AiChatIn(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     session_id: str  # uuid
-    # 上界防超长提示词打爆 LLM 费用/超时（>500 字 → 422/2001）
-    message: str = Field(min_length=1, max_length=500)
+    # 上界防超长提示词打爆 LLM 费用/超时（>500 字 → 422/2001）；
+    # 支持纯图片消息：message 为空时必须带 image_url（文字与图片至少一项）
+    message: str = Field(default="", max_length=500)
+    # 随对话上传的图片 URL（前端 COS 直传后的公开读地址，scene=chat）
+    image_url: Optional[str] = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _require_message_or_image(self) -> "AiChatIn":
+        if not (self.message.strip() or self.image_url):
+            raise ValueError("message 与 image_url 至少一项")
+        return self
 
 
 class AiChatData(BaseModel):

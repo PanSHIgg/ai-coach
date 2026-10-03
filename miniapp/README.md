@@ -1,7 +1,7 @@
 # miniapp · AI 饮食管控教练用户端（uni-app 小程序）
 
 P0-f 前端脚手架：uni-app Vue3 + Vite + TS + Pinia，**交付目标只有微信小程序（mp-weixin）**。
-`build:h5`/`dev:h5` 与源码里的 `#ifdef H5` 分支保留，但**H5 不进部署面**——只作 agent-browser 本地视觉回归通道（口径见 `dev_env.md §5/§6`）。
+`build:h5`/`dev:h5` 与源码里的 `#ifdef H5` 分支保留，但**H5 不进部署面**——只作 agent-browser 本地视觉回归通道（口径见 `deploy/README.md` 与 `docs/split/08-部署与运维.md`）。
 基础组件库 / 设计令牌见 `DESIGN.md`（P0-b 交付，本工程直接使用）。
 
 ## 快速开始
@@ -87,7 +87,7 @@ miniapp/
 ## 【假设】记录
 
 1. 刷新端点 `/api/auth/refresh` 契约暂缺（见上）。
-2. ~~Mock 态登录用固定 `code='mock-code'`~~ —— **该假设已作废**：`VITE_USE_MOCK` / `mock-code` / Mock Server 全部下线，登录只有 `uni.login` 真 code 一条路（mp-weixin 端）。H5 侧无微信容器，登录链路不在 H5 通道验收（见 `dev_env.md §6`）。
+2. ~~Mock 态登录用固定 `code='mock-code'`~~ —— **该假设已作废**：`VITE_USE_MOCK` / `mock-code` / Mock Server 全部下线，登录只有 `uni.login` 真 code 一条路（mp-weixin 端）。H5 侧无微信容器，登录链路不在 H5 通道验收（见 `docs/split/08-部署与运维.md`）。
 3. tabBar 图标 `static/tab/*.png` 为占位路径，待 UI 出图后替换。
 4. `manifest.json` 里**有两个 `appid`，含义不同，别改错**（历史上本条写作"appid 占位 touristappid，联调时替换"，容易被误读成微信 AppID 仍是占位）：
    - **顶层 `appid`**（当前 `touristappid`）= **DCloud 应用标识**，供 uni-app 打包 / uni 统计使用，**与微信无关**；未注册 DCloud 账号前保持占位即可，**不要把它当成微信小程序 AppID 去替换**。

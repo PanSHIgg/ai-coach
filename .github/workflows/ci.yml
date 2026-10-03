@@ -115,7 +115,7 @@ jobs:
       # build:h5 仍在 CI 跑，但口径要说清：**H5 不进部署面**（deploy/Dockerfile.miniapp 与 nginx
       # 的 SPA root/静态缓存/回退三段已删，不产出也不上传任何 H5 部署物）。保留的原因是
       # 源码里所有 `#ifdef H5` 分支**只有 H5 构建才会被编译**，而 build:h5/dev:h5 是本项目
-      # 唯一的 agent-browser 视觉回归通道（AGENTS.md §5）——不在 CI 构建它就等于没人守这条通道，
+      # 唯一的 agent-browser 视觉回归通道——不在 CI 构建它就等于没人守这条通道，
       # 腐化后（类型/依赖/条件编译错误）只有人工跑脚本时才会发现。
       - name: Install & type-check
         if: ${{ hashFiles('miniapp/package.json') != '' }}

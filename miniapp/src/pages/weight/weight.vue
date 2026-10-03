@@ -43,7 +43,6 @@
         </template>
       </CCard>
 
-      <!-- 记录列表 -->
       <CCard title="记录列表" class="weight__card">
         <CSkeleton v-if="loading" type="line" :rows="3" />
         <template v-else>

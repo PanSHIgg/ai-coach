@@ -18,22 +18,18 @@
           </view>
         </CField>
 
-        <!-- 身高 -->
         <CField label="身高" required hint="单位 cm" :error="errors.height_cm">
           <CInput v-model="form.height_cm" type="digit" placeholder="如 175" />
         </CField>
 
-        <!-- 当前体重 -->
         <CField label="当前体重" required hint="单位 kg" :error="errors.current_weight">
           <CInput v-model="form.current_weight" type="digit" placeholder="如 75.5" />
         </CField>
 
-        <!-- 目标体重 -->
         <CField label="目标体重" hint="单位 kg，选填" :error="errors.target_weight">
           <CInput v-model="form.target_weight" type="digit" placeholder="如 70" />
         </CField>
 
-        <!-- 出生年份 -->
         <CField label="出生年份" hint="用于 BMR 计算" :error="errors.birth_year">
           <CInput v-model="form.birth_year" type="number" placeholder="如 1995" />
         </CField>

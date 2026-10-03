@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """load_seeds.py — 种子数据导入脚本（P0-c 骨架）。
 
-对齐 plan.md DATA 轨道交付节点：
+按数据交付节点导入：
 - DATA1 食物库 1700+ 条 + food_alias：W3 前交付
 - DATA3 RAG 知识库语料：W5 前交付
 - DATA2 标准 SKU 目录：W7 前交付

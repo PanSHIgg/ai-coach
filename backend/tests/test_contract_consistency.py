@@ -1,4 +1,4 @@
-"""契约一致性门禁（Phase 5 · F2「接口冻结」，plan.md §11 F2）。
+"""契约一致性门禁（Phase 5 · F2「接口冻结」）。
 
 **为何单开文件**（AGENTS §2.9）：`contracts/` 由主 Agent 单点冻结，此前**没有任何自动化
 门禁**阻止「后端实现 ↔ `contracts/openapi.yaml` ↔ TS 双副本」漂移；本文件把三处一致性
@@ -43,8 +43,8 @@ TS_COPY = REPO_ROOT / "miniapp" / "src" / "types" / "api.d.ts"
 #   -> 路径 110 / ops 119（GET 54）
 # 账号管理：GET+POST /api/admin/accounts、PUT /api/admin/accounts/{id}/password
 #   -> 路径 112 / ops 122（GET 55 / POST 57 / PUT 5）
-FROZEN_PATH_COUNT = 112
-FROZEN_OP_COUNT = 122
+FROZEN_PATH_COUNT = 113
+FROZEN_OP_COUNT = 123
 
 _METHODS = ("get", "post", "put", "delete", "patch", "options", "head")
 
@@ -108,9 +108,7 @@ _CONTRACT = _contract_methods_by_path()
 _ALL_PATHS = sorted(set(_BACKEND) | set(_CONTRACT))
 
 
-# ---------------------------------------------------------------------------
 # 1) 后端实际注册路由 ↔ 契约：路径集合 + method 集合（双向）
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("path", _ALL_PATHS, ids=_ALL_PATHS)
@@ -154,9 +152,7 @@ def test_contract_freeze_baseline_counts():
     )
 
 
-# ---------------------------------------------------------------------------
 # 2) TS 双副本逐字一致
-# ---------------------------------------------------------------------------
 
 
 def test_ts_copies_are_byte_identical():
@@ -168,9 +164,7 @@ def test_ts_copies_are_byte_identical():
     )
 
 
-# ---------------------------------------------------------------------------
 # 3) $ref 悬空检查
-# ---------------------------------------------------------------------------
 
 
 def _iter_refs(node):

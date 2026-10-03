@@ -253,9 +253,7 @@ async def enqueue_due_reminders(session: AsyncSession, at: datetime | None = Non
     return payloads
 
 
-# ---------------------------------------------------------------------------
 # 微信订阅消息发送抽象（F-06）
-# ---------------------------------------------------------------------------
 
 
 def _template_id_map(settings: Settings | None = None) -> dict[int, str]:

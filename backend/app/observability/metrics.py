@@ -1,6 +1,6 @@
 """Prometheus 指标定义与 `/metrics` 运维端点（Phase 5 / F9）。
 
-真源：`docs/split/08-部署与运维.md` §10.7、`plan.md` §16。
+真源：`docs/split/08-部署与运维.md` §10.7。
 
 设计要点：
 - `/metrics` 是**运维端点**，不挂 `/api` 契约前缀、不进 OpenAPI、不限流。

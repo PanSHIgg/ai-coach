@@ -30,7 +30,6 @@
         </template>
       </CCard>
 
-      <!-- 运动记录（支持日期切换） -->
       <CCard title="运动记录" class="sport__card">
         <template #extra>
           <picker mode="date" :value="date" @change="onDateChange">

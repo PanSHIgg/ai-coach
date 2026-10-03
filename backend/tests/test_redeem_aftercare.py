@@ -20,9 +20,7 @@ from app.models import (
 from app.services import redeem_aftercare
 from app.services.order_service import notify_sign
 
-# ---------------------------------------------------------------------------
 # 造数助手（同 test_orders.py 口径）
-# ---------------------------------------------------------------------------
 
 
 async def _seed_merchant(db_session, name="轻食一号店", category="轻食"):
@@ -94,9 +92,7 @@ async def _get_merchant(db_session, merchant_id) -> Merchant:
     ).scalar_one()
 
 
-# ---------------------------------------------------------------------------
 # 三件套：一个行为一个测试
-# ---------------------------------------------------------------------------
 
 
 async def test_redeem_writes_meal_records_from_order_sku(db_client, db_session, authed):

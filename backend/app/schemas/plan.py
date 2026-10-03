@@ -1,4 +1,4 @@
-"""平台自营会员订阅域 schema（openapi: /api/plan/*，current.md §2.1 G2）。
+"""平台自营会员订阅域 schema（openapi: /api/plan/*）。
 
 路径族刻意避开 `/api/subscription`（已被「提醒订阅」占用）与 `/api/order`
 （order 绑定 merchant_id 与核销语义，平台自营无商家）。

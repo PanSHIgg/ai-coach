@@ -25,9 +25,7 @@ from app.models import (
 _LAT, _LNG = 31.2304, 121.4737  # 上海人民广场附近
 
 
-# ---------------------------------------------------------------------------
 # 造数助手
-# ---------------------------------------------------------------------------
 
 
 async def _catalog_id(db_session, code="FD-001") -> int:
@@ -121,9 +119,7 @@ async def _merchant_token(db_client, db_session, **mkw) -> tuple[Merchant, str]:
     return m, r.json()["data"]["token"]
 
 
-# ---------------------------------------------------------------------------
 # 登录
-# ---------------------------------------------------------------------------
 
 
 async def test_login_success_returns_token_and_updates_last_login(
@@ -195,9 +191,7 @@ async def test_client_user_token_rejected_on_merchant_api(db_client, authed):
     assert r.status_code == 401 and r.json()["code"] == 1001
 
 
-# ---------------------------------------------------------------------------
 # 信息 / 选品定价
-# ---------------------------------------------------------------------------
 
 
 async def test_me_returns_merchant_info(db_client, db_session):
@@ -289,9 +283,7 @@ async def test_toggle_sku_and_not_found(db_client, db_session):
     assert r.status_code == 404 and r.json()["code"] == 3001
 
 
-# ---------------------------------------------------------------------------
 # 订单 / 核销
-# ---------------------------------------------------------------------------
 
 
 async def test_orders_list_pagination_and_status_filter(db_client, db_session):
@@ -360,9 +352,7 @@ async def test_redeem_foreign_order_3001(db_client, db_session):
     assert order.status == 2  # 未被核销
 
 
-# ---------------------------------------------------------------------------
 # 看板
-# ---------------------------------------------------------------------------
 
 
 async def test_stats_aggregation(db_client, db_session):
@@ -384,9 +374,7 @@ async def test_stats_aggregation(db_client, db_session):
     assert d["contribution_points"] == 7
 
 
-# ---------------------------------------------------------------------------
 # 比价（C 端）
-# ---------------------------------------------------------------------------
 
 
 async def test_compare_ordering_by_price_and_coupon(db_client, db_session, authed):

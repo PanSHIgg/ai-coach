@@ -1,6 +1,5 @@
 <template>
   <view class="ma">
-    <!-- 加载 / 错误 全页态 -->
     <CSkeleton v-if="loading && !me" type="card" />
     <CError v-else-if="failed" text="商家数据加载失败" button-text="重试" @retry="loadAll" />
 

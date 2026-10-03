@@ -1,4 +1,4 @@
-"""真人教练工单域业务（openapi: /api/coach/*，current.md §2.1 G1）。
+"""真人教练工单域业务（openapi: /api/coach/*）。
 
 端到端闭环：用户提问（扣 `user_benefit.coach_times_left`）→ 自动分配教练 → 教练回复
 （status 1→2）→ 用户追问（status →1）→ 关闭（3）。
@@ -69,9 +69,7 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-# ---------------------------------------------------------------------------
 # 教练登录
-# ---------------------------------------------------------------------------
 
 
 async def login(session: AsyncSession, username: str, password: str) -> tuple[str, str]:
@@ -98,9 +96,7 @@ async def login(session: AsyncSession, username: str, password: str) -> tuple[st
     )
 
 
-# ---------------------------------------------------------------------------
 # 用户侧：提问 / 我的工单 / 详情 / 追加描述
-# ---------------------------------------------------------------------------
 
 
 async def _pick_coach(session: AsyncSession) -> int | None:
@@ -243,9 +239,7 @@ async def add_user_message(
     return msg
 
 
-# ---------------------------------------------------------------------------
 # 教练侧：被分配用户 / 被分配工单 / 回复
-# ---------------------------------------------------------------------------
 
 
 async def list_assigned_users(

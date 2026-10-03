@@ -36,6 +36,7 @@ async def ai_chat(
         user_id=int(user.id),
         session_id=payload.session_id,
         message=payload.message,
+        image_url=payload.image_url,
     )
     return ok(
         AiChatData(

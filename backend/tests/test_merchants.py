@@ -238,9 +238,7 @@ async def test_sku_catalog_returns_seed_with_price_range(db_client, authed):
     assert {it["category"] for it in body2["data"]["items"]} == {"标准减脂餐"}
 
 
-# ---------------------------------------------------------------------------
 # R-01：权重保护 / 清退（§6.3.4）
-# ---------------------------------------------------------------------------
 
 
 async def test_partner_levels_ranking_bands(db_session):

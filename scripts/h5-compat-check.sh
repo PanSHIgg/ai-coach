@@ -8,7 +8,7 @@
 #       H5 构建能力（miniapp npm run build:h5）保留，需要临时视觉核对时自行起静态服务对照。
 # 文件名说明：脚本名保留 h5 是历史名，实际核对对象是**管理后台这个 H5 SPA**（admin/dist 多档
 #       viewport 浏览器渲染）；全仓无其他文件引用它，改名需自行同步本地书签/文档。
-#       小程序 H5 通道的核对不在此脚本，见 dev_env.md §6（npm run dev:h5 + agent-browser）。
+#       小程序 H5 通道的核对不在此脚本（npm run dev:h5 + agent-browser）。
 # 解释器：PY 需指向装了后端依赖的 ≥3.12 解释器；本机（Windows）实测用
 #       PY=backend/.venv/Scripts/python.exe（系统 python3.12 无后端依赖）。
 set -euo pipefail

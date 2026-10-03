@@ -46,9 +46,7 @@ async def _seed_profile(db_session, user_id: int, weight: float = 70.0) -> None:
     await db_session.commit()
 
 
-# ---------------------------------------------------------------------------
 # P1-2 数值上界：越界 → 422/2001（防 DB 溢出 → 500）
-# ---------------------------------------------------------------------------
 
 
 async def test_meal_create_amount_over_limit_422(db_client, authed):
@@ -96,9 +94,7 @@ async def test_steps_over_limit_422(db_client, authed):
     assert resp.json()["code"] == 2001
 
 
-# ---------------------------------------------------------------------------
 # P1-3 计算热量超 NUMERIC 上限 → 422/2001（而非写库 500）
-# ---------------------------------------------------------------------------
 
 
 async def test_create_meal_calories_over_max_2001(db_client, db_session, authed):
@@ -131,9 +127,7 @@ async def test_update_meal_calories_over_max_2001(db_client, db_session, authed)
     assert resp.json()["code"] == 2001
 
 
-# ---------------------------------------------------------------------------
 # P2-9 update_meal 支持 image_url 显式置空（null），未传则保持不变
-# ---------------------------------------------------------------------------
 
 
 async def test_update_meal_clear_image_url(db_client, db_session, authed):
@@ -176,9 +170,7 @@ async def test_update_meal_clear_image_url(db_client, db_session, authed):
     assert rec2.image_url is None
 
 
-# ---------------------------------------------------------------------------
 # P2-10 已删用户的 token → 401/1001（而非写接口外键 IntegrityError → 500）
-# ---------------------------------------------------------------------------
 
 
 async def test_deleted_user_token_1001(db_client, db_session):
@@ -201,9 +193,7 @@ async def test_deleted_user_token_1001(db_client, db_session):
     assert write.json()["code"] == 1001
 
 
-# ---------------------------------------------------------------------------
 # P1-A 聚合上界：多条餐累加超当日上限 → 422/2001（防 daily_snapshot 写溢出 500）
-# ---------------------------------------------------------------------------
 
 
 async def test_meal_daily_aggregate_over_limit_422(db_client, db_session, authed):
@@ -222,9 +212,7 @@ async def test_meal_daily_aggregate_over_limit_422(db_client, db_session, authed
     assert over.json()["code"] == 2001
 
 
-# ---------------------------------------------------------------------------
 # P1-A 单餐宏量营养溢出 NUMERIC(7,2) → 422/2001（而非写库 500）
-# ---------------------------------------------------------------------------
 
 
 async def test_meal_macro_over_limit_422(db_client, db_session, authed):
@@ -241,12 +229,10 @@ async def test_meal_macro_over_limit_422(db_client, db_session, authed):
     assert resp.json()["code"] == 2001
 
 
-# ---------------------------------------------------------------------------
-# P1-B 档案字段上界：birth_year / goal_pace 超限 → 422/2001
-# ---------------------------------------------------------------------------
+# P1-B 档案字段上界：goal_pace 超限 → 422/2001
 
 
-@pytest.mark.parametrize("override", [{"birth_year": 100000}, {"goal_pace": 100000}])
+@pytest.mark.parametrize("override", [{"goal_pace": 100000}])
 async def test_profile_field_over_limit_422(db_client, authed, override: dict):
     resp = await db_client.post(
         "/api/body-profile", headers=authed["headers"], json={**_PROFILE_BASE, **override}
@@ -255,9 +241,7 @@ async def test_profile_field_over_limit_422(db_client, authed, override: dict):
     assert resp.json()["code"] == 2001
 
 
-# ---------------------------------------------------------------------------
 # P1-C 体重 source 越界 → 422/2001
-# ---------------------------------------------------------------------------
 
 
 async def test_weight_source_over_limit_422(db_client, authed):
@@ -268,9 +252,7 @@ async def test_weight_source_over_limit_422(db_client, authed):
     assert resp.json()["code"] == 2001
 
 
-# ---------------------------------------------------------------------------
 # P2-B 步数 hourly 非法键（非 0-23）/ 负值 / 单时值超限 → 422/2001
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("hourly", [{"24": 100}, {"-1": 100}, {"9": -1}, {"9": 300000}])

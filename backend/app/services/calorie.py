@@ -16,7 +16,7 @@
 - 非睡眠小时 NON_SLEEP_HOURS = 16；逐时步频分档阈值见 `_met_by_cadence`。
 - 步数=0 用 PAL 估算（calibration_used=False）；步数>0 走校准（calibration_used=True）。
 
-环形图「还能吃」口径（01 文档 §2.5 / plan.md §7 退出标准，误差 0 对拍）：
+环形图「还能吃」口径（docs/split/01-整体架构与产品需求.md §2.5，误差 0 对拍）：
     today_left = BMR×PAL − 摄入 + 运动消耗 − TEF
 """
 
@@ -217,7 +217,7 @@ def compute_account(inp: CalorieInputs) -> CalorieResult:
     # NEAT 为「非睡眠时段总消耗」展示/校准量（含基础代谢），不叠加进 TEE，避免重复计基础代谢。
     tee = round(budget + eat + tef, 1)
     deficit = round(intake - tee, 1)
-    # 环形图「还能吃」：01 §2.5 / plan.md §7 退出标准口径
+    # 环形图「还能吃」：docs/split/01-整体架构与产品需求.md §2.5 口径
     today_left = round(budget - intake + eat - tef, 1)
     return CalorieResult(
         bmr=bmr,

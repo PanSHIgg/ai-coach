@@ -36,9 +36,7 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-# ---------------------------------------------------------------------------
 # 签名（pay_params 伪造 + 回调验签共用 HMAC-SHA256，key=JWT_SECRET）
-# ---------------------------------------------------------------------------
 
 
 def notify_sign(order_no: str, amount: float, secret: str | None = None) -> str:
@@ -53,9 +51,7 @@ def pay_sign(order_no: str, ts: str, nonce: str) -> str:
     return hmac.new(key, f"pay|{order_no}|{ts}|{nonce}".encode(), hashlib.sha256).hexdigest()
 
 
-# ---------------------------------------------------------------------------
 # 内部工具
-# ---------------------------------------------------------------------------
 
 
 async def _gen_order_no(session: AsyncSession) -> str:
@@ -104,9 +100,7 @@ async def _log_redeem(
     )
 
 
-# ---------------------------------------------------------------------------
 # 下单
-# ---------------------------------------------------------------------------
 
 
 def _validate_coupon(coupon: Coupon, user_id: int, merchant: Merchant, total: float) -> None:
@@ -234,9 +228,7 @@ async def create_order(
     return order
 
 
-# ---------------------------------------------------------------------------
 # 支付（预下单 + 回调）
-# ---------------------------------------------------------------------------
 
 
 async def _get_user_order(session: AsyncSession, order_id: int, user_id: int) -> Order:
@@ -354,9 +346,7 @@ async def handle_notify(session: AsyncSession, payload: dict[str, Any]) -> dict[
     return {"result": "ok"}
 
 
-# ---------------------------------------------------------------------------
 # 核销
-# ---------------------------------------------------------------------------
 
 
 async def redeem_order(
@@ -413,9 +403,7 @@ async def redeem_order(
     raise await _fail(reason, err)
 
 
-# ---------------------------------------------------------------------------
 # 退款
-# ---------------------------------------------------------------------------
 
 
 async def refund_order(
@@ -443,9 +431,7 @@ async def refund_order(
     return order
 
 
-# ---------------------------------------------------------------------------
 # 列表 + 惰性超时
-# ---------------------------------------------------------------------------
 
 
 async def cancel_expired(session: AsyncSession, user_id: int | None = None) -> int:

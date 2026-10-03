@@ -24,9 +24,7 @@ from app.models import (
 TZ = timezone(timedelta(hours=8))
 
 
-# ---------------------------------------------------------------------------
 # 造数助手
-# ---------------------------------------------------------------------------
 
 
 async def _other_actor(db_session, openid: str = "community-other") -> dict:
@@ -57,9 +55,7 @@ def _today() -> str:
     return datetime.now(TZ).date().isoformat()
 
 
-# ---------------------------------------------------------------------------
 # BE7a 动态
-# ---------------------------------------------------------------------------
 
 
 async def test_create_post_visible_in_list(db_client, db_session, authed):
@@ -126,9 +122,7 @@ async def test_create_comment_and_count(db_client, authed):
     assert detail["comment_count"] == 1
 
 
-# ---------------------------------------------------------------------------
 # 评论审核计数口径（BE9 审核回写 comment_count）
-# ---------------------------------------------------------------------------
 
 
 async def _admin_headers(db_client, admin_authed) -> dict:
@@ -222,9 +216,7 @@ async def test_delete_post_non_owner_forbidden(db_client, db_session, authed):
     assert r.json()["code"] == 1002
 
 
-# ---------------------------------------------------------------------------
 # BE7b 监督搭子
-# ---------------------------------------------------------------------------
 
 
 async def test_supervise_match_and_one_pair_unique(db_client, db_session, authed):
@@ -292,9 +284,7 @@ async def test_supervise_remind_and_records(db_client, db_session, authed):
     assert recs["items"][0]["deficit"] == -500
 
 
-# ---------------------------------------------------------------------------
 # BE7b 兴趣社群
-# ---------------------------------------------------------------------------
 
 
 async def test_group_join_increments_member_count(db_client, db_session, authed):
@@ -315,9 +305,7 @@ async def test_group_checkin_creates_post(db_client, db_session, authed):
     assert r.json()["data"]["post_id"] in [p["id"] for p in lst.json()["data"]["items"]]
 
 
-# ---------------------------------------------------------------------------
 # BE7b 约战
-# ---------------------------------------------------------------------------
 
 
 async def _create_battle(db_client, authed, need_count: int = 2) -> int:
@@ -332,41 +320,101 @@ async def _create_battle(db_client, authed, need_count: int = 2) -> int:
     return r.json()["data"]["id"]
 
 
-async def test_battle_create_and_join_until_full(db_client, authed):
+async def test_battle_create_and_join_until_full(db_client, db_session, authed):
+    """发起人占 1 位；他人加入至满员；重复加入（发起人/已加入者）均 2001；退出后可再加入。"""
     bid = await _create_battle(db_client, authed, need_count=2)
+    other = await _other_actor(db_session)
+
+    # 发起人重复加入 → 2001（一人一位）
+    creator_dup = await db_client.post(
+        "/api/community/battle/join", headers=authed["headers"], json={"battle_id": bid}
+    )
+    assert creator_dup.status_code == 422
+    assert creator_dup.json()["code"] == 2001
+
+    # 他人加入 → 满员（发起人 1 + 加入 1）
     first = await db_client.post(
-        "/api/community/battle/join", headers=authed["headers"], json={"battle_id": bid}
+        "/api/community/battle/join", headers=other["headers"], json={"battle_id": bid}
     )
-    assert first.json()["data"]["join_count"] == 2  # 发起人占 1 位，加入后满员
-    full = await db_client.post(
-        "/api/community/battle/join", headers=authed["headers"], json={"battle_id": bid}
+    assert first.json()["code"] == 0
+    assert first.json()["data"]["join_count"] == 2
+
+    # 同一人再次加入 → 2001，人数不变
+    dup = await db_client.post(
+        "/api/community/battle/join", headers=other["headers"], json={"battle_id": bid}
     )
-    assert full.status_code == 422
-    assert full.json()["code"] == 2001
+    assert dup.status_code == 422
+    assert dup.json()["code"] == 2001
+
+    # 退出 → 人数回落、状态回「招募中」，可再次加入
+    quit_res = await db_client.post(
+        "/api/community/battle/quit", headers=other["headers"], json={"battle_id": bid}
+    )
+    assert quit_res.json()["code"] == 0
+    assert quit_res.json()["data"]["joined"] is False
+    assert quit_res.json()["data"]["join_count"] == 1
+    rejoin = await db_client.post(
+        "/api/community/battle/join", headers=other["headers"], json={"battle_id": bid}
+    )
+    assert rejoin.json()["code"] == 0
+    assert rejoin.json()["data"]["join_count"] == 2
 
 
-async def test_battle_join_concurrent_no_overflow(db_client, authed):
+async def test_battle_quit_without_join_returns_422(db_client, db_session, authed):
+    """未加入的人退出 → 2001。"""
+    bid = await _create_battle(db_client, authed, need_count=2)
+    other = await _other_actor(db_session)
+    r = await db_client.post(
+        "/api/community/battle/quit", headers=other["headers"], json={"battle_id": bid}
+    )
+    assert r.status_code == 422
+    assert r.json()["code"] == 2001
+
+
+async def test_battle_list_marks_joined(db_client, db_session, authed):
+    """列表按当前用户标记 joined：发起人已加入，他人未加入。"""
+    bid = await _create_battle(db_client, authed, need_count=2)
+    other = await _other_actor(db_session)
+    creator_view = (
+        await db_client.get("/api/community/battle/list", headers=authed["headers"])
+    ).json()["data"]["items"]
+    other_view = (
+        await db_client.get("/api/community/battle/list", headers=other["headers"])
+    ).json()["data"]["items"]
+    mine = next(b for b in creator_view if b["id"] == bid)
+    theirs = next(b for b in other_view if b["id"] == bid)
+    assert mine["joined"] is True
+    assert theirs["joined"] is False
+
+
+async def test_battle_join_concurrent_no_overflow(db_client, db_session, authed):
+    """5 个不同用户并发抢 2 个空位：恰好 2 人成功，人数不超员。"""
     import asyncio
 
-    bid = await _create_battle(db_client, authed, need_count=3)  # join_count 初始 1
+    bid = await _create_battle(db_client, authed, need_count=3)  # 发起人占 1，剩 2 位
+    others = [await _other_actor(db_session, openid=f"battle-race-{i}") for i in range(5)]
 
-    async def _join():
+    async def _join(headers: dict):
         return (
             await db_client.post(
                 "/api/community/battle/join",
-                headers=authed["headers"],
+                headers=headers,
                 json={"battle_id": bid},
             )
         ).json()
 
-    results = await asyncio.gather(*[_join() for _ in range(5)])
+    results = await asyncio.gather(*[_join(o["headers"]) for o in others])
     ok = [r for r in results if r["code"] == 0]
     assert len(ok) == 2  # 仅剩 2 位，原子自增不超员
+    listed = (
+        await db_client.get("/api/community/battle/list", headers=authed["headers"])
+    ).json()["data"]["items"]
+    battle = next(b for b in listed if b["id"] == bid)
+    assert battle["join_count"] == 3
+    assert battle["status"] == 2  # 满员
 
 
-# ---------------------------------------------------------------------------
 # BE7b 挑战赛
-# ---------------------------------------------------------------------------
 
 
 async def test_challenge_join_once(db_client, db_session, authed):
@@ -397,9 +445,7 @@ async def test_challenge_leaderboard_ranks(db_client, db_session, authed):
     assert items[0]["user"]["id"] == other["user_id"] and items[0]["score"] == 95
 
 
-# ---------------------------------------------------------------------------
 # BE7b 热量控制榜
-# ---------------------------------------------------------------------------
 
 
 async def test_leaderboard_ranked_from_snapshots(db_client, db_session, authed):
@@ -421,9 +467,7 @@ async def test_leaderboard_ranked_from_snapshots(db_client, db_session, authed):
     assert items[0]["user"]["id"] == other["user_id"] and items[0]["score"] == 800.0
 
 
-# ---------------------------------------------------------------------------
 # 同款减友经验
-# ---------------------------------------------------------------------------
 
 
 async def test_experience_list_only_post_type_2(db_client, authed):
@@ -440,9 +484,7 @@ async def test_experience_list_only_post_type_2(db_client, authed):
     assert [i["content"] for i in items] == ["我的减脂经验"]
 
 
-# ---------------------------------------------------------------------------
 # BE7c AI 周点评
-# ---------------------------------------------------------------------------
 
 
 async def test_weekly_comment_template(db_client, db_session, authed):
@@ -461,9 +503,7 @@ async def test_weekly_comment_template(db_client, db_session, authed):
     assert len(data["week"]) == 8  # YYYY-Www
 
 
-# ---------------------------------------------------------------------------
 # 邀请（真实现）
-# ---------------------------------------------------------------------------
 
 
 async def test_invite_bind_and_progress(db_client, db_session, authed):
@@ -492,9 +532,7 @@ async def test_battle_join_missing_returns_404(db_client, authed):
     assert r.json()["code"] == 3001
 
 
-# ---------------------------------------------------------------------------
 # 修复回归：非法参数 / 不存在资源 / 并发
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

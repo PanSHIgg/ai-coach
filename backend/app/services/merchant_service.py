@@ -233,13 +233,11 @@ async def list_catalog(db: AsyncSession, category: str | None) -> CatalogData:
     )
 
 
-# ---------------------------------------------------------------------------
 # G11 商家自助后台
 #
 # 说明：本轮独占可写文件不含 `schemas/`，故契约 `components.schemas.Merchant*`
 # 的 pydantic 实现就近定义于本服务模块，端点直接复用（路径/方法已与契约逐字对齐）。
 # 价格区间越界沿用商家管理口径：code=2001、HTTP 覆盖为 400。
-# ---------------------------------------------------------------------------
 
 _STATUS_PAID = 2  # 已支付待核销
 _STATUS_REDEEMED = 3  # 已完成（核销）
@@ -703,9 +701,7 @@ async def compare_merchants(
     return MerchantCompareData(items=items)
 
 
-# ---------------------------------------------------------------------------
 # 权重保护 / 清退（§6.3.4，R-01）
-# ---------------------------------------------------------------------------
 
 
 async def evaluate_partner_levels(db: AsyncSession) -> dict[int, int]:

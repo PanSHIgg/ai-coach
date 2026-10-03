@@ -26,7 +26,7 @@ from app.schemas.common import ErrorCode
 from app.schemas.upload import StsCredentials, UploadCredentialData
 
 # 上传场景 → 对象键前缀（与 openapi UploadScene 一致）
-SCENES = ("meal", "avatar", "post", "merchant")
+SCENES = ("meal", "avatar", "post", "merchant", "chat")
 # 允许的扩展名（与 openapi UploadFileExt 一致）
 ALLOWED_EXT = ("jpg", "jpeg", "png", "webp")
 

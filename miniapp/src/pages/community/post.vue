@@ -1,6 +1,5 @@
 <template>
   <view class="post">
-    <!-- 发帖：无 id -->
     <view v-if="mode === 'compose'" class="post__compose">
       <textarea
         v-model="content"

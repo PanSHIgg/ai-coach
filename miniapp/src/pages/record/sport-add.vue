@@ -27,7 +27,6 @@
         </view>
       </CCard>
 
-      <!-- 手动填写 -->
       <CCard title="运动详情" class="sport-add__card">
         <CField label="运动名称" required>
           <CInput v-model="form.name" placeholder="如：爬楼" />

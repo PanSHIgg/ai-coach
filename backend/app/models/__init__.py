@@ -44,9 +44,7 @@ def _ts() -> Mapped[datetime]:
     return mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
-# ---------------------------------------------------------------------------
 # 用户域
-# ---------------------------------------------------------------------------
 
 
 class User(Base):
@@ -116,9 +114,7 @@ class Invite(Base):
     created_at: Mapped[datetime] = _ts()
 
 
-# ---------------------------------------------------------------------------
 # 身体档案与记录域
-# ---------------------------------------------------------------------------
 
 
 class BodyProfile(Base):
@@ -308,9 +304,7 @@ class Subscription(Base):
     )
 
 
-# ---------------------------------------------------------------------------
 # AI 域（Phase 2：对话流水 + RAG 知识库）
-# ---------------------------------------------------------------------------
 
 
 class AiDialog(Base):
@@ -356,9 +350,7 @@ class AiKnowledge(Base):
     created_at: Mapped[datetime] = _ts()
 
 
-# ---------------------------------------------------------------------------
 # 商家与交易域（Phase 3：BE5 商家 / BE6 订单支付核销 / BE9 管理）
-# ---------------------------------------------------------------------------
 
 
 class Merchant(Base):
@@ -561,9 +553,7 @@ class AdminUser(Base):
     created_at: Mapped[datetime] = _ts()
 
 
-# ---------------------------------------------------------------------------
 # 社区与社交域（Phase 4：BE7a 动态 / BE7b 五种社交 / BE7c 内容审核）
-# ---------------------------------------------------------------------------
 
 
 class CommunityPost(Base):
@@ -660,6 +650,22 @@ class Battle(Base):
     join_count: Mapped[int] = mapped_column(Integer, server_default="1", default=1)
     creator_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user.id"))
     status: Mapped[int] = mapped_column(SmallInteger, server_default="1", default=1)
+    created_at: Mapped[datetime] = _ts()
+
+
+class BattleParticipant(Base):
+    """约战成员（battle_participant）：一人一位，重复加入/退出以此表为准。
+
+    发起人建战时即写入一行（与 join_count=1 对齐）；重复加入由
+    UniqueConstraint(battle_id, user_id) 硬约束兜底（并发下也不会重复计人）。
+    """
+
+    __tablename__ = "battle_participant"
+    __table_args__ = (UniqueConstraint("battle_id", "user_id", name="uq_battle_participant"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    battle_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("battle.id"), index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("user.id"), index=True)
     created_at: Mapped[datetime] = _ts()
 
 
@@ -762,9 +768,7 @@ class TrackEvent(Base):
     created_at: Mapped[datetime] = _ts()
 
 
-# ---------------------------------------------------------------------------
-# 真人教练工单域 + 平台自营付费订阅域（0009 迁移，current.md §2.1 G1/G2）
-# ---------------------------------------------------------------------------
+# 真人教练工单域 + 平台自营付费订阅域（0009 迁移）
 
 
 class Coach(Base):
@@ -840,9 +844,7 @@ class PlanOrder(Base):
     created_at: Mapped[datetime] = _ts()
 
 
-# ---------------------------------------------------------------------------
-# 我的页 5 模块 + 商家自助后台 + 记录归档（0010 迁移，current.md §二 G3/G8/G10/G11）
-# ---------------------------------------------------------------------------
+# 我的页 5 模块 + 商家自助后台 + 记录归档（0010 迁移）
 
 
 class UserPoints(Base):

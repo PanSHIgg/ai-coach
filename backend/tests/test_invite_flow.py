@@ -16,9 +16,7 @@ from app.models import Coupon, CouponPool, Invite, User, UserBenefit
 from app.schemas.common import ErrorCode
 from app.services import invite_service as isvc
 
-# ---------------------------------------------------------------------------
 # 造数助手
-# ---------------------------------------------------------------------------
 
 
 def _now() -> datetime:
@@ -41,9 +39,7 @@ async def _invite_status(db_session, invitee_id: int) -> int:
     ).scalar_one()
 
 
-# ---------------------------------------------------------------------------
 # 纯函数单元（不依赖 DB）
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -81,9 +77,7 @@ def test_no_batch_scheduler_and_coupon_chain():
         assert not hasattr(isvc, legacy), legacy
 
 
-# ---------------------------------------------------------------------------
 # 绑定即生效（注册即有效）
-# ---------------------------------------------------------------------------
 
 
 async def test_bind_effective_immediately(db_client, db_session):
@@ -189,9 +183,7 @@ async def test_progress_at_tier3(db_client, db_session):
     assert progress["next_tier"] == {"need": 0, "reward": "终身版不限次"}
 
 
-# ---------------------------------------------------------------------------
 # 防刷（4102）：同设备只计 1 次
-# ---------------------------------------------------------------------------
 
 
 async def test_same_device_second_bind_rejected_4102(db_client, db_session):
@@ -228,9 +220,7 @@ async def test_same_device_second_bind_rejected_4102(db_client, db_session):
     assert r3.json()["data"]["bound"] is True
 
 
-# ---------------------------------------------------------------------------
 # 绑定边界：自邀请 / 重复绑定
-# ---------------------------------------------------------------------------
 
 
 async def test_self_invite_rejected(db_client, authed):
@@ -266,9 +256,7 @@ async def test_duplicate_bind_rejected(db_client, db_session):
     assert r2.json()["code"] == ErrorCode.VALIDATION_ERROR
 
 
-# ---------------------------------------------------------------------------
 # 废除双方发券：绑定/升档全程无券
-# ---------------------------------------------------------------------------
 
 
 async def test_no_coupons_granted_on_bind(db_client, db_session):
@@ -306,9 +294,7 @@ async def test_no_coupons_granted_on_bind(db_client, db_session):
     assert refreshed.granted_count == 0
 
 
-# ---------------------------------------------------------------------------
 # tier3 不限次：扣减链路遇 -1 不扣不拦
-# ---------------------------------------------------------------------------
 
 
 class _StubLLM:

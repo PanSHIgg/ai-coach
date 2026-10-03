@@ -1,10 +1,10 @@
-"""我的页 5 模块 + 商家自助后台 + 记录按月归档 + 中文检索（current.md §二 G3/G8/G10/G11）。
+"""我的页 5 模块 + 商家自助后台 + 记录按月归档 + 中文检索。
 
 Revision ID: 0010
 Revises: 0009
 Create Date: 2026-10-02
 
-补齐 current.md §二 若干缺口的数据地基（业务逻辑由后续 agent 填充）：
+补齐我的页/商家后台/归档/中文检索的数据地基（业务逻辑由后续 agent 填充）：
 - G3 我的页 5 模块：user_points / points_log / daily_checkin / user_task /
   user_privacy / exclusive_offer（专属优惠·异业联盟券目录）/ report_export；
 - G11 商家自助后台：merchant_account；
@@ -23,10 +23,8 @@ down_revision = "0009"
 branch_labels = None
 depends_on = None
 
-# ---------------------------------------------------------------------------
 # G8 归档表：源表 -> 归档表名。列与源表逐列对应（去主键序列，加 archived_at）。
 # 说明：actual 源表名为 step_record（非 steps_record），track_event 表名与实际一致。
-# ---------------------------------------------------------------------------
 _ARCHIVE_TABLES = (
     "meal_record_archive",
     "sport_record_archive",
@@ -61,7 +59,7 @@ def _partition_sql(table: str) -> str:
 
 UPGRADE_SQL = r"""
 -- =============================================================================
--- 10. current.md §二 缺口数据地基（0010 迁移，additive-only）
+-- 10. 缺口数据地基（0010 迁移，additive-only）
 -- =============================================================================
 
 -- G10 中文检索：三元组模糊匹配（与 0001 / 001_schema.sql 幂等）

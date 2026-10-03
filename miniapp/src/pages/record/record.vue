@@ -30,8 +30,7 @@
         </template>
       </CCard>
 
-      <!-- 聚合入口 -->
-      <CCard title="快速记录" class="record__card">
+        <CCard title="快速记录" class="record__card">
         <view class="grid">
           <view v-for="item in entries" :key="item.label" class="grid__item" @tap="item.action">
             <image class="grid__icon" :src="`/static/icons/${item.icon}.png`" mode="aspectFit" />

@@ -1,4 +1,4 @@
-"""饭点决策推荐服务（plan.md §8 BE4c / 03 文档 §5.2「吃什么」页）。
+"""饭点决策推荐服务（docs/split/03-页面布局与交互说明.md §5.2「吃什么」页）。
 
 链路：餐次 → 今日剩余热量额度 → food 表候选 → 2~3 个组合 → 绿/黄/红健康等级 → 推荐理由。
 
@@ -132,9 +132,7 @@ class Combo:
     food_id: int
 
 
-# ---------------------------------------------------------------------------
 # 纯逻辑
-# ---------------------------------------------------------------------------
 
 
 def grade_for(total: float, allowance: float) -> Grade:
@@ -193,9 +191,7 @@ def _prompt(combos: list[Combo], allowance: float, budget: float | None) -> list
     ]
 
 
-# ---------------------------------------------------------------------------
 # 额度与候选
-# ---------------------------------------------------------------------------
 
 
 async def remaining_allowance(session: AsyncSession, user_id: int, meal_type: int) -> float:
@@ -259,9 +255,7 @@ async def build_combos(session: AsyncSession) -> list[Combo]:
     return combos
 
 
-# ---------------------------------------------------------------------------
 # LLM 润色（失败即降级）
-# ---------------------------------------------------------------------------
 
 
 async def _invoke(client: LLMClient, messages: list[dict]) -> str:
@@ -286,9 +280,7 @@ async def polish_reasons(
     return _parse_reasons(text, len(combos))
 
 
-# ---------------------------------------------------------------------------
 # 主流程
-# ---------------------------------------------------------------------------
 
 
 async def recommend(

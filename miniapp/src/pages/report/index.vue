@@ -4,7 +4,6 @@
     <CNoPermission v-if="!userStore.isLogined" text="登录后导出报告" @action="goLogin" />
 
     <template v-else>
-      <!-- 报告导出 -->
       <CCard title="报告导出" class="rp__card">
         <view class="rp__btn-row">
           <CButton block :loading="exporting" @click="onExport">导出体重健康报告</CButton>

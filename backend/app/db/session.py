@@ -20,7 +20,7 @@ def get_engine() -> AsyncEngine:
     """进程级单例引擎。
 
     Phase 5（F5）：默认改用**异步连接池**（SQLAlchemy 默认 AsyncAdaptedQueuePool），
-    避免每请求新建 asyncpg 连接导致高并发下延迟劣化（perf/report.md 实测根因）。
+    避免每请求新建 asyncpg 连接导致高并发下延迟劣化（本机百万行压测实测根因）。
     `DB_POOL_DISABLED=True` 时回退 NullPool —— 供「多事件循环复用同一 engine」的场景
     （pytest 的函数级 loop）使用；测试侧 `conftest.db_engine` 自建引擎，不受此处影响。
     """

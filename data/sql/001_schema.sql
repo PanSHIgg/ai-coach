@@ -8,7 +8,7 @@
 -- 默认决策：
 --   1. 商家位置用 PostGIS geo GEOMETRY(Point,4326)（§7.2 DDL 主口径，N-7 对齐；
 --      API 出入参仍 lat/lng 数值，仅存储层改造；docker 用 postgis/postgis:16 镜像）
---   2.【假设】ai_knowledge.embedding 用 JSONB 占位（plan.md 决策 3：首期不引 pgvector），
+--   2.【假设】ai_knowledge.embedding 用 JSONB 占位（首期不引 pgvector），
 --     另加全文检索列 search_vec 兜底
 --   3.【假设】§7.1 列出但 §7.2 未给 DDL 的 user_auth/coupon_pool/order_item/review，
 --     以及任务指定的 订阅/社区评论/点赞/热量控制榜/埋点事件，按最简结构补齐
@@ -319,7 +319,7 @@ CREATE TABLE ai_knowledge (
     category   VARCHAR(64),
     title      VARCHAR(256),
     content    TEXT NOT NULL,
-    embedding  JSONB,   -- 【假设】向量占位：首期不装 pgvector（plan.md 决策3），结构 {"model":..,"vector":[..]}
+    embedding  JSONB,   -- 【假设】向量占位：首期不装 pgvector，结构 {"model":..,"vector":[..]}
     source     VARCHAR(256),
     search_vec tsvector GENERATED ALWAYS AS (to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, ''))) STORED,
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -604,6 +604,17 @@ CREATE TABLE battle (
 CREATE INDEX idx_battle_city ON battle(city, meet_at);
 COMMENT ON TABLE battle IS '约战：LBS 匹配/加入/关联场馆券（BE7b）';
 
+-- 约战成员（一人一位：重复加入/退出以此表为准；发起人建战即写一行）
+CREATE TABLE battle_participant (
+    id         BIGSERIAL PRIMARY KEY,
+    battle_id  BIGINT NOT NULL REFERENCES battle(id),
+    user_id    BIGINT NOT NULL REFERENCES "user"(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_battle_participant UNIQUE (battle_id, user_id)
+);
+CREATE INDEX idx_battle_participant_user ON battle_participant(user_id);
+COMMENT ON TABLE battle_participant IS '约战成员：一人一位，防重复加入/支持退出（0011）';
+
 -- 挑战赛（§7.2）
 CREATE TABLE challenge (
     id         BIGSERIAL PRIMARY KEY,
@@ -707,7 +718,7 @@ CREATE INDEX idx_track_event_user ON track_event(user_id);
 COMMENT ON TABLE track_event IS '埋点事件：6 项核心指标数据源（留存/K因子/扫码转化/识别成功率/AI满意度/获客成本）';
 
 -- -----------------------------------------------------------------------------
--- 9. 真人教练工单域 + 平台自营付费订阅域（current.md §2.1 G1/G2，0009 迁移）
+-- 9. 真人教练工单域 + 平台自营付费订阅域（0009 迁移）
 -- -----------------------------------------------------------------------------
 
 -- 真人教练名册（G1）【假设】登录凭据复用 admin_user(role=4)，两者以 username 唯一关联
@@ -769,7 +780,7 @@ COMMENT ON COLUMN plan_order.tier IS '档位：1进阶 29 元 2高级 59 元 3�
 COMMENT ON COLUMN plan_order.status IS '1待支付 2已支付 3已取消';
 
 -- -----------------------------------------------------------------------------
--- 10. current.md §二 缺口数据地基（0010 迁移，additive-only）
+-- 10. 缺口数据地基（0010 迁移，additive-only）
 -- -----------------------------------------------------------------------------
 
 -- G10 中文检索：三元组模糊匹配（pg_trgm 已在文件头创建，幂等）

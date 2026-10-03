@@ -1,4 +1,4 @@
-"""平台自营会员订阅付费业务（openapi: /api/plan/*，current.md §2.1 G2）。
+"""平台自营会员订阅付费业务（openapi: /api/plan/*）。
 
 路径族刻意避开 `/api/subscription`（已被「提醒订阅」占用，见 notification_service）与
 `/api/order`（order 绑定 merchant_id 与核销语义，平台自营无商家），故数据落在 `plan_order`。
@@ -83,9 +83,7 @@ def _new_order_no() -> str:
     )
 
 
-# ---------------------------------------------------------------------------
 # 档位与权益
-# ---------------------------------------------------------------------------
 
 
 def list_tiers() -> list[dict[str, Any]]:
@@ -149,9 +147,7 @@ async def _grant_benefit(
     return benefit
 
 
-# ---------------------------------------------------------------------------
 # 下单 / 支付 / 回调 / 列表
-# ---------------------------------------------------------------------------
 
 
 async def create_order(session: AsyncSession, user_id: int, tier: int) -> PlanOrder:

@@ -83,9 +83,7 @@ async def _assert_db_intact(db_session, before: dict[str, int]) -> None:
     assert after == before, f"关键表行数变化: {before} -> {after}"
 
 
-# ---------------------------------------------------------------------------
 # 登录 code（字符串入参，code2session 由 conftest 打桩）——注入不得改库/报错
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("payload", SQLI_PAYLOADS, ids=SQLI_IDS)
@@ -98,9 +96,7 @@ async def test_login_code_injection_safe(db_client, db_session, payload):
     await _assert_db_intact(db_session, before)
 
 
-# ---------------------------------------------------------------------------
 # 食物搜索 keyword（tsvector + ILIKE 参数化）——空结果、无泄露
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("payload", SQLI_PAYLOADS, ids=SQLI_IDS)
@@ -118,9 +114,7 @@ async def test_food_search_keyword_injection_safe(db_client, db_session, authed,
     await _assert_db_intact(db_session, before)
 
 
-# ---------------------------------------------------------------------------
 # 分页参数 page/page_size（整型，非法 → 422/2001）
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("payload", SQLI_PAYLOADS, ids=SQLI_IDS)
@@ -137,9 +131,7 @@ async def test_pagination_param_injection_rejected(db_client, db_session, authed
     await _assert_db_intact(db_session, before)
 
 
-# ---------------------------------------------------------------------------
 # 筛选类 query 参数：整型枚举（status/post_type）→ 422；日期 date → 422
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("payload", SQLI_PAYLOADS, ids=SQLI_IDS)
@@ -170,9 +162,7 @@ async def test_date_filter_injection_rejected(db_client, db_session, authed, pay
     await _assert_db_intact(db_session, before)
 
 
-# ---------------------------------------------------------------------------
 # 字符串筛选参数（city，ORM 参数化比较）——正常空结果，无泄露
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("payload", SQLI_PAYLOADS, ids=SQLI_IDS)
@@ -186,9 +176,7 @@ async def test_string_filter_injection_safe(db_client, db_session, authed, paylo
     await _assert_db_intact(db_session, before)
 
 
-# ---------------------------------------------------------------------------
 # 路径参数 id（整型，非法 → 422/2001）
-# ---------------------------------------------------------------------------
 
 _PATH_INJECTION_ROUTES = [
     ("get", "/api/community/post/{p}"),

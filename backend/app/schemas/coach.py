@@ -1,4 +1,4 @@
-"""真人教练工单域 schema（openapi: /api/coach/*，current.md §2.1 G1）。
+"""真人教练工单域 schema（openapi: /api/coach/*）。
 
 契约对齐：`#/components/schemas/Coach*`。行级隔离硬约束体现在**数据契约**层面——
 教练域出参一律自带 coach_id，教练端查询由 `get_current_coach` 注入 coach_id 过滤，

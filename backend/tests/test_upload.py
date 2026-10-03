@@ -16,9 +16,7 @@ import pytest
 from app.core.config import Settings, get_settings
 from app.services import storage
 
-# ---------------------------------------------------------------------------
 # 纯逻辑
-# ---------------------------------------------------------------------------
 
 
 def test_build_object_key_partitions_by_day():
@@ -65,9 +63,7 @@ def test_is_configured_requires_all_three(kwargs, expect):
     assert storage.is_configured(Settings(_env_file=None, **kwargs)) is expect
 
 
-# ---------------------------------------------------------------------------
 # 接口行为
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

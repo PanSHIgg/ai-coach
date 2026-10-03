@@ -106,6 +106,7 @@ _TRUNCATE_TABLES = (
     "community_post",
     "community_group",
     "supervise",
+    "battle_participant",
     "battle",
     "challenge_join",
     "challenge",
@@ -141,7 +142,7 @@ def make_settings(**overrides) -> Settings:
         REDIS_URL="redis://127.0.0.1:6390/0",  # 不可达端口 → 限流走进程内兜底
         # 测试用：app 级引擎回退 NullPool。pytest 每个用例独立事件循环，而 app 引擎是
         # 模块级单例，复用连接池会报「attached to a different loop」（Phase 5 改池后暴露）。
-        # 生产单 loop 运行，走真实连接池（见 perf/report.md）。
+        # 生产单 loop 运行，走真实连接池（本机百万行压测实测的池配置口径）。
         DB_POOL_DISABLED=True,
     )
     defaults.update(overrides)
@@ -196,9 +197,7 @@ async def client(app: FastAPI) -> AsyncClient:
         yield c
 
 
-# ---------------------------------------------------------------------------
 # DB 基建
-# ---------------------------------------------------------------------------
 
 
 @pytest_asyncio.fixture

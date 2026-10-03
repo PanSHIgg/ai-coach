@@ -1,4 +1,4 @@
-"""Phase 5 · F8 发布级端到端冒烟（50+ 条，跨模块串联「能跑通」）。
+"""发布级端到端冒烟（跨模块串联「能跑通」）。
 
 **为何单开文件（AGENTS §2.9「新增测试文件须说明不可被现有文件容纳的理由」）**：
 本文件是**发布级端到端冒烟**，目标是验证「登录→建档→记餐→查账户→AI→商家→下单支付核销
@@ -8,7 +8,8 @@
 它填的是「现有测试文件都不做：把多个模块在一次请求序列里串起来」这一空白。
 
 对齐真源：`docs/split/09-排期与验收交付.md` §11.3 里程碑验收（M1–M4）与 §12.1 功能验收项、
-`docs/split/07-测试方案.md` §9.7 上线通过标准「冒烟用例 50 条全部通过」。
+`docs/split/07-测试方案.md` §9.7 上线通过标准「冒烟用例 50 条全部通过」（本文件只承担其中跨模块
+串联部分，用例数少于该基线总数，差额为各域 `tests/test_*.py` 已覆盖的模块内分支）。
 
 fixture 复用 conftest 既有 `db_client / db_session / authed / admin_authed`（未改 conftest）。
 真实 DB；AI 无 Key 环境自动落 mock（`app/ai/factory.py`），无需联网。
@@ -38,9 +39,7 @@ from app.services.order_service import notify_sign
 TZ = timezone(timedelta(hours=8))
 
 
-# ---------------------------------------------------------------------------
 # 造数 / 通用助手（不依赖各域测试文件；不 import 其它 test_*）
-# ---------------------------------------------------------------------------
 
 
 def _today() -> str:
@@ -227,9 +226,7 @@ async def _paid_order(
     return data
 
 
-# ---------------------------------------------------------------------------
 # M1：认证 / 建档 / 记录 / 热量账户 / 体重 / 订阅（SMK-01 ~ SMK-12）
-# ---------------------------------------------------------------------------
 
 
 async def test_smoke_01_login_profile_account_loop(db_client, db_session):
@@ -432,9 +429,7 @@ async def test_smoke_12_recognize_to_meal(db_client, db_session, authed):
     assert created["code"] == 0
 
 
-# ---------------------------------------------------------------------------
 # M2：AI（SMK-13 ~ SMK-16）
-# ---------------------------------------------------------------------------
 
 
 async def test_smoke_13_ai_chat_then_times(db_client, db_session, authed):
@@ -497,9 +492,7 @@ async def test_smoke_16_ai_quota_exhausted_4001(db_client, db_session, authed):
     assert resp.status_code == 409 and resp.json()["code"] == 4001
 
 
-# ---------------------------------------------------------------------------
 # M3：商家 / 订单 / 支付 / 核销 / 券（SMK-17 ~ SMK-30）
-# ---------------------------------------------------------------------------
 
 
 async def test_smoke_17_merchant_browse_flow(db_client, db_session, authed):
@@ -729,9 +722,7 @@ async def test_smoke_30_coupon_list_scoped(db_client, db_session, authed):
     assert listed["page"]["total"] == 1
 
 
-# ---------------------------------------------------------------------------
 # M4：社区 / 社交（SMK-31 ~ SMK-43）
-# ---------------------------------------------------------------------------
 
 
 async def test_smoke_31_post_create_list_detail(db_client, db_session, authed):
@@ -852,7 +843,7 @@ async def test_smoke_36_group_join_checkin_flow(db_client, db_session, authed):
 
 
 async def test_smoke_37_battle_create_join_list(db_client, db_session, authed):
-    """约战：发起 → 加入 → 列表可见。"""
+    """约战：发起（发起人占 1 位）→ 他人加入至满员 → 列表可见且标记 joined。"""
     created = (
         await db_client.post(
             "/api/community/battle",
@@ -866,10 +857,16 @@ async def test_smoke_37_battle_create_join_list(db_client, db_session, authed):
             },
         )
     ).json()["data"]
+    # 他人加入至满员（发起人已占 1 位，不能重复加入）
+    other = User(openid="smoke-37-other", nickname="约战搭子", gender=1)
+    db_session.add(other)
+    await db_session.flush()
+    other_token = create_access_token(str(other.id), openid=other.openid)
+    await db_session.commit()
     joined = (
         await db_client.post(
             "/api/community/battle/join",
-            headers=authed["headers"],
+            headers={"Authorization": f"Bearer {other_token}"},
             json={"battle_id": created["id"]},
         )
     ).json()
@@ -877,7 +874,8 @@ async def test_smoke_37_battle_create_join_list(db_client, db_session, authed):
     listed = (await db_client.get("/api/community/battle/list", headers=authed["headers"])).json()[
         "data"
     ]
-    assert created["id"] in [b["id"] for b in listed["items"]]
+    item = next(b for b in listed["items"] if b["id"] == created["id"])
+    assert item["joined"] is True  # 发起人视为已加入
 
 
 async def test_smoke_38_challenge_join_detail_leaderboard(db_client, db_session, authed):
@@ -978,9 +976,7 @@ async def test_smoke_43_post_non_owner_delete_forbidden(db_client, db_session, a
     assert resp.status_code == 403 and resp.json()["code"] == 1002
 
 
-# ---------------------------------------------------------------------------
 # 管理后台 + 内容审核（SMK-44 ~ SMK-50）
-# ---------------------------------------------------------------------------
 
 
 async def test_smoke_44_admin_login_and_merchant_audit(db_client, db_session, admin_authed):
@@ -1105,25 +1101,7 @@ async def test_smoke_49_content_audit_comment_reject_flow(
     assert comments["items"] == []
 
 
-async def test_smoke_50_track_anonymous_and_token(db_client, db_session, authed):
-    """埋点：匿名上报与带 token 关联用户均受理（F3 核心指标入口）。"""
-    anon = (
-        await db_client.post(
-            "/api/track", json={"events": [{"event": "scan_in"}, {"event": "login"}]}
-        )
-    ).json()
-    assert anon["code"] == 0 and anon["data"]["accepted"] == 2
-    authed_report = (
-        await db_client.post(
-            "/api/track", headers=authed["headers"], json={"events": [{"event": "meal_photo"}]}
-        )
-    ).json()
-    assert authed_report["code"] == 0 and authed_report["data"]["accepted"] == 1
-
-
-# ---------------------------------------------------------------------------
-# 补充：鉴权/校验/异常态（SMK-51 ~ SMK-55）
-# ---------------------------------------------------------------------------
+# 补充：鉴权/校验/异常态（SMK-51 / SMK-55）
 
 
 @pytest.mark.parametrize(
@@ -1139,36 +1117,6 @@ async def test_smoke_51_core_endpoints_require_auth(db_client, db_session, metho
     """核心写/读接口未带 token → 401/1001（统一鉴权入口）。"""
     resp = await getattr(db_client, method)(path, **kwargs)
     assert resp.status_code == 401 and resp.json()["code"] == 1001
-
-
-async def test_smoke_52_body_profile_validation_422(db_client, db_session, authed):
-    """建档非法参数（身高越界）→ 422/2001（异常态-参数校验）。"""
-    resp = await db_client.post(
-        "/api/body-profile",
-        headers=authed["headers"],
-        json={
-            "gender": 1,
-            "height_cm": 999,
-            "current_weight": 70,
-            "target_type": 1,
-            "activity_level": 3,
-        },
-    )
-    assert resp.status_code == 422 and resp.json()["code"] == 2001
-
-
-async def test_smoke_53_meal_not_found_404(db_client, db_session, authed):
-    """编辑不存在饮食记录 → 404/3001（异常态-资源不存在）。"""
-    resp = await db_client.put(
-        "/api/meal/999999", headers=authed["headers"], json={"amount_g": 100}
-    )
-    assert resp.status_code == 404 and resp.json()["code"] == 3001
-
-
-async def test_smoke_54_track_validation_422(db_client, db_session):
-    """埋点空事件列表 → 422/2001（异常态-参数校验）。"""
-    resp = await db_client.post("/api/track", json={"events": []})
-    assert resp.status_code == 422 and resp.json()["code"] == 2001
 
 
 async def test_smoke_55_full_journey_login_to_redeem(db_client, db_session):

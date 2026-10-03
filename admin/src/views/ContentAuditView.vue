@@ -78,7 +78,7 @@
 /**
  * ADM · 内容审核队列 — Phase 4 (M4)
  * 契约：GET /api/admin/audit/list、POST /api/admin/audit/{id}/review（1通过 2驳回）
- * 依据：plan.md §10 Track ADM（违规内容处理）
+ * 依据：docs/split/03-页面布局与交互说明.md（违规内容处理）
  */
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'

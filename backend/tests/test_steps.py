@@ -167,9 +167,7 @@ async def test_steps_sync_same_day_idempotent(db_client, db_session, authed):
     assert float(row.calibrated_met) == second["met"]
 
 
-# ---------------------------------------------------------------------------
 # F-09：真实步数接入（微信运动解密骨架 / 明确降级）
-# ---------------------------------------------------------------------------
 
 
 async def test_steps_sync_without_encrypted_as_is(db_client, db_session, authed):
@@ -254,11 +252,9 @@ async def test_steps_zero_uses_pal_estimate(db_client, db_session, authed):
     assert snap.calibration_used is False
 
 
-# ---------------------------------------------------------------------------
 # F-09：微信运动真链路（官方口径）
 #   AES-128-CBC + PKCS#7，密钥 = 同一次 code2Session 的 session_key（按用户存 Redis）；
 #   解密结果须过 watermark.appid 校验；stepInfoList 是固定 31 条**按天**记录。
-# ---------------------------------------------------------------------------
 
 WATERMARK_APPID = "wxtestappid0000000000"  # watermark 校验的比对基准（测试用 AppID）
 SESSION_KEY_B64 = base64.b64encode(b"0123456789abcdef").decode()  # 16 字节 session_key
@@ -450,11 +446,9 @@ async def test_steps_sync_http_returns_source_1(
     assert snap.calibration_used is True
 
 
-# ---------------------------------------------------------------------------
 # F-09b：同步时回填微信运动 31 天历史 + GET /steps/trend 读曲线
 #   官方事实：解密明文 stepInfoList 固定 31 条**按天**记录（index 0=30 天前、30=今天），
 #   无逐时数据。旧实现只挑当天一条、丢弃其余 30 天 —— 这就是历史曲线恒空的根因。
-# ---------------------------------------------------------------------------
 
 FULL_WINDOW = [(TARGET_DAY - timedelta(days=30 - i), 1000 + i * 100) for i in range(31)]
 

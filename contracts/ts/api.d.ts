@@ -210,7 +210,7 @@ export interface RecognizeData {
 
 /* ---------- 上传（COS 直传） ---------- */
 
-export type UploadScene = 'meal' | 'avatar' | 'post' | 'merchant';
+export type UploadScene = 'meal' | 'avatar' | 'post' | 'merchant' | 'chat';
 
 export interface UploadCredentialIn {
   scene: UploadScene;
@@ -339,7 +339,10 @@ export interface StepsTrendData {
 
 export interface AiChatIn {
   session_id: string; // uuid
+  /** 文字提问；与 image_url 至少一项（仅发图时可为空串） */
   message: string;
+  /** 随对话上传的图片 URL（COS 公开读，scene=chat） */
+  image_url?: string | null;
 }
 
 export interface AiChatData {
@@ -660,6 +663,8 @@ export interface BattleItem {
   join_count: number;
   status: 1 | 2 | 3 | 4; // 1招募中 2满员 3进行中 4结束
   creator_id?: number | null;
+  /** 当前用户是否已加入（含发起人；未登录恒为 false） */
+  joined?: boolean;
 }
 
 export type BattlePageData = PageData<BattleItem>;
@@ -682,6 +687,12 @@ export interface BattleJoinIn {
 export interface BattleJoinData {
   battle_id: number;
   joined: true;
+  join_count: number;
+}
+
+export interface BattleQuitData {
+  battle_id: number;
+  joined: false;
   join_count: number;
 }
 

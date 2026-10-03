@@ -1286,7 +1286,39 @@ paths:
           $ref: '#/components/responses/Validation422'
         '500':
           $ref: '#/components/responses/ServerError'
-  # ---- Phase 4 新增（plan.md §10：BE7a 动态 / BE7b 五种社交 / BE7c 内容安全；由本轮单点增补）----
+  /api/community/battle/quit:
+    post:
+      tags: [社区]
+      summary: 退出约战
+      operationId: quitBattle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BattleJoinIn'
+      responses:
+        '200':
+          description: 退出成功（join_count 为退出后的最新人数）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BattleQuitData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  # ---- Phase 4 新增（BE7a 动态 / BE7b 五种社交 / BE7c 内容安全）----
   /api/community/post/{id}:
     get:
       tags: [社区]
@@ -1978,7 +2010,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/ServerError'
-  # ---- Phase 3 新增（plan.md §9：BE9 管理 API，供 ADM 管理后台；由主 Agent 单点增补）----
+  # ---- Phase 3 新增（BE9 管理 API，供 ADM 管理后台）----
   /api/admin/login:
     post:
       tags: [管理]
@@ -2500,7 +2532,7 @@ paths:
           $ref: '#/components/responses/Validation422'
         '500':
           $ref: '#/components/responses/ServerError'
-  # ---- Phase 1 新增（plan.md §7：BE-w 体重 / BE-n 提醒订阅 / 登录刷新）----
+  # ---- Phase 1 新增（BE-w 体重 / BE-n 提醒订阅 / 登录刷新）----
   /api/auth/refresh:
     post:
       tags: [认证]
@@ -2754,7 +2786,7 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
-  # ---- G1 真人教练工单 / 专家问诊（current.md §2.1）----
+  # ---- G1 真人教练工单 / 专家问诊 ----
   # 【路径冲突裁定】教练端工单列表不用 GET /api/coach/tickets（与用户端「我的工单」撞路径），
   # 改用 /api/coach/assigned-tickets；行级隔离：教练端查询强制带 coach_id=当前教练。
   /api/coach/login:
@@ -3005,7 +3037,7 @@ paths:
           $ref: '#/components/responses/Validation422'
         '500':
           $ref: '#/components/responses/ServerError'
-  # ---- G2 平台自营 AI+真人教练订阅付费（current.md §2.1）----
+  # ---- G2 平台自营 AI+真人教练订阅付费 ----
   # 路径族用 /api/plan，绝不复用 /api/subscription（已被「提醒订阅」占用）与 /api/order
   #（order 绑定 merchant_id 与核销语义，平台自营无商家）。
   /api/plan/list:
@@ -4398,10 +4430,13 @@ components:
             $ref: '#/components/schemas/StepTrendItem'
     AiChatIn:
       type: object
-      required: [session_id, message]
+      required: [session_id]
       properties:
         session_id: { type: string, format: uuid }
-        message: { type: string, minLength: 1, maxLength: 500 }
+        # 文字与图片至少一项：仅图片时 message 可为空串（后端校验二选一）
+        message: { type: string, maxLength: 500, default: "" }
+        image_url:
+          { type: string, nullable: true, maxLength: 512, description: 随对话上传的图片 URL（COS 公开读，scene=chat） }
     AiChatData:
       type: object
       required: [reply, intent, times_left]
@@ -4854,6 +4889,7 @@ components:
         join_count: { type: integer }
         status: { type: integer, description: 1招募中 2满员 3进行中 4结束 }
         creator_id: { type: integer, nullable: true }
+        joined: { type: boolean, description: 当前用户是否已加入（含发起人；未登录恒为 false） }
     BattleCreateIn:
       type: object
       required: [title, meet_at]
@@ -4887,6 +4923,13 @@ components:
       properties:
         battle_id: { type: integer }
         joined: { const: true }
+        join_count: { type: integer }
+    BattleQuitData:
+      type: object
+      required: [battle_id, joined, join_count]
+      properties:
+        battle_id: { type: integer }
+        joined: { const: false }
         join_count: { type: integer }
     ChallengeItem:
       type: object
@@ -5013,7 +5056,7 @@ components:
         orders_today: { type: integer }
         gmv_today: { type: number, description: 元 }
         ai_calls_today: { type: integer }
-    # ---- Phase 3 新增（plan.md §9：BE9 管理后台组件；由主 Agent 单点增补）----
+    # ---- Phase 3 新增（BE9 管理后台组件）----
     AdminLoginIn:
       type: object
       required: [username, password]
@@ -5337,8 +5380,8 @@ components:
     # ---- 上传（COS 直传）----
     UploadScene:
       type: string
-      description: 上传场景，决定 COS 对象键前缀：meal 食物照片 / avatar 用户头像 / post 发帖图 / merchant 商家图
-      enum: [meal, avatar, post, merchant]
+      description: 上传场景，决定 COS 对象键前缀：meal 食物照片 / avatar 用户头像 / post 发帖图 / merchant 商家图 / chat AI 对话图
+      enum: [meal, avatar, post, merchant, chat]
     UploadFileExt:
       type: string
       description: 文件扩展名

@@ -4,7 +4,6 @@
     <CNoPermission v-if="!userStore.isLogined" text="登录后查看饮食记录" @action="goLogin" />
 
     <template v-else>
-      <!-- 日期 + 合计 -->
       <CCard class="food__head">
         <view class="food__head-row">
           <picker mode="date" :value="date" @change="onDateChange">
@@ -47,7 +46,6 @@
       </view>
     </template>
 
-    <!-- 新增 / 编辑底部弹层 -->
     <view v-if="panelOpen" class="sheet">
       <view class="sheet__mask" @tap="closePanel" />
       <view class="sheet__body">

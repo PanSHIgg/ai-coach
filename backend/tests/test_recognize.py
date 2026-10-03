@@ -52,9 +52,7 @@ def _upload(filename: str = "meal.jpg", size: int = 1024) -> dict:
     return {"image": (filename, b"x" * size, "image/jpeg")}
 
 
-# ---------------------------------------------------------------------------
 # 纯逻辑
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -96,9 +94,7 @@ def test_normalize_candidates_caps_and_converts_calorie_estimate():
     assert items[0] == rs.Candidate(name="菜0", confidence=0.9, portion_g=150.0, kcal_100g=200.0)
 
 
-# ---------------------------------------------------------------------------
 # 接口行为
-# ---------------------------------------------------------------------------
 
 
 async def test_recognize_matches_food_table(db_client, db_session, authed, monkeypatch):

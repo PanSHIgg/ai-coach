@@ -27,7 +27,7 @@ UPGRADE_SQL = r"""
 --   时间 TIMESTAMPTZ；多状态用 SMALLINT；动态结构用 JSONB
 -- 默认决策：
 --   1.【假设】不启用 PostGIS，商家经纬度存 lat/lng NUMERIC（§7.2 注释允许）
---   2.【假设】ai_knowledge.embedding 用 JSONB 占位（plan.md 决策 3：首期不引 pgvector），
+--   2.【假设】ai_knowledge.embedding 用 JSONB 占位（首期不引 pgvector），
 --     另加全文检索列 search_vec 兜底
 --   3.【假设】§7.1 列出但 §7.2 未给 DDL 的 user_auth/coupon_pool/order_item/review，
 --     以及任务指定的 订阅/社区评论/点赞/热量控制榜/埋点事件，按最简结构补齐
@@ -321,7 +321,7 @@ CREATE TABLE ai_knowledge (
     category   VARCHAR(64),
     title      VARCHAR(256),
     content    TEXT NOT NULL,
-    embedding  JSONB,   -- 【假设】向量占位：首期不装 pgvector（plan.md 决策3），结构 {"model":..,"vector":[..]}
+    embedding  JSONB,   -- 【假设】向量占位：首期不装 pgvector，结构 {"model":..,"vector":[..]}
     source     VARCHAR(256),
     search_vec tsvector GENERATED ALWAYS AS (to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, ''))) STORED,
     created_at TIMESTAMPTZ DEFAULT NOW()

@@ -71,7 +71,7 @@
 <script setup lang="ts">
 /**
  * FE · 会员订阅付费 — G2
- * 依据：current.md §2.1 G2「平台自营 AI+真人教练订阅付费（进阶 29 / 高级 59 / 终身档）」
+ * 依据：平台自营 AI+真人教练订阅付费（进阶 29 / 高级 59 / 终身档）
  *       docs/split/03 §5.8「未开通权益 → [立即开通] 进订阅页」
  * 契约：GET /api/plan/list、GET /api/plan/benefit、POST /api/plan/order、
  *       POST /api/plan/order/{id}/pay、GET /api/plan/orders

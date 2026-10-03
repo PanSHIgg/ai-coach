@@ -29,9 +29,7 @@ def _settings(**overrides):
     return make_settings(**{**defaults, **overrides})
 
 
-# ---------------------------------------------------------------------------
 # ① 未配置 → 降级 Mock（明确降级，不崩）
-# ---------------------------------------------------------------------------
 
 
 def test_llm_unconfigured_falls_back_to_mock():
@@ -43,9 +41,7 @@ def test_vision_unconfigured_falls_back_to_mock(overrides):
     assert isinstance(recognize_service.vision_client_for(_settings(**overrides)), MockVisionClient)
 
 
-# ---------------------------------------------------------------------------
 # ② 配置齐备 → OpenAI 兼容客户端（三件套透传）
-# ---------------------------------------------------------------------------
 
 
 def test_llm_configured_returns_openai_compat_client():
@@ -64,9 +60,7 @@ def test_vision_configured_returns_openai_compat_client():
     assert (client.base_url, client.api_key, client.model) == ("http://vlm.test/v1", "k", "v-1")
 
 
-# ---------------------------------------------------------------------------
 # ③ OpenAI 兼容请求/响应结构（POST {base_url}/chat/completions → choices[0].message.content）
-# ---------------------------------------------------------------------------
 
 
 def _patch_post(monkeypatch, reply: str) -> list[dict]:
@@ -114,9 +108,7 @@ def test_openai_compatible_chat_raises_on_http_error(monkeypatch):
         )
 
 
-# ---------------------------------------------------------------------------
 # ④ vision 消息格式（base64 data URL 与 https URL）
-# ---------------------------------------------------------------------------
 
 
 def test_vision_message_from_bytes_is_base64_data_url():
