@@ -1,5 +1,8 @@
 import { client, unwrap } from './client'
 import type {
+  AdminAccountIn,
+  AdminAccountOut,
+  AdminAccountPageData,
   AdminAuditIn,
   AdminAuditPageData,
   AdminCouponPoolIn,
@@ -12,6 +15,7 @@ import type {
   AdminMerchantPageData,
   AdminMerchantSkuData,
   AdminMerchantSkuIn,
+  AdminPasswordResetIn,
   AdminReviewData,
   AdminReviewIn,
   AdminSkuCatalogIn,
@@ -24,6 +28,24 @@ import type {
 /** 管理员登录 POST /api/admin/login */
 export function adminLogin(data: AdminLoginIn): Promise<AdminLoginData> {
   return unwrap(client.post('/admin/login', data))
+}
+
+/** 后台账号列表 GET /api/admin/accounts */
+export function listAccounts(params: {
+  page?: number
+  page_size?: number
+}): Promise<AdminAccountPageData> {
+  return unwrap(client.get('/admin/accounts', { params }))
+}
+
+/** 创建后台账号 POST /api/admin/accounts（超管可建 1/2/3，运营仅可建商家账号） */
+export function createAccount(data: AdminAccountIn): Promise<AdminAccountOut> {
+  return unwrap(client.post('/admin/accounts', data))
+}
+
+/** 重置后台账号密码 PUT /api/admin/accounts/{id}/password */
+export function resetAccountPassword(id: number, data: AdminPasswordResetIn): Promise<AdminAccountOut> {
+  return unwrap(client.put(`/admin/accounts/${id}/password`, data))
 }
 
 /** 运营看板 GET /api/admin/dashboard */

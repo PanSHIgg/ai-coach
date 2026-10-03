@@ -2012,6 +2012,108 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
+  # ---- 账号管理（超管/运营开通后台账号；plan：用户直接提出的新需求）----
+  /api/admin/accounts:
+    get:
+      tags: [管理]
+      summary: 后台账号列表（仅超管/运营）
+      operationId: adminListAccounts
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: 账号分页（不含密码哈希）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminAccountPageData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [管理]
+      summary: 创建后台账号（超管可建 1/2/3，运营仅可建商家账号）
+      operationId: adminCreateAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAccountIn'
+      responses:
+        '200':
+          description: 创建后的账号视图（不含密码哈希）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminAccountOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /api/admin/accounts/{id}/password:
+    put:
+      tags: [管理]
+      summary: 重置后台账号密码（超管重置任意，运营仅重置商家账号）
+      operationId: adminResetAccountPassword
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminPasswordResetIn'
+      responses:
+        '200':
+          description: 重置后的账号视图
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminAccountOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '422':
+          $ref: '#/components/responses/Validation422'
+        '500':
+          $ref: '#/components/responses/ServerError'
   /api/admin/merchants:
     get:
       tags: [管理]
@@ -4926,6 +5028,39 @@ components:
         role: { type: integer, description: 1超管 2运营 3商家 }
         merchant_id: { type: integer, nullable: true, description: 商家角色绑定的商家 ID }
         username: { type: string }
+    AdminAccountOut:
+      type: object
+      description: 后台账号视图（不含密码哈希）
+      required: [id, username, role, created_at]
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        role: { type: integer, description: 1超管 2运营 3商家 4教练 }
+        merchant_id: { type: integer, nullable: true, description: role=3 绑定的商家 ID }
+        created_at: { type: string, format: date-time }
+    AdminAccountPageData:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AdminAccountOut' }
+        page: { $ref: '#/components/schemas/PageMeta' }
+    AdminAccountIn:
+      type: object
+      description: 创建后台账号；role=2 仅超管可建，role=3 必须绑定商家
+      required: [username, password, role]
+      properties:
+        username: { type: string, minLength: 2, maxLength: 64 }
+        password: { type: string, minLength: 12, maxLength: 128, description: 受统一弱口令策略约束（占位串/公开口令/长度不足拒绝） }
+        role: { type: integer, description: 2运营 3商家；1超管仅超管可建；4教练走 G1 教练端不经此接口 }
+        merchant_id: { type: integer, nullable: true, description: role=3 必填 }
+    AdminPasswordResetIn:
+      type: object
+      description: 重置后台账号密码（超管重置任意账号，运营仅可重置商家账号）
+      required: [new_password]
+      properties:
+        new_password: { type: string, minLength: 12, maxLength: 128 }
     AdminMerchantOut:
       type: object
       description: 管理侧商家完整视图（含审核状态）

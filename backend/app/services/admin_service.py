@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppException
 from app.core.logging import get_logger
 from app.core.rate_limit import incr_window
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, hash_password, reject_weak_password, verify_password
 from app.db.redis import get_redis
 from app.models import (
     AdminUser,
@@ -49,6 +49,9 @@ from app.models import (
     User,
 )
 from app.schemas.admin import (
+    AdminAccountIn,
+    AdminAccountOut,
+    AdminAccountPageData,
     AdminAuditIn,
     AdminAuditItem,
     AdminAuditPageData,
@@ -63,6 +66,7 @@ from app.schemas.admin import (
     AdminMerchantPageData,
     AdminMerchantSkuData,
     AdminMerchantSkuIn,
+    AdminPasswordResetIn,
     AdminReviewData,
     AdminReviewIn,
     AdminSkuCatalogIn,
@@ -101,6 +105,12 @@ class AdminPrincipal(BaseModel):
 def ensure_manager(principal: AdminPrincipal) -> None:
     """平台级操作：仅超管/运营（role 1/2），商家角色 1002。"""
     if principal.role not in (1, 2):
+        raise AppException(ErrorCode.FORBIDDEN)
+
+
+def ensure_super(principal: AdminPrincipal) -> None:
+    """超管专属操作（如创建运营账号）：仅 role=1，其余 1002。"""
+    if principal.role != 1:
         raise AppException(ErrorCode.FORBIDDEN)
 
 
@@ -180,6 +190,10 @@ async def login(session: AsyncSession, payload: AdminLoginIn) -> AdminLoginData:
         # 记录失败
         await _record_admin_login_failure(payload.username)
         raise AppException(ErrorCode.UNAUTHORIZED)
+    if admin.role == 4:
+        # 教练（G1）有独立教练端 /api/coach/login；放行 role=4 会在 admin web 前端
+        # 触发路由门禁无限重定向（meta.roles 均不含 4），此处直接拒绝并指路。
+        raise AppException(ErrorCode.FORBIDDEN, "教练账号请使用教练端登录")
 
     # 登录成功，清除失败计数
     await _clear_admin_login_failures(payload.username)
@@ -192,6 +206,134 @@ async def login(session: AsyncSession, payload: AdminLoginIn) -> AdminLoginData:
         role=admin.role,
         merchant_id=admin.merchant_id,
         username=admin.username,
+    )
+
+
+# ---- 账号管理（超管/运营开通后台账号）----
+
+
+def _ensure_account_create_allowed(principal: AdminPrincipal, role: int) -> None:
+    """创建权限分级：超管可建 1/2/3；运营仅可建 3；role=4 不经此接口（走 G1 教练端）。"""
+    if role == 4:
+        raise AppException(ErrorCode.VALIDATION_ERROR, "教练账号走教练端流程，不经此接口创建")
+    if principal.role == 1:
+        return
+    if principal.role == 2 and role == 3:
+        return
+    raise AppException(ErrorCode.FORBIDDEN)
+
+
+async def list_accounts(
+    session: AsyncSession, principal: AdminPrincipal, page: int, page_size: int
+) -> AdminAccountPageData:
+    """后台账号分页（仅超管/运营可见，不含密码哈希）。"""
+    ensure_manager(principal)
+    total = await session.scalar(select(func.count()).select_from(AdminUser))
+    rows = (
+        (
+            await session.execute(
+                select(AdminUser)
+                .order_by(AdminUser.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    items = [
+        AdminAccountOut(
+            id=r.id,
+            username=r.username,
+            role=r.role,
+            merchant_id=r.merchant_id,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]
+    return AdminAccountPageData(
+        items=items,
+        page=PageMeta(page=page, page_size=page_size, total=int(total or 0)),
+    )
+
+
+async def create_account(
+    session: AsyncSession, principal: AdminPrincipal, payload: AdminAccountIn
+) -> AdminAccountOut:
+    """创建后台账号（权限分级 + username 唯一 + 商家绑定校验 + 统一弱口令策略）。"""
+    _ensure_account_create_allowed(principal, payload.role)
+
+    dup = (
+        await session.execute(
+            select(AdminUser.id).where(AdminUser.username == payload.username)
+        )
+    ).scalar_one_or_none()
+    if dup is not None:
+        raise AppException(ErrorCode.VALIDATION_ERROR, f"账号名已存在：{payload.username}")
+
+    merchant_id: int | None = None
+    if payload.role == 3:
+        if payload.merchant_id is None:
+            raise AppException(ErrorCode.VALIDATION_ERROR, "商家账号必须绑定商家（merchant_id）")
+        merchant = (
+            await session.execute(select(Merchant).where(Merchant.id == payload.merchant_id))
+        ).scalar_one_or_none()
+        if merchant is None:
+            raise AppException(ErrorCode.VALIDATION_ERROR, "绑定的商家不存在")
+        merchant_id = payload.merchant_id
+    elif payload.merchant_id is not None:
+        raise AppException(ErrorCode.VALIDATION_ERROR, "仅商家账号可绑定 merchant_id")
+
+    weak = reject_weak_password(payload.password)
+    if weak:
+        raise AppException(ErrorCode.VALIDATION_ERROR, f"密码不合格：{weak}")
+
+    admin = AdminUser(
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        merchant_id=merchant_id,
+    )
+    session.add(admin)
+    await session.commit()
+    await session.refresh(admin)
+    return AdminAccountOut(
+        id=admin.id,
+        username=admin.username,
+        role=admin.role,
+        merchant_id=admin.merchant_id,
+        created_at=admin.created_at,
+    )
+
+
+async def reset_admin_password(
+    session: AsyncSession,
+    principal: AdminPrincipal,
+    account_id: int,
+    payload: AdminPasswordResetIn,
+) -> AdminAccountOut:
+    """重置密码：超管重置任意账号；运营仅可重置商家账号（role=3）。"""
+    ensure_manager(principal)
+    admin = (
+        await session.execute(select(AdminUser).where(AdminUser.id == account_id))
+    ).scalar_one_or_none()
+    if admin is None:
+        raise AppException(ErrorCode.NOT_FOUND, "账号不存在")
+    if principal.role == 2 and admin.role != 3:
+        raise AppException(ErrorCode.FORBIDDEN, "运营仅可重置商家账号密码")
+
+    weak = reject_weak_password(payload.new_password)
+    if weak:
+        raise AppException(ErrorCode.VALIDATION_ERROR, f"密码不合格：{weak}")
+
+    admin.password_hash = hash_password(payload.new_password)
+    await session.commit()
+    return AdminAccountOut(
+        id=admin.id,
+        username=admin.username,
+        role=admin.role,
+        merchant_id=admin.merchant_id,
+        created_at=admin.created_at,
     )
 
 

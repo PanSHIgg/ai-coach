@@ -272,3 +272,29 @@ export interface AdminReviewData {
   reject_reason: string | null
   reviewed_at: string | null
 }
+
+/* ---------- 账号管理（超管/运营开通后台账号） ---------- */
+
+export interface AdminAccountOut {
+  id: number
+  username: string
+  role: number // 1超管 2运营 3商家 4教练
+  merchant_id: number | null
+  created_at: string
+}
+
+export interface AdminAccountPageData {
+  items: AdminAccountOut[]
+  page: PageMeta
+}
+
+export interface AdminAccountIn {
+  username: string
+  password: string // 受统一弱口令策略约束（占位串/公开口令/长度不足拒绝）
+  role: number // 2运营 3商家；1超管仅超管可建；4教练走 G1 教练端不经此接口
+  merchant_id: number | null
+}
+
+export interface AdminPasswordResetIn {
+  new_password: string
+}

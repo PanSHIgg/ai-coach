@@ -1,9 +1,10 @@
-"""安全原语：JWT 签发/校验（PyJWT）+ 密码哈希（hashlib.pbkdf2_hmac）。"""
+"""安全原语：JWT 签发/校验（PyJWT）+ 密码哈希（hashlib.pbkdf2_hmac）+ 后台口令策略。"""
 
 import hashlib
 import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import jwt
 
@@ -90,3 +91,72 @@ def decode_token(
     if expected_dom is not None and payload.get("dom") != expected_dom:
         raise AppException(ErrorCode.UNAUTHORIZED)
     return payload
+
+
+# ---- 管理后台口令策略（原 backend/scripts/init_admin.py 内联逻辑，账号管理接口复用） ----
+
+# 弱口令门槛：低于此长度一律拒绝（后端 Settings 默认口令 admin123456 只有 11 位）。
+MIN_ADMIN_PASSWORD_LENGTH = 12
+
+# 仓库里出现过的公开口令黑名单：这些值的长度都过了长度门槛，单靠长度检查拦不住，
+# 一旦建号就等于把凭据写进公开仓库。前两个是 CI/deploy workflow 里曾硬编码的兜底串
+# （已删除，保留在此防复发）；后两个是 003 种子文件里 ops / merchant1 的公开种子口令。
+_KNOWN_PUBLIC_PASSWORDS = frozenset(
+    {
+        "ci-only-not-a-real-secret-0001",
+        "deploy-only-not-a-real-secret-0001",
+        "Admin@123456",
+        "Merchant@123",
+    }
+)
+
+# 仓库根（backend/app/core/ → backend/ → 根）。容器镜像只 COPY backend/，
+# 故 .env.example 在容器里不存在 → 占位串比对那条自动跳过（`change-me` 前缀那条仍兜住）。
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _read_env_example_password() -> str:
+    """读 .env.example 的 ADMIN_INIT_PASSWORD 原值（不硬编码占位串进代码）。
+
+    文件不存在（容器镜像不含）或键缺失时返回空串 → 该条比对自动跳过。
+    """
+    path = _REPO_ROOT / ".env.example"
+    try:
+        content = path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return ""
+    for raw in content.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key.strip() == "ADMIN_INIT_PASSWORD":
+            return value.strip().strip('"').strip("'")
+    return ""
+
+
+def reject_weak_password(password: str) -> str:
+    """后台账号口令策略：返回拒绝原因，合格返回空串。
+
+    供账号管理接口与 init_admin.py 共用——占位串（Settings 出厂默认、.env.example
+    原值、change-me 前缀）、仓库公开口令黑名单、长度不足一律拒绝，防止把仓库内
+    可读的字符串变成可用凭据。
+    """
+    default_password = Settings.model_fields["ADMIN_INIT_PASSWORD"].default
+    if default_password and password == default_password:
+        return "取值为后端 Settings.ADMIN_INIT_PASSWORD 的出厂默认口令"
+
+    example_password = _read_env_example_password()
+    if example_password and password == example_password:
+        return "取值与 .env.example 的 ADMIN_INIT_PASSWORD 占位串相同"
+
+    if password.lower().startswith("change-me"):
+        return "取值是 change-me* 占位串"
+
+    if password in _KNOWN_PUBLIC_PASSWORDS:
+        return f"取值是仓库内公开口令（{password}），任何读得到仓库的人都能用它登录"
+
+    if len(password) < MIN_ADMIN_PASSWORD_LENGTH:
+        return f"长度不足 {MIN_ADMIN_PASSWORD_LENGTH} 位"
+
+    return ""

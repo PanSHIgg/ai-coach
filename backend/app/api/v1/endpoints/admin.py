@@ -19,6 +19,9 @@ from app.db.session import get_db
 from app.models import AdminUser
 from app.schemas import DashboardData, Envelope
 from app.schemas.admin import (
+    AdminAccountIn,
+    AdminAccountOut,
+    AdminAccountPageData,
     AdminAuditIn,
     AdminAuditPageData,
     AdminCouponPoolIn,
@@ -32,6 +35,7 @@ from app.schemas.admin import (
     AdminMerchantPageData,
     AdminMerchantSkuData,
     AdminMerchantSkuIn,
+    AdminPasswordResetIn,
     AdminReviewData,
     AdminReviewIn,
     AdminSkuCatalogIn,
@@ -85,6 +89,56 @@ async def admin_login(
     request_id: str | None = Depends(get_request_id),
 ) -> Envelope[AdminLoginData]:
     data = await admin_service.login(session, payload)
+    return ok(data, request_id=request_id)
+
+
+# ---- 账号管理（超管/运营开通后台账号）----
+
+
+@router.get(
+    "/admin/accounts",
+    response_model=Envelope[AdminAccountPageData],
+    summary="后台账号列表（仅超管/运营）",
+)
+async def admin_list_accounts(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    admin: AdminPrincipal = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[AdminAccountPageData]:
+    data = await admin_service.list_accounts(session, admin, page, page_size)
+    return ok(data, request_id=request_id)
+
+
+@router.post(
+    "/admin/accounts",
+    response_model=Envelope[AdminAccountOut],
+    summary="创建后台账号（超管可建 1/2/3，运营仅可建商家账号）",
+)
+async def admin_create_account(
+    payload: AdminAccountIn,
+    admin: AdminPrincipal = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[AdminAccountOut]:
+    data = await admin_service.create_account(session, admin, payload)
+    return ok(data, request_id=request_id)
+
+
+@router.put(
+    "/admin/accounts/{id}/password",
+    response_model=Envelope[AdminAccountOut],
+    summary="重置后台账号密码（超管重置任意，运营仅重置商家账号）",
+)
+async def admin_reset_account_password(
+    id: int,
+    payload: AdminPasswordResetIn,
+    admin: AdminPrincipal = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[AdminAccountOut]:
+    data = await admin_service.reset_admin_password(session, admin, id, payload)
     return ok(data, request_id=request_id)
 
 

@@ -41,8 +41,10 @@ TS_COPY = REPO_ROOT / "miniapp" / "src" / "types" / "api.d.ts"
 #   -> 路径 109 / ops 118
 # 微信运动历史曲线：GET /api/steps/trend（直读 step_record，供前端拼步数柱状图）
 #   -> 路径 110 / ops 119（GET 54）
-FROZEN_PATH_COUNT = 110
-FROZEN_OP_COUNT = 119
+# 账号管理：GET+POST /api/admin/accounts、PUT /api/admin/accounts/{id}/password
+#   -> 路径 112 / ops 122（GET 55 / POST 57 / PUT 5）
+FROZEN_PATH_COUNT = 112
+FROZEN_OP_COUNT = 122
 
 _METHODS = ("get", "post", "put", "delete", "patch", "options", "head")
 

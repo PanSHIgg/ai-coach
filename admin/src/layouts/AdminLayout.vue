@@ -75,6 +75,7 @@ const allMenus: MenuItem[] = [
   { path: '/coupon-pools', label: '券池管理', icon: 'Ticket', roles: [1, 2] },
   { path: '/orders', label: '订单监控', icon: 'List', roles: [1, 2, 3] },
   { path: '/content-audit', label: '内容审核', icon: 'Checked', roles: [1, 2] },
+  { path: '/accounts', label: '账号管理', icon: 'User', roles: [1, 2] },
 ]
 
 const menus = allMenus.filter((m) => (m.roles as number[]).includes(role))

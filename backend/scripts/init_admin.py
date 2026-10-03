@@ -42,32 +42,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/
 
 # 复用后端密码原语，保证与登录侧 verify_password 完全同一套格式与迭代次数。
-from app.core.config import Settings  # noqa: E402
-from app.core.security import hash_password, verify_password  # noqa: E402
+# 口令策略（长度/黑名单/占位串拒绝）也统一收口在 app.core.security.reject_weak_password，
+# 账号管理接口（POST /api/admin/accounts）与初始化脚本共用同一套规则。
+from app.core.security import (  # noqa: E402
+    MIN_ADMIN_PASSWORD_LENGTH,
+    hash_password,
+    reject_weak_password,
+    verify_password,
+)
 
 # admin_user.role：1 超管 2 运营 3 商家 4 教练（data/sql/001_schema.sql 的 CHECK 约束）。
 ROLE_SUPER_ADMIN = 1
-
-# 弱口令门槛：低于此长度一律拒绝（后端 Settings 默认口令 admin123456 只有 11 位）。
-MIN_PASSWORD_LENGTH = 12
-
-# 仓库里出现过的公开口令黑名单：这些值的长度都过了 MIN_PASSWORD_LENGTH，
-# 单靠长度检查拦不住，一旦建号就等于把凭据写进公开仓库。
-# 前两个是 CI/deploy workflow 里曾硬编码的兜底串（已删除，保留在此防复发）；
-# 后两个是 data/sql/003_phase3_admin_seed.sql 里 ops / merchant1 的公开种子口令
-# （12 位，同样能通过长度检查，实测可登录拿到 role=2/3 的 token）。
-_KNOWN_PUBLIC_PASSWORDS = frozenset(
-    {
-        "ci-only-not-a-real-secret-0001",
-        "deploy-only-not-a-real-secret-0001",
-        "Admin@123456",
-        "Merchant@123",
-    }
-)
-
-# 仓库根（backend/scripts/ → backend/ → 根）。容器镜像只 COPY backend/，
-# 故 .env.example 在容器里不存在 → 占位串比对那条自动跳过（`change-me` 前缀那条仍兜住）。
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # 退出码：2 = 缺凭据/缺 DSN（未带 --optional）；3 = 凭据存在但不合格；1 = 数据库操作失败。
 EXIT_CREDENTIALS_MISSING = 2
@@ -99,51 +84,6 @@ def parse_args() -> argparse.Namespace:
         "凭据存在但为占位串/弱口令时仍然失败",
     )
     return p.parse_args()
-
-
-def _read_env_example_password() -> str:
-    """读 .env.example 的 ADMIN_INIT_PASSWORD 原值（不硬编码占位串进代码）。
-
-    文件不存在（容器镜像不含）或键缺失时返回空串 → 该条比对自动跳过。
-    """
-    path = REPO_ROOT / ".env.example"
-    try:
-        content = path.read_text(encoding="utf-8-sig")
-    except OSError:
-        return ""
-    for raw in content.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        if key.strip() == "ADMIN_INIT_PASSWORD":
-            return value.strip().strip('"').strip("'")
-    return ""
-
-
-def reject_reason(password: str) -> str:
-    """返回拒绝建号/改密的原因；合格返回空串。
-
-    调用位置很重要：只在"账号不存在（要建）"或"密码不匹配（要改）"时调用。
-    """
-    default_password = Settings.model_fields["ADMIN_INIT_PASSWORD"].default
-    if default_password and password == default_password:
-        return "取值为后端 Settings.ADMIN_INIT_PASSWORD 的出厂默认口令"
-
-    example_password = _read_env_example_password()
-    if example_password and password == example_password:
-        return "取值与 .env.example 的 ADMIN_INIT_PASSWORD 占位串相同"
-
-    if password.lower().startswith("change-me"):
-        return "取值是 change-me* 占位串"
-
-    if password in _KNOWN_PUBLIC_PASSWORDS:
-        return f"取值是仓库内公开口令（{password}），任何读得到仓库的人都能用它登录"
-
-    if len(password) < MIN_PASSWORD_LENGTH:
-        return f"长度不足 {MIN_PASSWORD_LENGTH} 位"
-
-    return ""
 
 
 def main() -> int:
@@ -187,12 +127,12 @@ def main() -> int:
             row = cur.fetchone()
 
             if row is None:
-                reason = reject_reason(args.password)
+                reason = reject_weak_password(args.password)
                 if reason:
                     print(
                         f"错误：拒绝创建超管账号——密码{reason}。"
                         "请在 .env 配置真实强口令（长度 ≥ "
-                        f"{MIN_PASSWORD_LENGTH}）后重试。",
+                        f"{MIN_ADMIN_PASSWORD_LENGTH}）后重试。",
                         file=sys.stderr,
                     )
                     return EXIT_WEAK_CREDENTIALS
@@ -209,7 +149,7 @@ def main() -> int:
                 # 且 migrate 非 0 退出会拖死 api/worker/nginx），但必须告警：
                 # 库里这个口令当初可能是靠占位串建进来的，脚本"不动它"就等于
                 # 让弱口令永久有效，与文件头"弱口令一律拒绝"的声明矛盾。
-                warning = reject_reason(args.password)
+                warning = reject_weak_password(args.password)
                 if warning:
                     print(
                         f"警告：当前超管口令仍是弱口令/占位串（{warning}），"
@@ -217,12 +157,12 @@ def main() -> int:
                         file=sys.stderr,
                     )
             else:
-                reason = reject_reason(args.password)
+                reason = reject_weak_password(args.password)
                 if reason:
                     print(
                         f"错误：拒绝更新超管密码——密码{reason}。"
                         "请在 .env 配置真实强口令（长度 ≥ "
-                        f"{MIN_PASSWORD_LENGTH}）后重试。",
+                        f"{MIN_ADMIN_PASSWORD_LENGTH}）后重试。",
                         file=sys.stderr,
                     )
                     return EXIT_WEAK_CREDENTIALS

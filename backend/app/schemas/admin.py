@@ -241,3 +241,44 @@ class AdminReviewData(BaseModel):
     status: int  # 1通过 2驳回
     reject_reason: Optional[str] = None
     reviewed_at: Optional[datetime] = None
+
+
+# ---- 账号管理（超管/运营开通后台账号；openapi components.schemas Admin*）----
+
+
+class AdminAccountOut(BaseModel):
+    """后台账号视图（不含密码哈希）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    role: int  # 1超管 2运营 3商家 4教练
+    merchant_id: Optional[int] = None  # role=3 绑定的商家 ID
+    created_at: datetime
+
+
+class AdminAccountPageData(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[AdminAccountOut]
+    page: PageMeta
+
+
+class AdminAccountIn(BaseModel):
+    """创建后台账号；role=2 仅超管可建，role=3 必须绑定商家。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    username: str = Field(min_length=2, max_length=64)
+    password: str = Field(min_length=12, max_length=128)
+    role: int  # 2运营 3商家；1超管仅超管可建；4教练走 G1 教练端，不经此接口
+    merchant_id: Optional[int] = None  # role=3 必填
+
+
+class AdminPasswordResetIn(BaseModel):
+    """重置后台账号密码（超管重置任意账号，运营仅可重置商家账号）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    new_password: str = Field(min_length=12, max_length=128)

@@ -57,6 +57,12 @@ const router = createRouter({
           component: () => import('@/views/ContentAuditView.vue'),
           meta: { title: '内容审核', roles: [1, 2] },
         },
+        {
+          path: 'accounts',
+          name: 'accounts',
+          component: () => import('@/views/AccountsView.vue'),
+          meta: { title: '账号管理', roles: [1, 2] },
+        },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },

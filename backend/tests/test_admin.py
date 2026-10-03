@@ -85,6 +85,9 @@ async def test_admin_endpoints_require_token(db_client: AsyncClient):
         ("GET", "/api/admin/dashboard", None),
         ("POST", "/api/admin/sku-catalog", sku_body),
         ("PUT", "/api/admin/sku-catalog/1", sku_body),
+        ("GET", "/api/admin/accounts", None),
+        ("POST", "/api/admin/accounts", {"username": "x", "password": "Whatever@123", "role": 3}),
+        ("PUT", "/api/admin/accounts/1/password", {"new_password": "Whatever@123"}),
     ]
     for method, url, json in cases:
         r = await db_client.request(method, url, json=json)
@@ -528,3 +531,236 @@ async def test_orders_merchant_role_scope(
     r = await db_client.get("/api/admin/orders", headers=_auth(root_token))
     assert r.status_code == 200
     assert r.json()["data"]["page"]["total"] == 2
+
+
+# ---- 账号管理（超管/运营开通后台账号）----
+
+_STRONG_PW = "Ops@2026#StrongPW"  # 过统一弱口令策略（≥12 位、非黑名单）
+
+
+async def test_accounts_list_empty_then_created(
+    db_client: AsyncClient, admin_authed: dict, db_session: AsyncSession
+):
+    """role=1：列表初始只含自身；创建运营/商家后回填。"""
+    token = _auth((await _login(db_client, admin_authed))["token"])
+
+    r = await db_client.get("/api/admin/accounts", headers=token)
+    assert r.status_code == 200 and r.json()["code"] == 0
+    assert r.json()["data"]["page"]["total"] == 1  # 只有超管自己
+    assert r.json()["data"]["items"][0]["username"] == admin_authed["username"]
+
+    m = await _create_merchant(db_session, "绿野轻食")
+    r = await db_client.post(
+        "/api/admin/accounts",
+        headers=token,
+        json={"username": "ops-oncall", "password": _STRONG_PW, "role": 2},
+    )
+    assert r.status_code == 200 and r.json()["code"] == 0
+    assert r.json()["data"]["role"] == 2 and r.json()["data"]["merchant_id"] is None
+
+    r = await db_client.post(
+        "/api/admin/accounts",
+        headers=token,
+        json={"username": "shop-front", "password": _STRONG_PW, "role": 3, "merchant_id": m.id},
+    )
+    assert r.status_code == 200
+    assert r.json()["data"]["merchant_id"] == m.id
+
+    r = await db_client.get("/api/admin/accounts", headers=token)
+    assert r.json()["data"]["page"]["total"] == 3
+    usernames = {it["username"] for it in r.json()["data"]["items"]}
+    assert {"ops-oncall", "shop-front"} <= usernames
+
+
+async def test_accounts_create_permission_matrix(
+    db_client: AsyncClient, admin_authed: dict, db_session: AsyncSession
+):
+    """运营可建商家账号；建运营/超管被 1002；role=4 一律 2001；商家看列表 1002。"""
+    m = await _create_merchant(db_session, "矩阵商家")
+    ops_cred = {"username": f"ops-{m.id}", "password": _STRONG_PW}
+    r = await db_client.post(
+        "/api/admin/accounts",
+        headers=_auth((await _login(db_client, admin_authed))["token"]),
+        json={"username": ops_cred["username"], "password": _STRONG_PW, "role": 2},
+    )
+    assert r.status_code == 200
+    ops_token = (await _login(db_client, ops_cred))["token"]
+    ops_headers = _auth(ops_token)
+
+    # 运营建商家 ✓
+    r = await db_client.post(
+        "/api/admin/accounts",
+        headers=ops_headers,
+        json={
+            "username": f"shop-front-{m.id}",
+            "password": _STRONG_PW,
+            "role": 3,
+            "merchant_id": m.id,
+        },
+    )
+    assert r.status_code == 200 and r.json()["data"]["role"] == 3
+
+    # 运营建运营 / 建超管 ✗ 1002
+    for role in (2, 1):
+        r = await db_client.post(
+            "/api/admin/accounts",
+            headers=ops_headers,
+            json={"username": f"probe-{role}", "password": _STRONG_PW, "role": role},
+        )
+        assert r.status_code == 403 and r.json()["code"] == 1002, r.text
+
+    # role=4 教练不经此接口（超管/运营都一样）✗ 2001/422
+    root_headers = _auth((await _login(db_client, admin_authed))["token"])
+    for headers in (root_headers, ops_headers):
+        r = await db_client.post(
+            "/api/admin/accounts",
+            headers=headers,
+            json={"username": f"coach-{m.id}", "password": _STRONG_PW, "role": 4},
+        )
+        assert r.status_code == 422 and r.json()["code"] == 2001
+
+    # 商家角色访问账号列表 ✗ 1002
+    shop_cred = await _create_role3_admin(db_session, m.id)
+    shop_token = (await _login(db_client, shop_cred))["token"]
+    r = await db_client.get("/api/admin/accounts", headers=_auth(shop_token))
+    assert r.status_code == 403 and r.json()["code"] == 1002
+
+
+async def test_accounts_create_validation_errors(
+    db_client: AsyncClient, admin_authed: dict, db_session: AsyncSession
+):
+    """重名 2001 / 商家不存在 2001 / role=3 缺 merchant_id 2001 / 非商家绑 merchant_id 2001 / 弱口令 2001。"""
+    token = _auth((await _login(db_client, admin_authed))["token"])
+
+    r = await db_client.post(
+        "/api/admin/accounts",
+        headers=token,
+        json={"username": admin_authed["username"], "password": _STRONG_PW, "role": 2},
+    )
+    assert r.status_code == 422 and r.json()["code"] == 2001  # 与超管重名
+
+    r = await db_client.post(
+        "/api/admin/accounts",
+        headers=token,
+        json={"username": "shop-x", "password": _STRONG_PW, "role": 3, "merchant_id": 999999},
+    )
+    assert r.status_code == 422 and r.json()["code"] == 2001  # 商家不存在
+
+    r = await db_client.post(
+        "/api/admin/accounts",
+        headers=token,
+        json={"username": "shop-nobind", "password": _STRONG_PW, "role": 3},
+    )
+    assert r.status_code == 422 and r.json()["code"] == 2001  # role=3 缺 merchant_id
+
+    r = await db_client.post(
+        "/api/admin/accounts",
+        headers=token,
+        json={"username": "ops-bind", "password": _STRONG_PW, "role": 2, "merchant_id": 1},
+    )
+    assert r.status_code == 422 and r.json()["code"] == 2001  # 非商家绑定 merchant_id
+
+    # 弱口令（公开种子口令在黑名单）→ 2001
+    r = await db_client.post(
+        "/api/admin/accounts",
+        headers=token,
+        json={"username": "weak-pw", "password": "Admin@123456", "role": 2},
+    )
+    assert r.status_code == 422 and r.json()["code"] == 2001
+
+
+async def test_accounts_password_reset(
+    db_client: AsyncClient, admin_authed: dict, db_session: AsyncSession
+):
+    """超管重置任意账号；旧密码失效、新密码可登录；账号不存在 404/3001。"""
+    m = await _create_merchant(db_session, "重置商家")
+    shop_cred = await _create_role3_admin(db_session, m.id)
+    root_token = _auth((await _login(db_client, admin_authed))["token"])
+
+    r = await db_client.get("/api/admin/accounts", headers=root_token)
+    shop = next(
+        it for it in r.json()["data"]["items"] if it["username"] == shop_cred["username"]
+    )
+
+    new_pw = "Reset@2026#Strong"
+    r = await db_client.put(
+        f"/api/admin/accounts/{shop['id']}/password",
+        headers=root_token,
+        json={"new_password": new_pw},
+    )
+    assert r.status_code == 200 and r.json()["code"] == 0
+
+    # 旧密码失效
+    r = await db_client.post("/api/admin/login", json=shop_cred)
+    assert r.status_code == 401
+    # 新密码可登录
+    r = await db_client.post(
+        "/api/admin/login", json={"username": shop_cred["username"], "password": new_pw}
+    )
+    assert r.status_code == 200 and r.json()["code"] == 0
+
+    # 账号不存在 → 404/3001
+    r = await db_client.put(
+        "/api/admin/accounts/999999/password", headers=root_token, json={"new_password": new_pw}
+    )
+    assert r.status_code == 404 and r.json()["code"] == 3001
+
+
+async def test_accounts_reset_permission_matrix(
+    db_client: AsyncClient, admin_authed: dict, db_session: AsyncSession
+):
+    """运营可重置商家账号密码，但不可重置运营账号密码。"""
+    m = await _create_merchant(db_session, "重置矩阵")
+    shop_cred = await _create_role3_admin(db_session, m.id)
+
+    ops_cred = {"username": f"ops-{m.id}", "password": _STRONG_PW}
+    root_token = _auth((await _login(db_client, admin_authed))["token"])
+    r = await db_client.post(
+        "/api/admin/accounts",
+        headers=root_token,
+        json={"username": ops_cred["username"], "password": _STRONG_PW, "role": 2},
+    )
+    assert r.status_code == 200
+    ops_id = r.json()["data"]["id"]
+    ops_token = (await _login(db_client, ops_cred))["token"]
+
+    # 运营重置商家账号 ✓
+    r = await db_client.get("/api/admin/accounts", headers=_auth(ops_token))
+    shop = next(
+        it for it in r.json()["data"]["items"] if it["username"] == shop_cred["username"]
+    )
+    r = await db_client.put(
+        f"/api/admin/accounts/{shop['id']}/password",
+        headers=_auth(ops_token),
+        json={"new_password": "NewShop@2026#1"},
+    )
+    assert r.status_code == 200
+
+    # 运营重置运营账号（自己）✗ 1002
+    r = await db_client.put(
+        f"/api/admin/accounts/{ops_id}/password",
+        headers=_auth(ops_token),
+        json={"new_password": "NewOps@2026#1"},
+    )
+    assert r.status_code == 403 and r.json()["code"] == 1002
+
+
+async def test_login_rejects_role4(
+    db_client: AsyncClient, admin_authed: dict, db_session: AsyncSession
+):
+    """role=4 教练账号登录 admin web → 403/1002（教练端独立；修复前端无限重定向缺陷）。"""
+    m = await _create_merchant(db_session, "教练测试")
+    cred = {"username": f"coach-{m.id}", "password": "Coach@123456"}
+    db_session.add(
+        AdminUser(
+            username=cred["username"],
+            password_hash=hash_password(cred["password"]),
+            role=4,
+            merchant_id=None,
+        )
+    )
+    await db_session.commit()
+
+    r = await db_client.post("/api/admin/login", json=cred)
+    assert r.status_code == 403
+    assert r.json()["code"] == 1002
