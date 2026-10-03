@@ -15,9 +15,11 @@ jobs:
         working-directory: backend
 
     # 真实 PG/Redis：pytest 的 db_* 夹具走真实 PostgreSQL（docs/split/07 §9.1 接口测试）。
+    # postgres 用 postgis 镜像：001_schema.sql 首行 CREATE EXTENSION postgis，
+    # 普通postgres:16 镜像无该扩展（GitHub runner 实测 409 "postgis is not available"）。
     services:
       postgres:
-        image: postgres:16
+        image: postgis/postgis:16-3.4
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
