@@ -208,25 +208,33 @@ services:
     container_name: ai-coach-admin-volumes-init
     user: "0:0"
     volumes:
-      - admin_node_modules:/app/node_modules
+      # 挂载路径只是卷的引用点，与 admin-build 里的 /work 是同一个卷：
+      # 目的是把卷内容（缓存依赖）chown 给 1000:1000。
+      - admin_node_modules:/mnt/node_modules
       - admin_dist:/out
-    command: ["sh", "-c", "chown -R 1000:1000 /app/node_modules /out && echo 'admin 构建卷已归属 1000:1000'"]
+    command: ["sh", "-c", "chown -R 1000:1000 /mnt/node_modules /out && echo 'admin 构建卷已归属 1000:1000'"]
     restart: "no"
 
   admin-build:
     image: node:22-alpine
     container_name: ai-coach-admin-build
     user: "1000:1000"
-    working_dir: /app
+    working_dir: /work
     volumes:
-      - ../admin:/app:ro
-      - admin_node_modules:/app/node_modules
+      # ⚠️ 源码目录保持 :ro 只读（安全加固），但**不能**再把 node_modules 具名卷
+      #    挂到这个 ro bind 的子路径上：GitHub runner 的新版 docker 在 ro bind 下
+      #    建挂载点会报 "mkdirat ...: read-only file system"（2026-10-03 CI 实测）。
+      #    故改为：源码 tar 进卷内工作区 /work（排除 node_modules，npm ci 重建），
+      #    依赖缓存语义由同一具名卷保留。
+      - ../admin:/repo:ro
+      - admin_node_modules:/work
       - admin_dist:/out
     command:
       - sh
       - -c
       - |
         set -e
+        tar -C /repo --exclude=./node_modules -cf - . | tar -C /work -xf -
         # 国内 npm 镜像：部署机直连 registry.npmjs.org 常不通/超时，会让本服务失败。
         # 与 Dockerfile.backend 里 PIP_INDEX_URL 必须覆盖 mirrors.tencent.com 同理
         # （buildkit 内 SSL 失败），这里显式切到 npmmirror。
