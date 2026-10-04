@@ -34,8 +34,8 @@
       </CCard>
 
       <!-- 2. 近 31 天步数曲线（数据源 GET /api/steps/trend）
-           纯 view 拼柱状图，照抄 pages/account.vue 的「不引新依赖/图表库」做法；
-           后端不补零 → 横轴按本地日期连续铺满，缺记录的日子画「未同步」占位，绝不当 0 步。 -->
+           CLineChart 纯 view 折线（同 account.vue，不引图表库）；峰值步数直接标在图上。
+           后端不补零 → 缺记录的日子断线不画点，绝不当 0 步。 -->
       <CCard :title="trendTitle" class="sport-tab__card">
         <template #extra>
           <text v-if="trendCovered" class="sport-tab__hint">
@@ -55,28 +55,18 @@
         />
         <template v-else>
           <view class="trend__legend">
-            <view class="trend__key"><view class="trend__mark trend__mark--bar" />有记录</view>
+            <view class="trend__key"><view class="trend__mark trend__mark--line" />有记录</view>
             <view class="trend__key"><view class="trend__mark trend__mark--zero" />0 步</view>
             <view class="trend__key"><view class="trend__mark trend__mark--none" />未同步</view>
           </view>
-          <view class="trend">
-            <view v-for="d in trendDays" :key="d.date" class="trend__slot">
-              <view v-if="d.state === 'value'" class="trend__bar" :style="{ height: d.height }" />
-              <view v-else-if="d.state === 'zero'" class="trend__zero" />
-              <view v-else class="trend__missing" />
-            </view>
-          </view>
-          <view class="trend__axis">
-            <text
-              v-for="d in trendTicks"
-              :key="`tick-${d.date}`"
-              class="trend__tick"
-              :style="{ left: d.left }"
-            >{{ d.label }}</text>
-          </view>
-          <text class="trend__note">
-            柱高按区间最大步数归一；虚线空位＝该日无记录（未同步），实心圆点＝当天确实 0 步。
-          </text>
+          <CLineChart
+            :points="trendPoints"
+            color="#22c55e"
+            :height="280"
+            :min="0"
+            mark-peak
+            :format-value="fmtPeakSteps"
+          />
         </template>
       </CCard>
 
@@ -161,8 +151,8 @@
  * 【假设】聚合现有能力最简实现：
  *   - 步数/消耗复用 account store；同步先预检 scope.werun 授权再取微信运动数据，
  *     提示文案以后端 steps_source 为真源（仅 1 才宣称真实步数），未授权只引导开启不阻断（§2.4）；
- *   - 今日运动下方补「近 31 天步数曲线」（数据源 /api/steps/trend），同 account.vue 用纯 view 拼图，
- *     不引图表库；点「同步步数」成功后与 onShow 一并重拉曲线；
+ *   - 今日运动下方补「近 31 天步数曲线」（数据源 /api/steps/trend），同 account.vue 用 CLineChart
+ *     纯 view 折线，不引图表库，峰值步数直接标在图上；点「同步步数」成功后与 onShow 一并重拉曲线；
  *   - AI 建议仅超标时展示（§5.3「吃多后运动强提醒」），一键写入走 createSport；
  *   - 运动列表仅今日，历史日期切换见 /pages/record/sport；
  *   - 标准运动项目在添加运动页（sport-add）内选择，此处给入口；
@@ -218,29 +208,10 @@ const burnt = computed(() => Math.round(accountStore.today?.calories_burnt ?? 0)
 /** 超标量 = 「吃多了多少」=-left（left 为负表示超标，§5.1 today_left 口径） */
 const excess = computed(() => (accountStore.overBudget ? Math.round(-accountStore.left) : 0))
 
-/* ---------- 近 31 天步数曲线（/api/steps/trend · 纯 view 拼柱状图，不引图表库） ---------- */
+/* ---------- 近 31 天步数曲线（/api/steps/trend · CLineChart 纯 view 折线，不引图表库） ---------- */
 
 /** 横轴标签密度：每 5 天出一个（从今日往前数，今日必出）——31 个标签排不下，其余留空 */
 const TREND_LABEL_EVERY = 5
-
-/**
- * 单日格子的三态（后端不补零 ⇒ 缺记录 ≠ 0 步，必须分开画）：
- * - value   有记录且步数>0：实心柱，高度按区间最大值归一
- * - zero    有记录且确实 0 步：实心小圆点（"今天没走路"是事实，不是占位）
- * - missing 后端没返回该日：虚线空心空位＝未同步，不参与归一、不冒充 0 步
- */
-type TrendState = 'value' | 'zero' | 'missing'
-
-interface TrendDay {
-  date: string
-  state: TrendState
-  /** 柱高百分比，仅 state==='value' 使用 */
-  height: string
-  /** 横轴标签 MM-DD，空串=该格不出标签 */
-  label: string
-  /** 标签中心位置（百分比 + translateX(-50%) 绝对定位，避免 31 格挤压换行） */
-  left: string
-}
 
 const trendItems = ref<StepTrendItem[]>([])
 const trendLoading = ref(false)
@@ -251,11 +222,14 @@ const trendLoaded = ref(false)
 const trendTitle = computed(() => `近 ${STEPS_TREND_MAX_DAYS} 天步数`)
 
 /**
- * items → 连续 STEPS_TREND_MAX_DAYS 格横轴（今日往前推，本地时区）。
- * 窗口外的记录一律忽略（不硬塞进图、不参与归一）；
- * 非法条目（日期非字符串 / 步数非有限数 / 负数）直接丢弃 —— 宁可显示「未同步」也不造数。
+ * items → 连续 STEPS_TREND_MAX_DAYS 个折线点（今日往前推，本地时区）。
+ * 三态映射（后端不补零 ⇒ 缺记录 ≠ 0 步，必须分开）：
+ * - 有记录且 >0：折线点（区间峰值由组件放大标记并浮出步数）
+ * - 有记录且 =0：基线上的点（"今天没走路"是事实）
+ * - 后端没返回该日：null → 断线不画点，不参与归一、绝不冒充 0 步
+ * 窗口外的记录一律忽略；非法条目（日期非字符串 / 步数非有限数 / 负数）直接丢弃。
  */
-const trendDays = computed<TrendDay[]>(() => {
+const trendPoints = computed<{ label?: string; value: number | null }[]>(() => {
   const byDate = new Map<string, number>()
   for (const it of trendItems.value) {
     const date = typeof it?.date === 'string' ? it.date.slice(0, 10) : ''
@@ -265,39 +239,26 @@ const trendDays = computed<TrendDay[]>(() => {
   }
 
   const today = new Date()
-  const dates: string[] = []
-  const values: (number | null)[] = []
+  const points: { label?: string; value: number | null }[] = []
   for (let back = STEPS_TREND_MAX_DAYS - 1; back >= 0; back -= 1) {
     const d = new Date(today)
     d.setDate(d.getDate() - back)
     const key = fmtDay(d)
-    const hit = byDate.get(key)
-    dates.push(key)
-    values.push(hit === undefined ? null : hit)
+    points.push({
+      label: back % TREND_LABEL_EVERY === 0 ? key.slice(5) : undefined,
+      value: byDate.get(key) ?? null,
+    })
   }
-
-  // 归一基准＝区间内最大步数；0 步不计入，无正值时取 1 防除零
-  const peak = Math.max(1, ...values.filter((v): v is number => v !== null && v > 0))
-
-  return dates.map((date, i): TrendDay => {
-    const v = values[i]
-    const state: TrendState = v === null ? 'missing' : v === 0 ? 'zero' : 'value'
-    let height = '0%'
-    if (v !== null && v > 0) height = `${Math.max(4, Math.round((v / peak) * 100))}%`
-    return {
-      date,
-      state,
-      height,
-      label: (STEPS_TREND_MAX_DAYS - 1 - i) % TREND_LABEL_EVERY === 0 ? date.slice(5) : '',
-      left: `${(((i + 0.5) / STEPS_TREND_MAX_DAYS) * 100).toFixed(3)}%`,
-    }
-  })
+  return points
 })
 
-/** 有记录的天数（真实柱子 + 零点），既作空态判据也作「已记录 N/31 天」文案 */
-const trendCovered = computed(() => trendDays.value.filter((d) => d.state !== 'missing').length)
-/** 出标签的格子（每 5 天一个，含今日） */
-const trendTicks = computed(() => trendDays.value.filter((d) => d.label !== ''))
+/** 有记录的天数（真实折线点 + 零点），既作空态判据也作「已记录 N/31 天」文案 */
+const trendCovered = computed(() => trendPoints.value.filter((p) => p.value !== null).length)
+
+/** 峰值标签文案：千分位 + 步 */
+function fmtPeakSteps(v: number): string {
+  return `${fmt(v)} 步`
+}
 
 /**
  * 拉取步数曲线。
@@ -497,66 +458,8 @@ function onNotice() {
   }
 }
 
-// 近 31 天步数曲线（照 account.vue .chart 的做法：flex + 百分比柱高，纯 view 拼，不引图表库）
+// 近 31 天步数曲线图例（CLineChart 折线：有记录=折线色样 / 0 步=基线实心点 / 未同步=断线）
 .trend {
-  display: flex;
-  align-items: flex-end;
-  height: 200rpx;
-
-  &__slot {
-    flex: 1;
-    height: 100%;
-
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-  }
-
-  // 有记录且 >0：实心柱
-  &__bar {
-    width: 12rpx;
-    border-radius: 4rpx 4rpx 0 0;
-    background: $brand;
-    transition: height $duration-base $ease-out;
-  }
-
-  // 有记录但确实是 0 步：实心圆点（"值就是 0"，与"没有值"两种事实）
-  &__zero {
-    width: 10rpx;
-    height: 10rpx;
-    border-radius: 50%;
-    background: $brand;
-  }
-
-  // 该日后端没返回＝未同步：透明底 + 虚线空心框，绝不当 0 步画
-  &__missing {
-    box-sizing: border-box;
-    width: 14rpx;
-    height: 16rpx;
-    border: 2rpx dashed $border;
-    border-radius: 2rpx;
-    background: transparent;
-  }
-
-  &__axis {
-    position: relative;
-
-    height: 28rpx;
-    margin-top: $space-xs;
-  }
-
-  // 标签绝对定位居中（每 5 天一个），避免 20rpx 宽的格子把 MM-DD 挤到换行
-  &__tick {
-    position: absolute;
-    top: 0;
-    transform: translateX(-50%);
-
-    font-size: $t-22;
-    color: $text-3;
-    white-space: nowrap;
-  }
-
   &__legend {
     display: flex;
     gap: $space-md;
@@ -575,35 +478,29 @@ function onNotice() {
     margin-right: $space-xs;
     background: $brand;
 
-    &--bar {
-      width: 10rpx;
-      height: 18rpx;
-      border-radius: 3rpx 3rpx 0 0;
+    // 折线色样
+    &--line {
+      width: 28rpx;
+      height: 6rpx;
+      border-radius: 3rpx;
     }
 
+    // 0 步：基线上的实心点
     &--zero {
-      width: 10rpx;
-      height: 10rpx;
+      width: 12rpx;
+      height: 12rpx;
       border-radius: 50%;
     }
 
+    // 该日后端没返回＝未同步：虚线空心圆（折线上表现为断线）
     &--none {
       box-sizing: border-box;
-      width: 12rpx;
+      width: 14rpx;
       height: 14rpx;
       border: 2rpx dashed $border;
-      border-radius: 2rpx;
+      border-radius: 50%;
       background: transparent;
     }
-  }
-
-  &__note {
-    display: block;
-
-    margin-top: $space-sm;
-    font-size: $t-22;
-    line-height: 1.5;
-    color: $text-3;
   }
 }
 
