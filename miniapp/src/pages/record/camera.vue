@@ -63,6 +63,11 @@
 
           <!-- 4. 识别结果：每一项都可见、可处置；合计只统计「已确认」项 -->
           <view v-else-if="items.length" class="camera__result">
+            <!-- 吃什么页进入：识别完成即可直接回页看推荐卡（不必先记录，§5.2-4） -->
+            <CButton v-if="fromEat" block class="camera__to-recommend" @click="goBackToEat">
+              去 AI 推荐（按拍的菜单） ›
+            </CButton>
+
             <!-- 待处置清单（按 ambiguous / 低置信分别给文案，§2.4 / §6.3.2） -->
             <view v-if="pendingHints.length" class="camera__tips">
               <text v-for="(h, i) in pendingHints" :key="i" class="camera__tip">{{ h }}</text>
@@ -185,6 +190,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import { useUserStore } from '@/stores/user'
 import { redirectToLogin } from '@/utils/nav'
 import { createMeal, createCustomFood } from '@/api/records'
@@ -271,6 +277,17 @@ const savingCustom = ref(false)
 // 默认餐次按当前时段推断
 const hour = new Date().getHours()
 const mealType = ref<1 | 2 | 3 | 4>(hour < 10 ? 1 : hour < 15 ? 2 : hour < 20 ? 3 : 4)
+
+/** 来源=吃什么页（?from=eat）：识别成功后给「去 AI 推荐」快速返回入口（§5.2-4） */
+const fromEat = ref(false)
+onLoad((options) => {
+  fromEat.value = (options as { from?: string } | undefined)?.from === 'eat'
+})
+
+/** 识别结果直接回吃什么页看推荐（推荐卡已按识别菜名刷新，见 recognize() 里的 $emit） */
+function goBackToEat() {
+  uni.navigateBack()
+}
 
 /**
  * 选图入口：拍摄 / 相册分成两个独立按钮（实测合并入口在部分机型只拉起相机）。
@@ -755,6 +772,11 @@ function goLogin() {
   }
 
   &__skeleton {
+    margin-bottom: $space-md;
+  }
+
+  // 吃什么页链路：识别完成直接回页看 AI 推荐的入口（§5.2-4）
+  &__to-recommend {
     margin-bottom: $space-md;
   }
 

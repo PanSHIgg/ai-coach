@@ -38,6 +38,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dry-run", action="store_true", help="只解析文件不写库")
     p.add_argument("--no-truncate", action="store_true",
                    help="导入前不清空目标表（默认 TRUNCATE 以保证重复导入幂等）")
+    p.add_argument("--force", action="store_true",
+                   help="跳过「用户数据存在即拒绝」守卫（见 main 内 DB-7 说明），确要级联清空时使用")
     p.add_argument("--file", action="append", default=[],
                    help="指定导入文件，格式 表名:路径（可多次），"
                         "如 food:data/seeds/food_full.csv food_alias:data/seeds/food_alias_full.csv")
@@ -207,6 +209,30 @@ def main() -> int:
 
     conn = _connect(args.dsn)
     try:
+        # ── 数据安全守卫（DB-7，2026-10-04 实际事故）────────────────────────────
+        # TRUNCATE food 带 CASCADE，会把所有外键引用 food 的表一并清空——
+        # meal_record.food_id 正是这种外键，导致「compose up 重跑种子 → 饮食记录整表蒸发」
+        # （体重/步数/运动无 food 外键幸存，故用户感知为"重启后记录没了"）。
+        # 有用户数据时拒绝导入；compose 场景处置：LOAD_SEEDS=false（shell 或 deploy/.env）。
+        if not args.no_truncate and not args.force and "food" in targets:
+            with conn.cursor() as cur:
+                for table in ("meal_record", "meal_record_archive"):
+                    try:
+                        cur.execute(f"SELECT count(*) FROM {table}")  # noqa: S608
+                        n = cur.fetchone()[0]
+                    except Exception:  # noqa: BLE001 - 表不存在（未迁移的新库）视为无数据
+                        conn.rollback()
+                        continue
+                    if n:
+                        print(
+                            f"拒绝导入：{table} 已有 {n} 条数据。TRUNCATE food 的 CASCADE"
+                            "会级联清空它（DB-7）。\n"
+                            "处置：已有数据的库用 LOAD_SEEDS=false 跳过种子导入"
+                            "（docker compose up 前设 shell 变量，或写 deploy/.env）；\n"
+                            "确要连用户数据一起清空，显式加 --force。",
+                            file=sys.stderr,
+                        )
+                        return 1
         if not args.no_truncate:
             # 先按「子表→父表」顺序清空全部目标表，避免外键约束；表名来自 LOADERS 白名单，无注入风险
             ordered = sorted(targets, key=lambda t: TRUNCATE_ORDER.index(t) if t in TRUNCATE_ORDER else 99)
