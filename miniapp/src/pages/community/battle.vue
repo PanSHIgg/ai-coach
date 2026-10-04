@@ -19,31 +19,32 @@
     <CSkeleton v-if="loading && !loaded" type="card" />
     <CError v-else-if="error" @retry="load" />
     <template v-else>
-      <CEmpty v-if="!battles.length" icon="empty-sport" text="暂无约战" button-text="" />
+      <CEmpty v-if="!battles.length" icon="empty-battle" text="暂无约战" button-text="" />
       <CCard v-for="b in battles" :key="b.id" class="bt__card">
         <text class="bt__name">{{ b.title }}</text>
         <text class="bt__meta">
           {{ b.sport_name || '运动' }} · {{ b.city || '不限' }} · 已有 {{ b.join_count }}/{{ b.need_count }} 人
         </text>
-        <CButton
-          v-if="b.joined"
-          class="bt__join"
-          size="sm"
-          type="ghost"
-          :disabled="b.status !== 1 && b.status !== 2"
-          @click="quit(b)"
-        >
-          {{ b.status === 1 || b.status === 2 ? '退出约战' : '已开始' }}
-        </CButton>
-        <CButton
-          v-else
-          class="bt__join"
-          size="sm"
-          :disabled="b.status !== 1 || b.join_count >= b.need_count"
-          @click="join(b)"
-        >
-          {{ b.status !== 1 || b.join_count >= b.need_count ? '已满员' : '加入' }}
-        </CButton>
+        <view class="bt__actions">
+          <CButton
+            v-if="b.joined"
+            size="sm"
+            type="ghost"
+            :disabled="b.status !== 1 && b.status !== 2"
+            @click="quit(b)"
+          >
+            {{ b.status === 1 || b.status === 2 ? '退出约战' : '已开始' }}
+          </CButton>
+          <CButton
+            v-else
+            size="sm"
+            :disabled="b.status !== 1 || b.join_count >= b.need_count"
+            @click="join(b)"
+          >
+            {{ b.status !== 1 || b.join_count >= b.need_count ? '已满员' : '加入' }}
+          </CButton>
+          <text v-if="b.can_delete" class="bt__del" @tap="remove(b)">删除约战</text>
+        </view>
       </CCard>
     </template>
   </view>
@@ -52,13 +53,15 @@
 <script setup lang="ts">
 /**
  * FE5 · 约战 — Phase 4 (M4)
- * 契约：POST /api/community/battle、GET .../battle/list、POST .../battle/join、POST .../battle/quit
- * 一人一位（后端成员表防重复，重复加入 2001）；已加入可退出，满员退出后回「招募中」。
+ * 契约：POST /api/community/battle、GET .../battle/list、POST .../battle/join、
+ *       POST .../battle/quit、DELETE .../battle/{id}
+ * 一人一位（后端成员表防重复，重复加入 2001）；已加入可退出，满员退出后回「招募中」，
+ * 退出后能再加入。joined / can_delete 一律取后端返回值，前端不自造成员态。
  */
 import { reactive, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 
-import { createBattle, joinBattle, listBattles, quitBattle } from '@/api/community'
+import { createBattle, deleteBattle, joinBattle, listBattles, quitBattle } from '@/api/community'
 import type { BattleItem } from '@/types/api'
 import { useToast } from '@/composables/useToast'
 
@@ -112,6 +115,17 @@ async function create() {
   }
 }
 
+function confirm(content: string, title = '确认操作') {
+  return new Promise<boolean>((resolve) => {
+    uni.showModal({
+      title,
+      content,
+      success: (res) => resolve(!!res.confirm),
+      fail: () => resolve(false),
+    })
+  })
+}
+
 async function join(b: BattleItem) {
   // 防手抖双击：本地点位已在请求前置灰（:disabled 由 joined/满员推导），再兜一层
   if (b.joined) return
@@ -128,15 +142,7 @@ async function join(b: BattleItem) {
 }
 
 async function quit(b: BattleItem) {
-  const confirm = await new Promise<boolean>((resolve) => {
-    uni.showModal({
-      title: '退出约战',
-      content: '确定退出这场约战吗？',
-      success: (res) => resolve(!!res.confirm),
-      fail: () => resolve(false),
-    })
-  })
-  if (!confirm) return
+  if (!(await confirm('确定退出这场约战吗？', '退出约战'))) return
   try {
     const res = await quitBattle({ battle_id: b.id })
     b.join_count = res.join_count
@@ -146,6 +152,17 @@ async function quit(b: BattleItem) {
     toast.success({ title: '已退出约战' })
   } catch {
     // request 层已 toast（未加入 2001 等）；失败后刷新拿到真实成员态
+    void load()
+  }
+}
+
+async function remove(b: BattleItem) {
+  if (!(await confirm('删除后其他已加入的人也会失去这场约战，确定删除吗？', '删除约战'))) return
+  try {
+    await deleteBattle(b.id)
+    battles.value = battles.value.filter((x) => x.id !== b.id)
+    toast.success({ title: '已删除约战' })
+  } catch {
     void load()
   }
 }
@@ -220,8 +237,20 @@ onShow(() => {
     color: $text-2;
   }
 
-  &__join {
-    margin-top: $space-md;
+  &__actions {
+    display: flex;
+    gap: $space-md;
+    align-items: center;
+
+    margin-top: $space-sm;
+  }
+
+  // 危险操作降权：文字链 + 靠右，避免与主 CTA 同权重误触
+  &__del {
+    margin-left: auto;
+
+    font-size: $t-24;
+    color: $danger;
   }
 }
 </style>

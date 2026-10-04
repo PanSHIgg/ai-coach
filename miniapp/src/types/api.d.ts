@@ -663,8 +663,10 @@ export interface BattleItem {
   join_count: number;
   status: 1 | 2 | 3 | 4; // 1招募中 2满员 3进行中 4结束
   creator_id?: number | null;
-  /** 当前用户是否已加入（含发起人；未登录恒为 false） */
+  /** 当前用户是否在成员表里（发起人建战即入表、退出即出表；未登录恒为 false） */
   joined?: boolean;
+  /** 当前用户是否可删除该约战（仅发起人本人） */
+  can_delete?: boolean;
 }
 
 export type BattlePageData = PageData<BattleItem>;
@@ -694,6 +696,11 @@ export interface BattleQuitData {
   battle_id: number;
   joined: false;
   join_count: number;
+}
+
+export interface BattleDeleteData {
+  id: number;
+  deleted: true;
 }
 
 export interface ChallengeItem {

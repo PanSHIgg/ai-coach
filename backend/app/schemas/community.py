@@ -225,8 +225,10 @@ class BattleItem(BaseModel):
     join_count: int
     status: int  # 1招募中 2满员 3进行中 4结束
     creator_id: Optional[int] = None
-    # 当前用户是否已加入（含发起人）；未登录调用恒为 False
+    # 当前用户是否在成员表里（发起人建战即入表、退出即出表）；未登录调用恒为 False
     joined: bool = False
+    # 当前用户是否可删除该约战（仅发起人本人）
+    can_delete: bool = False
 
 
 class BattlePageData(BaseModel):
@@ -271,6 +273,15 @@ class BattleQuitData(BaseModel):
     battle_id: int
     joined: bool = False
     join_count: int
+
+
+class BattleDeleteData(BaseModel):
+    """删除约战结果（仅发起人）：约战与其成员行一并移除。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    deleted: bool = True
 
 
 # ---- 挑战赛（BE7b）----

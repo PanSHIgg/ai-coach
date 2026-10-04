@@ -62,7 +62,7 @@
           <text class="community__line-title">{{ g.name }}</text>
           <text class="community__desc">{{ g.member_count }}人</text>
         </view>
-        <CEmpty v-if="!groups.length" icon="empty-sport" text="暂无社群" button-text="" />
+        <CEmpty v-if="!groups.length" icon="empty-group" text="暂无社群" button-text="" />
       </CCard>
     </view>
 
@@ -79,7 +79,7 @@
             {{ b.sport_name || '运动' }} · 缺 {{ Math.max(b.need_count - b.join_count, 0) }} 人
           </text>
         </view>
-        <CEmpty v-if="!battles.length" icon="empty-sport" text="暂无约战" button-text="" />
+        <CEmpty v-if="!battles.length" icon="empty-battle" text="暂无约战" button-text="" />
       </CCard>
     </view>
 

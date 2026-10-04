@@ -39,6 +39,7 @@ from app.schemas.auth import UserBrief
 from app.schemas.common import ErrorCode, PageMeta
 from app.schemas.community import (
     BattleCreateIn,
+    BattleDeleteData,
     BattleItem,
     BattleJoinData,
     BattlePageData,
@@ -644,7 +645,7 @@ async def checkin_group(
 # BE7b 约战
 
 
-def _battle_item(b: Battle, joined: bool = False) -> BattleItem:
+def _battle_item(b: Battle, joined: bool = False, can_delete: bool = False) -> BattleItem:
     return BattleItem(
         id=b.id,
         title=b.title or "",
@@ -657,6 +658,7 @@ def _battle_item(b: Battle, joined: bool = False) -> BattleItem:
         status=b.status,
         creator_id=b.creator_id,
         joined=joined,
+        can_delete=can_delete,
     )
 
 
@@ -686,7 +688,7 @@ async def create_battle(session: AsyncSession, user_id: int, payload: BattleCrea
     await session.flush()  # 先取 battle.id 再写成员行
     session.add(BattleParticipant(battle_id=battle.id, user_id=user_id))
     await session.commit()
-    return _battle_item(battle, joined=True)
+    return _battle_item(battle, joined=True, can_delete=True)
 
 
 async def list_battles(
@@ -716,21 +718,23 @@ async def list_battles(
         .scalars()
         .all()
     )
-    # 当前用户的已加入集合：成员表命中 ∪ 本人发起（迁移兜底历史数据）
+    # joined 只认成员表（发起人建战即写行、退出即删行）：旧实现额外按 creator_id 兜底，
+    # 会让发起人退出后仍显示已加入、且再也加不回去。0011 前的历史行由 0012 迁移回填。
     joined_ids: set[int] = set()
     if user_id is not None and rows:
-        ids = [b.id for b in rows]
-        member_ids = set(
+        joined_ids = set(
             await session.scalars(
                 select(BattleParticipant.battle_id).where(
-                    BattleParticipant.battle_id.in_(ids),
+                    BattleParticipant.battle_id.in_([b.id for b in rows]),
                     BattleParticipant.user_id == user_id,
                 )
             )
         )
-        joined_ids = member_ids | {b.id for b in rows if b.creator_id == user_id}
     return BattlePageData(
-        items=[_battle_item(b, joined=b.id in joined_ids) for b in rows],
+        items=[
+            _battle_item(b, joined=b.id in joined_ids, can_delete=b.creator_id == user_id)
+            for b in rows
+        ],
         page=PageMeta(page=page, page_size=page_size, total=int(total or 0)),
     )
 
@@ -741,6 +745,7 @@ async def join_battle(session: AsyncSession, battle_id: int, user_id: int) -> Ba
     先 INSERT 成员行（唯一约束 battle_id+user_id 兜底并发重复），再原子自增
     join_count（WHERE status=1 AND join_count < need_count 保证不超员）。
     任一步失败即抛错且不 commit，本次写入整体回滚，不会出现「计了人数没进成员表」。
+    发起人退出后同样是「非成员」，按同一规则再加入（不额外按 creator_id 拦）。
     """
     battle = await session.get(Battle, battle_id)
     if battle is None:
@@ -752,7 +757,7 @@ async def join_battle(session: AsyncSession, battle_id: int, user_id: int) -> Ba
         .on_conflict_do_nothing(constraint="uq_battle_participant")
         .returning(BattleParticipant.id)
     )
-    if inserted.first() is None or battle.creator_id == user_id:
+    if inserted.first() is None:
         raise AppException(ErrorCode.VALIDATION_ERROR, "已加入该约战，不能重复加入")
     row = await session.execute(
         update(Battle)
@@ -805,6 +810,23 @@ async def quit_battle(session: AsyncSession, battle_id: int, user_id: int) -> Ba
     join_count = int(row.scalar_one())
     await session.commit()
     return BattleQuitData(battle_id=battle_id, joined=False, join_count=join_count)
+
+
+async def delete_battle(session: AsyncSession, user_id: int, battle_id: int) -> BattleDeleteData:
+    """删除约战：仅发起人本人（非发起人 1002），不存在 3001。
+
+    与「退出」的区别：退出只摘自己的成员行、约战仍在列表；删除连成员行一并移除。
+    battle_participant 的外键没有 ON DELETE CASCADE，故先显式删成员行再删约战。
+    """
+    battle = await session.get(Battle, battle_id)
+    if battle is None:
+        raise AppException(ErrorCode.NOT_FOUND, "约战不存在")
+    if battle.creator_id != user_id:
+        raise AppException(ErrorCode.FORBIDDEN, "只能删除自己发起的约战")
+    await session.execute(delete(BattleParticipant).where(BattleParticipant.battle_id == battle_id))
+    await session.delete(battle)
+    await session.commit()
+    return BattleDeleteData(id=battle_id, deleted=True)
 
 
 # BE7b 挑战赛

@@ -1318,6 +1318,34 @@ paths:
           $ref: '#/components/responses/Validation422'
         '500':
           $ref: '#/components/responses/ServerError'
+  /api/community/battle/{id}:
+    delete:
+      tags: [社区]
+      summary: 删除约战（仅发起人，连成员行一并移除）
+      operationId: deleteBattle
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BattleDeleteData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound404'
+        '500':
+          $ref: '#/components/responses/ServerError'
   # ---- Phase 4 新增（BE7a 动态 / BE7b 五种社交 / BE7c 内容安全）----
   /api/community/post/{id}:
     get:
@@ -4889,7 +4917,8 @@ components:
         join_count: { type: integer }
         status: { type: integer, description: 1招募中 2满员 3进行中 4结束 }
         creator_id: { type: integer, nullable: true }
-        joined: { type: boolean, description: 当前用户是否已加入（含发起人；未登录恒为 false） }
+        joined: { type: boolean, description: 当前用户是否在成员表里（发起人建战即入表、退出即出表；未登录恒为 false） }
+        can_delete: { type: boolean, description: 当前用户是否可删除该约战（仅发起人本人） }
     BattleCreateIn:
       type: object
       required: [title, meet_at]
@@ -4931,6 +4960,12 @@ components:
         battle_id: { type: integer }
         joined: { const: false }
         join_count: { type: integer }
+    BattleDeleteData:
+      type: object
+      required: [id, deleted]
+      properties:
+        id: { type: integer }
+        deleted: { const: true }
     ChallengeItem:
       type: object
       required: [id, title, join_count, status]

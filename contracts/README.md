@@ -1,13 +1,13 @@
 # contracts · API 契约（P0-d）
 
 前后端并行的唯一真源（接口清单来源 `docs/split/05-API接口文档.md` §8.3）。
-当前冻结基线：**113 条路径 / 123 个 operation**（GET 55 · POST 58 · PUT 5 · DELETE 5）。
+当前冻结基线：**114 条路径 / 124 个 operation**（GET 55 · POST 58 · PUT 5 · DELETE 6）。
 
 ## 文件结构
 
 ```
 contracts/
-├── openapi.yaml        # OpenAPI 3.1 契约（113 路径 / 123 操作；统一 envelope + 错误码 + Bearer JWT）
+├── openapi.yaml        # OpenAPI 3.1 契约（114 路径 / 124 操作；统一 envelope + 错误码 + Bearer JWT）
 ├── gen-ts.sh           # TS 类型生成：优先 npx openapi-typescript，失败回落手写 api.d.ts
 ├── ts/
 │   └── api.d.ts        # 手写 TS 类型真源（与 miniapp 侧副本逐字一致；离线兜底/前端直接 import）
@@ -26,7 +26,7 @@ contracts/
 | 断言 | 口径 |
 | --- | --- |
 | 后端 ↔ 契约（双向） | 遍历 FastAPI **实际注册的路由树**（含嵌套 `include_router`）取 `/api` 前缀下的 `METHOD path`，与 `openapi.yaml` 的 `paths` 双向 diff：契约声明而后端未实现 → 报「后端未实现」；后端已注册而契约没有（含被 `include_in_schema=False` 隐藏的业务路由）→ 报「契约中缺失」。逐路径参数化，失败信息直接点名到具体 operation。 |
-| 冻结基线计数 | 契约侧与后端侧同时钉在 113 路径 / 123 ops，防止接口增删未走变更纪律，也防止路由遍历实现失效（如 FastAPI 升级改结构后返回空集）退化为假门禁。 |
+| 冻结基线计数 | 契约侧与后端侧同时钉在 114 路径 / 124 ops，防止接口增删未走变更纪律，也防止路由遍历实现失效（如 FastAPI 升级改结构后返回空集）退化为假门禁。 |
 | TS ↔ TS（双副本） | `contracts/ts/api.d.ts` 与 `miniapp/src/types/api.d.ts` **字节一致**（真源为前者，由主 Agent 单点同步）。 |
 | 契约自检 | `#/components/**` 全部 `$ref` 目标存在，防悬空引用。 |
 

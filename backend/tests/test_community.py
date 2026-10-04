@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 
 from app.core.security import create_access_token
 from app.models import (
+    BattleParticipant,
     BodyProfile,
     Challenge,
     ChallengeJoin,
@@ -385,6 +386,65 @@ async def test_battle_list_marks_joined(db_client, db_session, authed):
     theirs = next(b for b in other_view if b["id"] == bid)
     assert mine["joined"] is True
     assert theirs["joined"] is False
+
+
+async def test_battle_creator_quit_then_rejoin(db_client, db_session, authed):
+    """发起人退出即离开成员表：列表 joined 转 false，并能按普通规则再加入。
+
+    回归用例：旧实现 joined 额外按 creator_id 兜底 + join 硬拦发起人，
+    导致发起人退出后一直显示「已加入」、再点加入报 2001。
+    """
+    bid = await _create_battle(db_client, authed, need_count=2)
+    quit_res = await db_client.post(
+        "/api/community/battle/quit", headers=authed["headers"], json={"battle_id": bid}
+    )
+    assert quit_res.json()["code"] == 0
+    assert quit_res.json()["data"]["join_count"] == 0
+    items = (
+        (await db_client.get("/api/community/battle/list", headers=authed["headers"])).json()
+    )["data"]["items"]
+    mine = next(b for b in items if b["id"] == bid)
+    assert mine["joined"] is False
+    assert mine["can_delete"] is True  # 退出只离席，删除权仍归发起人
+    rejoin = await db_client.post(
+        "/api/community/battle/join", headers=authed["headers"], json={"battle_id": bid}
+    )
+    assert rejoin.json()["code"] == 0
+    assert rejoin.json()["data"]["join_count"] == 1
+
+
+async def test_battle_delete_by_creator(db_client, db_session, authed):
+    """发起人删除约战：约战与其成员行一并消失，列表不再返回。"""
+    bid = await _create_battle(db_client, authed, need_count=3)
+    other = await _other_actor(db_session, openid="battle-del-peer")
+    await db_client.post(
+        "/api/community/battle/join", headers=other["headers"], json={"battle_id": bid}
+    )
+    r = await db_client.delete(f"/api/community/battle/{bid}", headers=authed["headers"])
+    assert r.json()["code"] == 0
+    assert r.json()["data"] == {"id": bid, "deleted": True}
+    listed = (
+        (await db_client.get("/api/community/battle/list", headers=authed["headers"])).json()
+    )["data"]["items"]
+    assert bid not in [b["id"] for b in listed]
+    members = await db_session.scalar(
+        select(func.count()).select_from(BattleParticipant).where(
+            BattleParticipant.battle_id == bid
+        )
+    )
+    assert members == 0  # 外键无 ON DELETE CASCADE，靠服务层显式清行
+
+
+async def test_battle_delete_only_by_creator(db_client, db_session, authed):
+    """删除约战的越权与不存在分支：非发起人 1002、无此约战 3001。"""
+    bid = await _create_battle(db_client, authed, need_count=2)
+    other = await _other_actor(db_session, openid="battle-del-denier")
+    denied = await db_client.delete(f"/api/community/battle/{bid}", headers=other["headers"])
+    assert denied.status_code == 403
+    assert denied.json()["code"] == 1002
+    missing = await db_client.delete("/api/community/battle/999999", headers=authed["headers"])
+    assert missing.status_code == 404
+    assert missing.json()["code"] == 3001
 
 
 async def test_battle_join_concurrent_no_overflow(db_client, db_session, authed):

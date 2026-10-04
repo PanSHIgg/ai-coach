@@ -15,6 +15,7 @@ from app.db.session import get_db
 from app.models import Invite, User, UserBenefit
 from app.schemas import (
     BattleCreateIn,
+    BattleDeleteData,
     BattleItem,
     BattleJoinData,
     BattleJoinIn,
@@ -422,6 +423,19 @@ async def quit_battle(
     request_id: str | None = Depends(get_request_id),
 ) -> Envelope[BattleQuitData]:
     data = await svc.quit_battle(session, payload.battle_id, user_id=int(user.id))
+    return ok(data, request_id=request_id)
+
+
+@router.delete(
+    "/community/battle/{id}", response_model=Envelope[BattleDeleteData], summary="删除约战"
+)
+async def delete_battle(
+    id: int,
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+    request_id: str | None = Depends(get_request_id),
+) -> Envelope[BattleDeleteData]:
+    data = await svc.delete_battle(session, user.id, id)
     return ok(data, request_id=request_id)
 
 

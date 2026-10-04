@@ -5,6 +5,7 @@
  */
 import type {
   BattleCreateIn,
+  BattleDeleteData,
   BattleItem,
   BattleJoinData,
   BattlePageData,
@@ -171,6 +172,11 @@ export function joinBattle(data: { battle_id: number }) {
 /** 退出约战（join_count 为退出后的最新人数；满员退出后回「招募中」） */
 export function quitBattle(data: { battle_id: number }) {
   return request<BattleQuitData>('/api/community/battle/quit', { method: 'POST', data })
+}
+
+/** 删除约战（仅发起人；约战与其成员一并移除，区别于「退出」） */
+export function deleteBattle(id: number) {
+  return request<BattleDeleteData>(`/api/community/battle/${id}`, { method: 'DELETE' })
 }
 
 /* ---------- 挑战赛 ---------- */

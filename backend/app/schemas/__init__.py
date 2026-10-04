@@ -56,6 +56,7 @@ from .common import (
 )
 from .community import (
     BattleCreateIn,
+    BattleDeleteData,
     BattleItem,
     BattleJoinData,
     BattleJoinIn,
@@ -150,6 +151,7 @@ __all__ = [
     "AiTimesData",
     "AvatarUpdateIn",
     "BattleCreateIn",
+    "BattleDeleteData",
     "BattleItem",
     "BattleJoinData",
     "BattleJoinIn",
