@@ -238,7 +238,7 @@
       </view>
     </CCard>
 
-    <!-- 同款减友经验（§5.1-12） -->
+    <!-- 同款减友经验（§5.1-12）：真数据 /api/community/experience/list，没有数据就不编数 -->
     <CCard title="同款减友经验" class="home__card">
       <text class="peer__text">{{ peerTip }}</text>
       <view class="peer__actions">
@@ -293,11 +293,12 @@ import { useUserStore } from '@/stores/user'
 import { useAccountStore } from '@/stores/account'
 import { useToast } from '@/composables/useToast'
 import { getTimes } from '@/api/ai'
+import { listExperience } from '@/api/community'
 import { getCoupons } from '@/api/order'
 import { listMeals } from '@/api/records'
 import { track } from '@/utils/track'
 import { redirectToLogin } from '@/utils/nav'
-import type { MealSummary, CouponOut, MealRecordOut } from '@/types/api'
+import type { MealSummary, CouponOut, MealRecordOut, ExperienceItem } from '@/types/api'
 
 const userStore = useUserStore()
 const accountStore = useAccountStore()
@@ -550,9 +551,28 @@ const attentionItems = computed<AttentionItem[]>(() => {
   return items
 })
 
-/* ---------- 同款减友经验（§5.1-12） ---------- */
-/** 【假设】无对应接口，按文档示例口径静态展示 */
-const peerTip = '12 位和你情况相似的减友，8 位坚持记录 + 运动后体重下降'
+/* ---------- 同款减友经验（§5.1-12）：接真数据，不再编假数字 ---------- */
+const experiences = ref<ExperienceItem[]>([])
+
+async function loadExperiences() {
+  try {
+    const data = await listExperience({ page_size: 5 })
+    experiences.value = data?.items ?? []
+  } catch (e) {
+    experiences.value = [] // 失败降级为通用文案，不阻断首页
+    void e
+  }
+}
+
+/** 有真经验展示最新一条（作者 + 内容截断）；没有就给不编数的引导文案 */
+const peerTip = computed(() => {
+  const latest = experiences.value[0]
+  if (!latest) return '还没有减友分享经验，坚持记录的你就是第一条'
+  const name = latest.user?.nickname || '减友'
+  const body = latest.title ? `${latest.title}：${latest.content}` : latest.content
+  const text = `${name}：${body}`
+  return text.length > 42 ? `${text.slice(0, 42)}…` : text
+})
 
 /* ---------- 摄入明细（按 meal_type 排序 + 中文名） ---------- */
 function mealLabel(m: MealSummary): string {
@@ -699,6 +719,7 @@ onShow(() => {
   loadAiTimes()
   loadCoupons()
   loadRecentMeal()
+  loadExperiences()
 })
 
 /* ---------- 跳转 / 交互 ---------- */
