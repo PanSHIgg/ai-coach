@@ -7,7 +7,7 @@
     <view class="eat__entry">
       <text class="eat__entry-label">AI 帮我找吃的</text>
       <view class="eat__entry-row">
-        <CButton class="eat__entry-btn" size="md" @click="goCamera">拍照菜单 / 货架</CButton>
+        <CButton class="eat__entry-btn" size="md" @click="goMenuRec">拍照菜单 / 货架</CButton>
         <CButton
           class="eat__entry-btn"
           size="md"
@@ -37,7 +37,7 @@
         icon="empty-food"
         text="还没有识别结果，拍张菜单或货架试试"
         button-text="去拍照"
-        @action="goCamera"
+        @action="goMenuRec"
       />
     </view>
 
@@ -188,10 +188,10 @@ import { useAccountStore } from '@/stores/account'
 import { useUserStore } from '@/stores/user'
 import { useToast } from '@/composables/useToast'
 import { useVoice } from '@/composables/useVoice'
+import { useRecordCombo, COMBO_SPLIT } from '@/composables/useRecordCombo'
 import { recommend } from '@/api/ai'
 import { getMerchantCompare, getSkuCatalog } from '@/api/merchant'
-import { createMeal, searchFood } from '@/api/records'
-import type { FoodItem, GeoLocation, MerchantCompareItem, RecommendOption } from '@/types/api'
+import type { GeoLocation, MerchantCompareItem, RecommendOption } from '@/types/api'
 
 /* ---------- 常量 ---------- */
 
@@ -211,12 +211,6 @@ const LEVEL_TEXT: Record<Level, string> = { good: '推荐', mid: '可接受', ba
 const MEAL_KCAL_HIGH = 800
 const MEAL_KCAL_MID = 600
 const LEFT_RATIO_MID = 0.6
-
-/** 组合名分隔符：中英文加号 / 顿号 / 逗号 / 斜杠（如「清蒸鱼+炒青菜+半碗饭」） */
-const COMBO_SPLIT = /[+＋、,，/／]/
-
-/** amount_g 上界（对齐后端 MealCreateIn 校验 0 < amount_g ≤ 10000） */
-const AMOUNT_MAX = 10000
 
 /** 「AI 识别到」全局事件名，拍照页可通过 uni.$emit('eat:recognized', { foods: [...] }) 回传 */
 const EVT_RECOGNIZED = 'eat:recognized'
@@ -244,6 +238,7 @@ const STANDARD_MEALS: StandardMeal[] = [
 const accountStore = useAccountStore()
 const userStore = useUserStore()
 const toast = useToast()
+const { recordCombo } = useRecordCombo()
 
 // 默认餐次按时段推断（与 pages/record/camera.vue 口径一致）
 const hour = new Date().getHours()
@@ -396,54 +391,12 @@ async function loadRecommend() {
   }
 }
 
-/* ---------- 写入饮食记录 ---------- */
-
-/** 按关键词取第一个食物（无命中返回 null，不抛错打断流程） */
-async function findFood(keyword: string): Promise<FoodItem | null> {
-  try {
-    const data = await searchFood({ keyword, limit: 1 })
-    return data?.items?.[0] ?? null
-  } catch (e) {
-    return null
-  }
-}
-
-/** 由目标热量 + 每 100g 热量反推分量（后端按 food_id + amount_g 重算 kcal） */
-function gramsFor(calories: number, calories100g: number): number {
-  const per100 = calories100g > 0 ? calories100g : 100
-  const grams = Math.round((calories / per100) * 100)
-  return Math.min(AMOUNT_MAX, Math.max(1, grams))
-}
-
-/**
- * 把一个「组合 / 套餐」写入今日饮食记录，返回成功条数。
- * 【假设】createMeal 需 food_id + amount_g，而推荐/套餐只给 name + calories：
- *   ① 按 COMBO_SPLIT 拆成单品；② 逐条 searchFood 命中食物库；③ 热量按条数均分反推分量；
- *   ④ 全部未命中返回 0（调用方提示手动录入）。命中率低时改为后端下发 food_items 更佳。
- */
-async function recordCombo(name: string, calories: number): Promise<number> {
-  const parts = name.split(COMBO_SPLIT).map((s) => s.trim()).filter(Boolean)
-  const list = parts.length ? parts : [name.trim()]
-  const perKcal = Math.round(calories / list.length)
-  let count = 0
-  for (const part of list) {
-    const food = await findFood(part)
-    if (!food) continue
-    await createMeal({
-      meal_type: mealType.value,
-      food_id: food.id,
-      amount_g: gramsFor(perKcal, food.calories_100g),
-      source: 4, // 4=AI 推荐（MealCreateIn.source）
-    })
-    count += 1
-  }
-  return count
-}
+/* ---------- 写入饮食记录（公共逻辑抽到 composables/useRecordCombo.ts） ---------- */
 
 async function pickOption(opt: RecommendOption, index: number) {
   pickingIndex.value = index
   try {
-    const count = await recordCombo(opt.name, opt.calories)
+    const count = await recordCombo(opt.name, opt.calories, mealType.value, 4)
     if (!count) {
       toast.info({ title: '未匹配到食物，请在「首页·记录」手动录入' })
       return
@@ -461,7 +414,7 @@ async function pickOption(opt: RecommendOption, index: number) {
 async function addStandard(meal: StandardMeal, index: number) {
   addingIndex.value = index
   try {
-    const count = await recordCombo(meal.name, meal.calories)
+    const count = await recordCombo(meal.name, meal.calories, mealType.value, 4)
     if (!count) {
       toast.info({ title: '该套餐暂不在食物库，可手动录入' })
       return
@@ -478,9 +431,9 @@ async function addStandard(meal: StandardMeal, index: number) {
 
 /* ---------- 交互 ---------- */
 
-function goCamera() {
-  // scene=menu 标记来源=菜单（拍照页当前未消费该参数，仅作跳转标记）
-  uni.navigateTo({ url: '/pages/record/camera?scene=menu&from=eat' })
+/** 菜单识别 + AI 推荐独立页（§5.2-2/3/4）：拍菜单 → 识别 → 方案卡，与热量记录页分离 */
+function goMenuRec() {
+  uni.navigateTo({ url: '/pages/eat/menu-recommend' })
 }
 
 /** 语音输入（G4）：小程序录音+转写；H5 等环境由 useVoice 优雅降级提示手动输入 */
