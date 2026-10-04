@@ -1,12 +1,7 @@
 <template>
   <view class="eat">
-    <!-- 1. 顶部栏：标题 + 通知占位（§5.2-1；消息二期接入） -->
-    <view class="eat__bar">
-      <text class="eat__title">吃什么</text>
-      <view class="eat__bell" @tap="onNotice">
-        <image class="eat__bell-icon" src="/static/icons/ic-bell.png" mode="aspectFit" />
-      </view>
-    </view>
+    <!-- 1. 顶部栏（§5.2-1：标题 + 🔔；消息二期接入） -->
+    <CTopBar title="吃什么" @bell="onNotice" />
 
     <!-- 2. AI 帮我找吃的：拍照 / 语音入口（§5.2-2） -->
     <view class="eat__entry">
@@ -563,34 +558,6 @@ onUnmounted(() => {
 .eat {
   padding: $space-md;
   padding-bottom: calc(#{$space-xl} + env(safe-area-inset-bottom));
-
-  &__bar {
-    @include flex-between;
-
-    margin-bottom: $space-md;
-  }
-
-  &__title {
-    font-size: $t-32;
-    font-weight: 500;
-    color: $text-1;
-  }
-
-  &__bell {
-    @include flex-center;
-    @include press;
-
-    width: 64rpx;
-    height: 64rpx;
-    border-radius: 50%;
-    background: $card;
-    box-shadow: $shadow;
-  }
-
-  &__bell-icon {
-    width: 36rpx;
-    height: 36rpx;
-  }
 
   // 2. AI 帮我找吃的（§4.7 输入框外观 + §5.2-2 大输入框内含两个按钮）
   &__entry {

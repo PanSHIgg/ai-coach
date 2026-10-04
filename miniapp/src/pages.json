@@ -9,7 +9,8 @@
     {
       "path": "pages/index",
       "style": {
-        "navigationBarTitleText": "AI 饮食管控教练"
+        "navigationBarTitleText": "AI 饮食管控教练",
+        "navigationStyle": "custom"
       }
     },
     {
@@ -21,7 +22,8 @@
     {
       "path": "pages/community",
       "style": {
-        "navigationBarTitleText": "社区"
+        "navigationBarTitleText": "社区",
+        "navigationStyle": "custom"
       }
     },
     {
@@ -63,7 +65,8 @@
     {
       "path": "pages/mine",
       "style": {
-        "navigationBarTitleText": "我的"
+        "navigationBarTitleText": "我的",
+        "navigationStyle": "custom"
       }
     },
     {
@@ -117,13 +120,15 @@
     {
       "path": "pages/eat",
       "style": {
-        "navigationBarTitleText": "吃什么"
+        "navigationBarTitleText": "吃什么",
+        "navigationStyle": "custom"
       }
     },
     {
       "path": "pages/sport",
       "style": {
-        "navigationBarTitleText": "运动"
+        "navigationBarTitleText": "运动",
+        "navigationStyle": "custom"
       }
     },
     {

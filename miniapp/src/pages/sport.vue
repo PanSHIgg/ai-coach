@@ -1,12 +1,7 @@
 <template>
   <view class="sport-tab">
-    <!-- 顶部栏：标题 + 通知占位（§5.3 顶部；消息二期接入） -->
-    <view class="sport-tab__bar">
-      <text class="sport-tab__title">运动</text>
-      <view class="sport-tab__bell" @tap="onNotice">
-        <image class="sport-tab__bell-icon" src="/static/icons/ic-bell.png" mode="aspectFit" />
-      </view>
-    </view>
+    <!-- 顶部栏（§5.3 顶部：标题 + 🔔；消息二期接入） -->
+    <CTopBar title="运动" @bell="onNotice" />
 
     <!-- 未登录（§5.8 无权限态） -->
     <CNoPermission v-if="!userStore.isLogined" text="登录后查看运动数据" @action="goLogin" />
@@ -428,34 +423,6 @@ function onNotice() {
 .sport-tab {
   padding: $space-md;
   padding-bottom: calc(#{$space-xl} + env(safe-area-inset-bottom));
-
-  &__bar {
-    @include flex-between;
-
-    margin-bottom: $space-md;
-  }
-
-  &__title {
-    font-size: $t-32;
-    font-weight: 500;
-    color: $text-1;
-  }
-
-  &__bell {
-    @include flex-center;
-    @include press;
-
-    width: 64rpx;
-    height: 64rpx;
-    border-radius: 50%;
-    background: $card;
-    box-shadow: $shadow;
-  }
-
-  &__bell-icon {
-    width: 36rpx;
-    height: 36rpx;
-  }
 
   &__card {
     margin-bottom: $space-md;

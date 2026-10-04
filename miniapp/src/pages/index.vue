@@ -1,16 +1,7 @@
 <template>
   <view class="home">
-    <!-- 顶部问候 / 日期 + 档案入口（§5.1 顶部栏） -->
-    <view class="home__header">
-      <view class="home__hello">
-        <text class="home__greet">{{ greeting }}，{{ userStore.nickname }}</text>
-        <text class="home__date">{{ todayText }}</text>
-      </view>
-      <view class="home__entry" @tap="goEditProfile">
-        <text class="home__entry-text">{{ userStore.needProfile ? '立即建档' : '我的档案' }}</text>
-        <text class="home__entry-arrow">›</text>
-      </view>
-    </view>
+    <!-- 顶部栏（§5.1-1：左「我的体重档案 ▼」进档案 / 未建档显示「立即建档」，右 🔔） -->
+    <CTopBar :left-text="profileEntry" @left="goEditProfile" @bell="onNotice" />
 
     <!-- 未建档引导（§5.1：未建档时首页展示建档引导） -->
     <CCard v-if="userStore.needProfile" class="home__guide">
@@ -145,6 +136,12 @@
           已根据微信步数动态校准 NEAT
         </text>
         <text v-else class="calib">暂按活动水平（{{ activityText }}）估算 NEAT</text>
+
+        <!-- 运动明细并入本卡（§5.1-6 信息不丢：步数 + 添加运动入口） -->
+        <view class="sportline">
+          <text class="sportline__text">步数 {{ fmt(steps) }} 步</text>
+          <CButton type="ghost" size="sm" @click="goSportAdd">+ 添加运动</CButton>
+        </view>
       </template>
     </CCard>
 
@@ -166,34 +163,13 @@
       <CEmpty v-else icon="empty-food" :text="emptyMealText" @action="goCamera" />
     </CCard>
 
-    <!-- 运动明细（§5.1-6：步数 + 运动消耗） -->
-    <CCard
-      title="运动明细"
-      class="home__card"
-      :class="{ 'home__card--dim': userStore.needProfile }"
-    >
-      <view class="sport">
-        <view class="sport__item">
-          <text class="sport__k">步数</text>
-          <text class="sport__v">{{ fmt(steps) }} 步</text>
-        </view>
-        <view class="sport__item">
-          <text class="sport__k">运动消耗</text>
-          <text class="sport__v">{{ fmt(burnt) }} kcal</text>
-        </view>
-      </view>
-      <view class="sport__actions">
-        <CButton type="ghost" size="sm" @click="goSportAdd">+ 添加运动</CButton>
-      </view>
-    </CCard>
-
-    <!-- 核心指标（§5.1-7：体重/BMI/BMR 等，缺失灰显占位） -->
+    <!-- 核心指标（§5.1-7：只显示有异常的；缺失灰显占位）+ 趋势入口（§5.1-8）+ 自查工具（§5.1-13） -->
     <CCard
       title="核心指标"
       class="home__card"
       :class="{ 'home__card--dim': userStore.needProfile }"
     >
-      <view v-for="m in coreMetrics" :key="m.label" class="core">
+      <view v-for="m in visibleMetrics" :key="m.label" class="core">
         <image class="core__icon" :src="`/static/icons/${m.icon}.png`" mode="aspectFit" />
         <text class="core__label">{{ m.label }}</text>
         <text class="core__value" :class="{ 'core__value--empty': !m.value }">
@@ -203,18 +179,16 @@
           <view class="core__bar-fill" :style="{ width: m.bar + '%', background: m.color }" />
         </view>
       </view>
+      <text v-if="metricsOk" class="core-ok">各项核心指标正常</text>
       <text class="link link--block" @tap="goEditProfile">维护档案 ›</text>
-    </CCard>
-
-    <!-- 趋势入口（§5.1-8） -->
-    <CCard
-      title="趋势"
-      class="home__card"
-      :class="{ 'home__card--dim': userStore.needProfile }"
-    >
-      <view class="trend">
-        <text class="trend__desc">体重 / 缺口 近 7 天走势</text>
+      <view class="core-foot">
+        <text class="core-foot__text">体重 / 缺口 近 7 天走势</text>
         <CButton type="ghost" size="sm" @click="goAccountDetail">查看曲线 ›</CButton>
+      </view>
+      <view class="core-foot tools">
+        <CButton type="secondary" size="sm" @click="onBmiTest">BMI自测</CButton>
+        <CButton type="secondary" size="sm" @click="onFatTest">体脂自测</CButton>
+        <CButton type="secondary" size="sm" @click="onBmrTest">基础代谢</CButton>
       </view>
     </CCard>
 
@@ -272,16 +246,7 @@
       </view>
     </CCard>
 
-    <!-- 自查工具（§5.1-13）：BMI自测 / 体脂自测 / 基础代谢 -->
-    <CCard title="自查工具" class="home__card">
-      <view class="tools">
-        <CButton type="secondary" size="sm" @click="onBmiTest">BMI自测</CButton>
-        <CButton type="secondary" size="sm" @click="onFatTest">体脂自测</CButton>
-        <CButton type="secondary" size="sm" @click="onBmrTest">基础代谢</CButton>
-      </view>
-    </CCard>
-
-    <!-- 最近记录（§5.1-14）：标题 + [全部→] + 最近一条 -->
+    <!-- 最近记录（§5.1-14） -->
     <CCard title="最近记录" class="home__card">
       <template #extra>
         <text class="link" @tap="goFoodList">全部 ›</text>
@@ -338,10 +303,12 @@ const userStore = useUserStore()
 const accountStore = useAccountStore()
 const toast = useToast()
 
-/* ---------- 顶部问候 / 日期 ---------- */
-const now = new Date()
-const greeting = now.getHours() < 12 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好'
-const todayText = `${now.getMonth() + 1}月${now.getDate()}日 周${'日一二三四五六'[now.getDay()]}`
+/* ---------- 顶部栏（§5.1-1：档案入口 + 🔔 占位） ---------- */
+const profileEntry = computed(() => (userStore.needProfile ? '立即建档' : '我的体重档案'))
+/** 通知占位（消息中心二期接入） */
+function onNotice() {
+  toast.info({ title: '消息中心后续版本支持' })
+}
 
 /* ---------- 数字千分位格式化（小程序 toLocaleString 分组不可靠，手写兜底） ---------- */
 function fmt(n: number): string {
@@ -599,17 +566,25 @@ const emptyMealText = computed(() =>
   userStore.needProfile ? '建档后开始记录饮食' : '还没有摄入记录，去记录第一餐吧',
 )
 
-/* ---------- 核心指标（档案 + 体重推算；缺失灰显占位） ---------- */
-const coreMetrics = computed(() => {
+/* ---------- 核心指标（档案 + 体重推算；§5.1-7「只显示有异常的」） ---------- */
+interface CoreMetric {
+  icon: string
+  label: string
+  value: string
+  bar: number
+  color: string
+  abnormal: boolean
+}
+const coreMetrics = computed<CoreMetric[]>(() => {
   const p = userStore.profile
   const clamp = (v: number) => Math.min(100, Math.max(0, Math.round(v)))
   if (!p) {
-    // 未建档：灰显占位（值空 → 展示 --）
+    // 未建档：灰显占位（值空 → 展示 --），全量行配合 home__card--dim 引导建档
     return [
-      { icon: 'ic-scale', label: '体重', value: '', bar: 0, color: '#3b82f6' },
-      { icon: 'ic-chart', label: 'BMI', value: '', bar: 0, color: '#3b82f6' },
-      { icon: 'ic-flame', label: '基础代谢', value: '', bar: 0, color: '#3b82f6' },
-      { icon: 'ic-target', label: '目标体重', value: '', bar: 0, color: '#9ca3af' },
+      { icon: 'ic-scale', label: '体重', value: '', bar: 0, color: '#3b82f6', abnormal: true },
+      { icon: 'ic-chart', label: 'BMI', value: '', bar: 0, color: '#3b82f6', abnormal: true },
+      { icon: 'ic-flame', label: '基础代谢', value: '', bar: 0, color: '#3b82f6', abnormal: true },
+      { icon: 'ic-target', label: '目标体重', value: '', bar: 0, color: '#9ca3af', abnormal: true },
     ]
   }
   const bmiVal = bmi.value
@@ -618,7 +593,9 @@ const coreMetrics = computed(() => {
   else if (bmiVal < 18.5) bmiColor = '#f59e0b'
   else if (bmiVal >= 28) bmiColor = '#ef4444'
   else if (bmiVal >= 24) bmiColor = '#f59e0b'
-  const bmr = p.bmr || accountStore.today?.bmr || 0
+  // 【假设】异常口径：体重超目标 0.5kg 以上、BMI 落在 [18.5, 24) 之外；其余指标无异常概念不占行
+  const overTarget = p.target_weight != null && p.current_weight > p.target_weight + 0.5
+  const bmiAbnormal = bmiVal > 0 && (bmiVal < 18.5 || bmiVal >= 24)
   return [
     {
       icon: 'ic-scale',
@@ -626,6 +603,7 @@ const coreMetrics = computed(() => {
       value: `${p.current_weight.toFixed(1)} kg`,
       bar: clamp((p.current_weight / 120) * 100),
       color: '#3b82f6',
+      abnormal: overTarget,
     },
     {
       icon: 'ic-chart',
@@ -633,23 +611,15 @@ const coreMetrics = computed(() => {
       value: bmiVal > 0 ? bmiVal.toFixed(1) : '',
       bar: clamp((bmiVal / 35) * 100),
       color: bmiColor,
-    },
-    {
-      icon: 'ic-flame',
-      label: '基础代谢',
-      value: bmr ? `${Math.round(bmr)} kcal` : '',
-      bar: clamp((bmr / 2200) * 100),
-      color: '#22c55e',
-    },
-    {
-      icon: 'ic-target',
-      label: '目标体重',
-      value: p.target_weight != null ? `${p.target_weight.toFixed(1)} kg` : '',
-      bar: p.target_weight != null ? clamp((p.target_weight / 120) * 100) : 0,
-      color: '#9ca3af',
+      abnormal: bmiAbnormal,
     },
   ]
 })
+/** 已建档时只展示异常项（§5.1-7）；未建档展示占位行 */
+const visibleMetrics = computed(() =>
+  userStore.needProfile ? coreMetrics.value : coreMetrics.value.filter((m) => m.abnormal),
+)
+const metricsOk = computed(() => !userStore.needProfile && !visibleMetrics.value.length)
 
 /* ---------- AI 教练卡：剩余次数（Phase 2 接 api.getTimes()） ---------- */
 /** 今日剩余 AI 次数：null=未拉取/拉取失败（兜底文案，不锁入口） */
@@ -688,11 +658,9 @@ const aiTip2 = computed(() =>
   steps.value < 5000 ? '步数偏少，建议快走 20 分钟提升消耗。' : '今天活动量达标，保持节奏！',
 )
 
-/* ---------- 快捷服务 ---------- */
+/* ---------- 快捷服务（§5.1-10 四宫格；记录入口在「我的·常用」，吃什么为独立 Tab） ---------- */
 const services = [
   { icon: 'ic-robot', label: 'AI 检测', action: goCamera },
-  { icon: 'ic-bowl', label: '吃什么', action: goEat },
-  { icon: 'ic-doc', label: '记录', action: goRecord },
   { icon: 'ic-calendar', label: '一键预约', action: () => onPlaceholder('一键预约即将上线') },
   { icon: 'ic-store', label: '商家比价', action: goMerchant },
   { icon: 'ic-gym', label: '教练问诊', action: goCoach },
@@ -771,10 +739,6 @@ function goInvite() {
 function goMerchant() {
   uni.navigateTo({ url: '/pages/merchant/merchant' })
 }
-/** 「记录」已从 Tab 降为普通页（§3.2），由首页快捷服务进入 */
-function goRecord() {
-  uni.navigateTo({ url: '/pages/record/record' })
-}
 function onPlaceholder(text: string) {
   toast.info({ title: text })
 }
@@ -839,50 +803,6 @@ function onBmrTest() {
 .home {
   padding: $space-md;
   padding-bottom: calc(#{$space-xl} + 120rpx);
-}
-
-.home__header {
-  @include flex-between;
-
-  margin-bottom: $space-md;
-}
-
-.home__hello {
-  display: flex;
-  flex-direction: column;
-}
-
-.home__greet {
-  display: block;
-  font-size: $t-32;
-  font-weight: 500;
-  color: $text-1;
-}
-
-.home__date {
-  font-size: $t-22;
-  color: $text-3;
-}
-
-.home__entry {
-  @include flex-center;
-
-  height: 56rpx;
-  padding: 0 $space-sm;
-  background: $card;
-  border: 1rpx solid $border;
-  border-radius: 999rpx;
-
-  &-text {
-    font-size: $t-22;
-    color: $brand;
-  }
-
-  &-arrow {
-    margin-left: 4rpx;
-    font-size: $t-22;
-    color: $brand;
-  }
 }
 
 .home__guide {
@@ -1091,28 +1011,39 @@ function onBmrTest() {
   }
 }
 
-.sport {
+/* 运动明细并入今日热量卡后的步数行（§5.1-6） */
+.sportline {
   @include flex-between;
 
-  &__item {
-    @include flex-center(column);
-  }
+  margin-top: $space-sm;
+  padding-top: $space-sm;
 
-  &__k {
-    font-size: $t-22;
-    color: $text-3;
-  }
+  @include hairline(top);
 
-  &__v {
-    font-size: $t-num-md;
-    font-weight: 700;
-    color: $text-1;
+  &__text {
+    font-size: $t-24;
+    color: $text-2;
   }
+}
 
-  &__actions {
-    margin-top: $space-sm;
-    display: flex;
-    justify-content: flex-end;
+.core-ok {
+  display: block;
+  font-size: $t-24;
+  color: $text-3;
+}
+
+/* 核心指标卡内的趋势入口（§5.1-8）与自查工具（§5.1-13）行 */
+.core-foot {
+  @include flex-between;
+
+  margin-top: $space-sm;
+  padding-top: $space-sm;
+
+  @include hairline(top);
+
+  &__text {
+    font-size: $t-24;
+    color: $text-2;
   }
 }
 
@@ -1158,15 +1089,6 @@ function onBmrTest() {
     height: 100%;
     border-radius: 999rpx;
     transition: width $duration-base $ease-out;
-  }
-}
-
-.trend {
-  @include flex-between;
-
-  &__desc {
-    font-size: $t-26;
-    color: $text-2;
   }
 }
 

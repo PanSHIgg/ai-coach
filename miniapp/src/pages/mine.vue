@@ -1,5 +1,8 @@
 <template>
   <view class="page-shell">
+    <!-- 顶部栏（§5.5 原型顶栏：标题 + 🔔；消息二期接入） -->
+    <CTopBar title="我的" @bell="onNotice" />
+
     <!-- 未登录：无权限态（§5.8） -->
     <CNoPermission v-if="!userStore.isLogined" @action="goLogin" />
 
@@ -104,7 +107,6 @@
         </view>
       </CCard>
 
-      <!-- 账号 -->
       <CCard title="账号" class="me__card">
         <view class="me__item" @tap="onLogout">
           <text class="me__item-label me__item-label--danger">退出登录</text>
@@ -129,6 +131,11 @@ import { useToast } from '@/composables/useToast'
 const userStore = useUserStore()
 const { requestSubscribe } = useSubscribe()
 const toast = useToast()
+
+/** 通知占位（消息中心二期接入） */
+function onNotice() {
+  toast.info({ title: '消息中心后续版本支持' })
+}
 
 // 权益档位文案（§5.5：0基础 1进阶 2高级 3终身）
 const TIER_LABEL: Record<number, string> = {

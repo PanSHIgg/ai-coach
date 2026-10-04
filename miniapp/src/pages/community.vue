@@ -1,5 +1,8 @@
 <template>
   <view class="community">
+    <!-- 顶部栏（§5.4 原型顶栏：标题 + 🔔；消息二期接入） -->
+    <CTopBar title="社区" @bell="onNotice" />
+
     <!-- Tab：榜单/监督/兴趣社群/约战/挑战赛/动态 -->
     <scroll-view class="community__tabs" scroll-x>
       <text
@@ -168,6 +171,7 @@ import {
   listPosts,
   unlikePost,
 } from '@/api/community'
+import { useToast } from '@/composables/useToast'
 import type {
   BattleItem,
   ChallengeItem,
@@ -192,6 +196,12 @@ const active = ref<TabKey>('rank')
 const loading = ref(true)
 const loaded = ref(false)
 const error = ref(false)
+const toast = useToast()
+
+/** 通知占位（消息中心二期接入） */
+function onNotice() {
+  toast.info({ title: '消息中心后续版本支持' })
+}
 
 const leaderboard = ref<LeaderboardEntry[]>([])
 const supervise = ref<SuperviseOut | null>(null)
