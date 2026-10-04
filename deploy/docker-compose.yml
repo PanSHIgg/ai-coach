@@ -317,6 +317,35 @@ services:
     restart: unless-stopped
 
   # ---- 监控（F9 / §10.7）：Prometheus 采集 /metrics，Grafana 看板 ----
+  # 基础设施 exporter：Redis 与 PostgreSQL 各自一个导出器，只读采集、不进业务网络路径。
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.93.0
+    container_name: ai-coach-redis-exporter
+    environment:
+      REDIS_ADDR: redis://redis:6379/0
+      # 本 compose 的 redis 未设 requirepass；若启用口令，改走 REDIS_PASSWORD 注入
+    ports:
+      - "${REDIS_EXPORTER_PORT:-9121}:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    container_name: ai-coach-postgres-exporter
+    environment:
+      # ⚠️ 与 api 段同坑（见上文「${VAR} 插值读的是 compose project 环境」）：
+      #    这里的 ${POSTGRES_*} 不读根 .env，默认值必须与 postgres 服务那几个键一致，
+      #    否则 exporter 恒 `pg_up 0`。改口令走 shell 或新建 deploy/.env，三处同改。
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}?sslmode=disable
+    ports:
+      - "${PG_EXPORTER_PORT:-9187}:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: ai-coach-prometheus

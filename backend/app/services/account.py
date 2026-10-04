@@ -25,6 +25,7 @@ from app.models import (
     StepRecord,
     WeightRecord,
 )
+from app.observability.metrics import track_calorie_calc
 from app.schemas.account import AccountTrendData, DailyAccount, DailyTrendItem, MealSummary
 from app.schemas.common import ErrorCode
 from app.services import calorie
@@ -126,19 +127,23 @@ async def compute_result(
     step_row = await _day_steps(session, user_id, day)
     steps = int(step_row.steps) if step_row else 0
     hourly = step_row.hourly_json if step_row else None
-    return calorie.compute_account(
-        calorie.CalorieInputs(
-            gender=int(profile.gender),
-            weight_kg=weight,
-            height_cm=float(profile.height_cm),
-            age=int(profile.age or calorie.age_from_birth_year(profile.birth_year, day)),
-            activity_level=int(activity_level),
-            intake=await _day_intake(session, user_id, day),
-            eat=await _day_eat(session, user_id, day),
-            steps=steps,
-            hourly=hourly,
+    intake = await _day_intake(session, user_id, day)
+    eat = await _day_eat(session, user_id, day)
+    # 只圈纯计算：取数必须在计时之前，否则直方图量到的是 DB 延迟而不是热量引擎
+    with track_calorie_calc():
+        return calorie.compute_account(
+            calorie.CalorieInputs(
+                gender=int(profile.gender),
+                weight_kg=weight,
+                height_cm=float(profile.height_cm),
+                age=int(profile.age or calorie.age_from_birth_year(profile.birth_year, day)),
+                activity_level=int(activity_level),
+                intake=intake,
+                eat=eat,
+                steps=steps,
+                hourly=hourly,
+            )
         )
-    )
 
 
 async def upsert_snapshot(

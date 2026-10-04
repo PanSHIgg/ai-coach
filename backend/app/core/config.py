@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     AI_CONFIDENCE_THRESHOLD: float = 0.7
     # 每日 AI 对话次数配额（user_benefit.ai_times_left 初始值）
     AI_DAILY_TIMES: int = 10
+    # AI 牌价（美元 / 百万 token）：Grafana 成本曲线与 AIBudgetExceeded 告警的唯一成本来源。
+    # 默认 0 = 不计成本（序列仍导出、值为 0，看板显示 0 而不是 No data）；接入厂商后按官网牌价填。
+    # cached 是命中前缀缓存的那部分输入价，通常远低于 input（DeepSeek 约为其 1/10）。
+    AI_PRICE_INPUT_USD_PER_MTOKEN: float = 0.0
+    AI_PRICE_CACHED_INPUT_USD_PER_MTOKEN: float = 0.0
+    AI_PRICE_OUTPUT_USD_PER_MTOKEN: float = 0.0
 
     # ---- 管理后台初始账号 ----
     ADMIN_INIT_USERNAME: str = "admin"

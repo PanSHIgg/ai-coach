@@ -74,11 +74,13 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "5xx 错误率 = 5xx 请求数 / 全部请求数；阈值 5%（告警线）。",
+      "description": "5xx 错误率 = 5xx 请求数 / 全部请求数；阈值 5%（告警线）。两侧都做了空序列兜底：无 5xx 时分子 `or vector(0)`，无流量时分母 `or vector(1)`（此时显示 0%）——否则 0/0 出 NaN，Y 轴会被顶到 10000% 且面板 No data。",
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
           "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "min": 0,
+          "max": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -89,7 +91,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
       "id": 3,
       "options": {
         "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
@@ -98,7 +100,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[$__rate_interval])) / sum(rate(http_requests_total[$__rate_interval]))",
+          "expr": "(sum(rate(http_requests_total{status=~\"5..\"}[$__rate_interval])) or vector(0)) / (sum(rate(http_requests_total[$__rate_interval])) or vector(1))",
           "legendFormat": "错误率",
           "refId": "A"
         }
@@ -108,12 +110,12 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "热量账户计算耗时 P95（calorie_calc_seconds）。埋点见 app/observability/metrics.py: track_calorie_calc。",
+      "description": "热量账户计算耗时 P50 / P95（calorie_calc_seconds）。埋点在 account.compute_result，只圈纯计算，不含取数的 DB 等待。",
       "fieldConfig": {
         "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 },
       "id": 4,
       "options": {
         "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
@@ -138,17 +140,12 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "AI 调用速率（按 task）与近 24h 成本估算（ai_cost_usd_total = 次数 × 单价）。",
+      "description": "窗口增量口径：calls 按 task、tokens 按 type=input|output|cached（cached 是命中前缀缓存的输入部分）。为什么不用 rate()：本项目是低频突发——一次提问的工具循环会在同一个 15s 抓取间隙里连调数次，`rate()` 摊到每秒就是 0（实测 3 次调用显示 0.000），`increase()` 才看得见。只含真实厂商调用，Mock 降级不发 HTTP。",
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "24h 成本估算($)" },
-            "properties": [{ "id": "unit", "value": "currencyUSD" }]
-          }
-        ]
+        "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 60 } },
+        "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
       "id": 5,
       "options": {
         "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
@@ -157,18 +154,324 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (task) (rate(ai_calls_total[$__rate_interval]))",
-          "legendFormat": "calls/s {{task}}",
+          "expr": "sum by (task) (increase(ai_calls_total[$__rate_interval]))",
+          "legendFormat": "calls {{task}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (type) (increase(ai_tokens_total[$__rate_interval]))",
+          "legendFormat": "tok {{type}}",
+          "refId": "B"
+        }
+      ],
+      "title": "AI 调用与 token 用量",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "AI 成本估算（ai_cost_usd_total = [(input−cached)×输入价 + cached×缓存价 + output×输出价]/1e6，牌价见根 .env 的 AI_PRICE_*）。牌价未填时恒为 $0——这条线是 0 不代表没调用，看左边那个面板。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "min": 0,
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "id": 14,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (task) (increase(ai_cost_usd_total[1h]))",
+          "legendFormat": "$/h {{task}}",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum(increase(ai_cost_usd_total[24h]))",
-          "legendFormat": "24h 成本估算($)",
+          "legendFormat": "近 24h 合计($)",
           "refId": "B"
         }
       ],
-      "title": "AI 调用速率与成本估算",
+      "title": "AI 成本估算",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "id": 6,
+      "panels": [],
+      "title": "基础设施（Redis / PostgreSQL · 由 exporter 采集）",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Redis 内存（redis_exporter）：used / peak / maxmemory。maxmemory 为 0 表示未设上限（此时驱逐只受系统内存约束）。",
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 17 },
+      "id": 7,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "redis_memory_used_bytes",
+          "legendFormat": "used",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "redis_memory_used_peak_bytes",
+          "legendFormat": "peak",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "redis_memory_max_bytes",
+          "legendFormat": "maxmemory",
+          "refId": "C"
+        }
+      ],
+      "title": "Redis 内存",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Redis 连接与吞吐：clients/blocked、命令速率、驱逐与过期速率。evicted>0 通常意味着内存到顶。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 17 },
+      "id": 8,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "redis_connected_clients",
+          "legendFormat": "clients",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "redis_blocked_clients",
+          "legendFormat": "blocked",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(redis_commands_processed_total[$__rate_interval])",
+          "legendFormat": "commands/s",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(redis_evicted_keys_total[$__rate_interval])",
+          "legendFormat": "evicted/s",
+          "refId": "D"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(redis_expired_keys_total[$__rate_interval])",
+          "legendFormat": "expired/s",
+          "refId": "E"
+        }
+      ],
+      "title": "Redis 连接与吞吐",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Redis 键空间命中率 = hits/(hits+misses)。分母 clamp 到 ≥1：空闲窗口按 100% 画，避免「No data」被当成故障。阈值 95%。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0.95 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 17 },
+      "id": 9,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "1 - (sum(rate(redis_keyspace_misses_total[$__rate_interval])) or vector(0)) / clamp_min(sum(rate(redis_keyspace_hits_total[$__rate_interval])) + sum(rate(redis_keyspace_misses_total[$__rate_interval])), 1)",
+          "legendFormat": "命中率",
+          "refId": "A"
+        }
+      ],
+      "title": "Redis 命中率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "PG 连接数（postgres_exporter pg_stat_activity，按状态）与服务器 max_connections。datname 固定 ai_coach=部署库（本机另有并行 slot 库，不计入）。idle in transaction 长期占用会耗尽连接池。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 17 },
+      "id": 10,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (state) (pg_stat_activity_count{datname=\"ai_coach\"})",
+          "legendFormat": "{{state}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pg_settings_max_connections",
+          "legendFormat": "max_connections",
+          "refId": "B"
+        }
+      ],
+      "title": "PG 连接数（按状态）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "PG 事务与行吞吐：commit/s、rollback/s、返回行/s（pg_stat_database）。rollback 持续占比高说明有约束/死锁冲突。",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 25 },
+      "id": 11,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(pg_stat_database_xact_commit{datname=\"ai_coach\"}[$__rate_interval]))",
+          "legendFormat": "commit/s",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(pg_stat_database_xact_rollback{datname=\"ai_coach\"}[$__rate_interval]))",
+          "legendFormat": "rollback/s",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(pg_stat_database_tup_returned{datname=\"ai_coach\"}[$__rate_interval]))",
+          "legendFormat": "rows/s",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(pg_stat_database_deadlocks{datname=\"ai_coach\"}[$__rate_interval]))",
+          "legendFormat": "deadlocks/s",
+          "refId": "D"
+        }
+      ],
+      "title": "PG 事务与吞吐",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "PG 缓存命中率 = blks_hit/(blks_hit+blks_read)。分母 clamp 到 ≥1，空闲窗口按 100% 画。低于 95% 说明读盘多（工作集超出 shared_buffers）。",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0.95 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 25 },
+      "id": 12,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(pg_stat_database_blks_hit{datname=\"ai_coach\"}[$__rate_interval])) / clamp_min(sum(rate(pg_stat_database_blks_hit{datname=\"ai_coach\"}[$__rate_interval])) + sum(rate(pg_stat_database_blks_read{datname=\"ai_coach\"}[$__rate_interval])), 1)",
+          "legendFormat": "缓存命中率",
+          "refId": "A"
+        }
+      ],
+      "title": "PG 缓存命中率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "PG 体积与锁：部署库占用磁盘（pg_database_size_bytes）与持锁总数（pg_locks_count 求和）。库大小增长是磁盘告警的前置信号。",
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "持锁总数" },
+            "properties": [{ "id": "unit", "value": "short" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 25 },
+      "id": 13,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pg_database_size_bytes{datname=\"ai_coach\"}",
+          "legendFormat": "库大小",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(pg_locks_count{datname=\"ai_coach\"})",
+          "legendFormat": "持锁总数",
+          "refId": "B"
+        }
+      ],
+      "title": "PG 体积与锁",
       "type": "timeseries"
     }
   ],

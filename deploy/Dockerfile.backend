@@ -35,8 +35,17 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # 拷贝后端源码（app/ 由 P0-e 脚手架交付）
 COPY backend/ /app/
 
+# 多 worker 指标聚合：`--workers 2` 下每个 worker 进程有独立 Prometheus registry，
+# 同一个 `/metrics` 端点会随机落到某一个 worker（本机实测：同一序列忽有忽无，
+# `rate()`/`increase()` 全被算成 0）。设了 PROMETHEUS_MULTIPROC_DIR 后 prometheus_client
+# 让各 worker 把计数写进这个共享目录，`app/observability/metrics.py::_registry()`
+# 自动改用 MultiProcessCollector 汇总。
+# 目录必须在启动前清空：`docker restart` 保留可写层，残留 *.db 会被继续累加 → 计数器永久偏高。
+ENV PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-multiproc
+RUN mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
+
 # 非 root 运行
-RUN useradd --create-home appuser && chown -R appuser:appuser /app
+RUN useradd --create-home appuser && chown -R appuser:appuser /app "$PROMETHEUS_MULTIPROC_DIR"
 USER appuser
 
 EXPOSE 8000
@@ -45,5 +54,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=5 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)" || exit 1
 
-# 多 worker 启动（§6.4：uvicorn 多 worker）
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# 多 worker 启动（§6.4：uvicorn 多 worker）；先清空聚合目录再 exec（见上方 ENV 注释）
+CMD ["sh", "-c", "rm -rf \"$PROMETHEUS_MULTIPROC_DIR\"/* && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"]

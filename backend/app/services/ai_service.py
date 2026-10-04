@@ -30,11 +30,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.base import LLMClient
 from app.ai.mock import MockLLMClient
 from app.ai.prompts import AI_COACH_SYSTEM_PROMPT, AI_DISCLAIMER, AI_UNAVAILABLE_FAQ
+from app.ai.tools import run_chat_workflow
 from app.core.config import Settings, get_settings
 from app.core.errors import AppException
 from app.core.logging import get_logger
 from app.core.rate_limit import check_rate_limit
 from app.models import AiDialog, AiKnowledge, DailySnapshot, UserBenefit, WeightRecord
+from app.observability.metrics import (
+    ai_task,
+    current_ai_task,
+    record_ai_call,
+    token_usage_from_response,
+)
 from app.schemas.ai import WeeklyCommentData
 from app.schemas.common import ErrorCode
 
@@ -192,18 +199,19 @@ async def _describe_image(image_url: str, s: Settings) -> str | None:
         }
     ]
     try:
-        return (
-            await asyncio.to_thread(
-                _openai_compatible_chat,
-                s.VLM_BASE_URL,
-                s.VLM_API_KEY,
-                s.VLM_MODEL,
-                messages,
-                timeout=s.AI_TIMEOUT,
-                temperature=0.3,
-                max_tokens=512,
-            )
-        ) or None
+        with ai_task("vision"):
+            return (
+                await asyncio.to_thread(
+                    _openai_compatible_chat,
+                    s.VLM_BASE_URL,
+                    s.VLM_API_KEY,
+                    s.VLM_MODEL,
+                    messages,
+                    timeout=s.AI_TIMEOUT,
+                    temperature=0.3,
+                    max_tokens=512,
+                )
+            ) or None
     except Exception as exc:  # noqa: BLE001 - 图片描述失败降级，不中断对话
         logger.warning("AI 对话图片描述失败", extra={"reason": str(exc)})
         return None
@@ -245,6 +253,9 @@ def _openai_compatible_chat(
     （deepseek-v4.1-flash，同一 prompt）开着 4433ms / reasoning 345 tokens，关掉
     1122ms / 无 reasoning，**快 4 倍**；而文档 §9.4 要求「AI 对话 P95 < 3s」，开着
     思考链直接不达标。非推理模型不认该参数，多传一个无害字段。
+
+    本函数是所有厂商调用的唯一出口，因此 AI 指标（次数 / token / 成本）在这里上报：
+    成功读 `usage`，请求侧失败（HTTP 错误、超时、连接异常）记 `degraded=true`。
     """
     payload: dict[str, Any] = {
         "model": model,
@@ -254,13 +265,18 @@ def _openai_compatible_chat(
         "enable_thinking": enable_thinking,
     }
     with httpx.Client(timeout=httpx.Timeout(timeout, connect=3.0)) as client:
-        resp = client.post(
-            f"{base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = client.post(
+                f"{base_url.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:  # noqa: BLE001 - 记账后原样抛出，降级策略仍由调用方决定
+            record_ai_call(current_ai_task(), degraded=True)
+            raise
+    record_ai_call(current_ai_task(), usage=token_usage_from_response(data))
     return (data["choices"][0]["message"].get("content") or "").strip()
 
 
@@ -339,13 +355,14 @@ class _OpenAICompatVLM:
         self.timeout = timeout
 
     def recognize_food(self, image_bytes: bytes) -> list[dict]:
-        raw = _openai_compatible_chat(
-            self.base_url,
-            self.api_key,
-            self.model,
-            [_vision_message(image_bytes)],
-            timeout=self.timeout,
-        )
+        with ai_task("vision"):
+            raw = _openai_compatible_chat(
+                self.base_url,
+                self.api_key,
+                self.model,
+                [_vision_message(image_bytes)],
+                timeout=self.timeout,
+            )
         parsed = _extract_json(raw)
         items = parsed.get("items") if isinstance(parsed, dict) else parsed
         return items if isinstance(items, list) else []
@@ -487,7 +504,15 @@ async def chat(
     client = llm_client or llm_client_for(s)
     model = str(getattr(client, "model", "") or type(client).__name__)[:64]
     dialog_session_id = _as_uuid(session_id)
-    reply = await generate_reply(client, _build_messages(text, docs), timeout=s.AI_TIMEOUT)
+    with ai_task("chat"):
+        # 工具调用工作流（用户上下文注入 + food_info_query / get_user_status 工具循环）：
+        # 返回 None（未配置 OpenAI 兼容端点 / 厂商不支持 tools / 超时 / 结构坏）时
+        # 走原单轮 generate_reply，行为与旧版完全一致
+        reply = await run_chat_workflow(
+            session, user_id, text=text, docs=docs, settings=s, llm_client=client
+        )
+        if reply is None:
+            reply = await generate_reply(client, _build_messages(text, docs), timeout=s.AI_TIMEOUT)
 
     # 落库保留图片出处（content 仅文本；图片 URL 拼在用户消息末尾便于回溯）
     user_content = f"{(message or '').strip()}\n[图片]{image_url}".strip() if image_url else (message or "").strip()
@@ -643,7 +668,10 @@ async def weekly_comment(
             f"步数 {stats.steps} 步，体重变化 {stats.weight_change}kg。"
             "请用 2-3 句给出温和、可执行的周点评。"
         )
-        content = await generate_reply(client, _build_messages(prompt, []), timeout=s.AI_TIMEOUT)
+        with ai_task("weekly_comment"):
+            content = await generate_reply(
+                client, _build_messages(prompt, []), timeout=s.AI_TIMEOUT
+            )
     if AI_DISCLAIMER not in content:
         content = f"{content}{AI_DISCLAIMER}"
     return WeeklyCommentData(week=key, content=content, highlights=highlights, references=[])

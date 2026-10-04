@@ -23,6 +23,24 @@ scrape_configs:
           service: ai-coach-api
           env: prod
 
+  # Redis：oliver006/redis_exporter（内存、连接、命中率、驱逐/过期、命令耗时）
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels:
+          service: ai-coach-redis
+          env: prod
+
+  # PostgreSQL：prometheuscommunity/postgres_exporter（连接数、事务、缓存命中、库大小、锁、复制）
+  # 注意：pg_stat_database_* 覆盖实例内**所有**库（本机还留着并行 agent 的 slot 库），
+  # 面板与告警一律按 datname 过滤，见 dashboard「基础设施」行。
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels:
+          service: ai-coach-postgres
+          env: prod
+
   # Prometheus 自采（便于观察采集/规则求值健康度）
   - job_name: prometheus
     static_configs:

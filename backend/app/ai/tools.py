@@ -29,6 +29,11 @@ from app.ai.prompts import AI_COACH_SYSTEM_PROMPT, AI_DISCLAIMER
 from app.core.config import Settings
 from app.core.errors import AppException
 from app.models import BodyProfile, Food, FoodAlias
+from app.observability.metrics import (
+    current_ai_task,
+    record_ai_call,
+    token_usage_from_response,
+)
 from app.services import account
 
 MAX_TOOL_ROUNDS = 4  # LLM 交互轮数上限（含工具结果回填后的最终回答轮）
@@ -290,7 +295,11 @@ def _openai_chat_with_tools(
     *,
     timeout: float,
 ) -> dict[str, Any]:
-    """同步 httpx（调用方放线程池）：返回 choices[0].message（含 content 与/或 tool_calls）。"""
+    """同步 httpx（调用方放线程池）：返回 choices[0].message（含 content 与/或 tool_calls）。
+
+    这是工具循环的厂商出口，与 `ai_service._openai_compatible_chat` 同一口径记 AI 指标
+    （次数 / token / 成本）；一轮一次，工具循环里的每一轮都单独计。
+    """
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -300,13 +309,19 @@ def _openai_chat_with_tools(
         "enable_thinking": False,
     }
     with httpx.Client(timeout=httpx.Timeout(timeout, connect=3.0)) as client:
-        resp = client.post(
-            f"{base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
-        )
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]
+        try:
+            resp = client.post(
+                f"{base_url.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:  # noqa: BLE001 - 记账后原样抛出，降级由调用方决定
+            record_ai_call(current_ai_task(), degraded=True)
+            raise
+    record_ai_call(current_ai_task(), usage=token_usage_from_response(data))
+    return data["choices"][0]["message"]
 
 
 # ---------- 工作流主入口 ----------

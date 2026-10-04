@@ -1,6 +1,7 @@
 # 告警规则（F9 / docs/split/08-部署与运维.md §10.7）
-# 覆盖 4 类：① 服务不可用 5min ② 错误率 >5% ③ 磁盘 >80% ④ AI 日成本超预算。
-# 说明：② ④ 直接基于 api 暴露的指标；① 依赖 `up`；③ 需要外部 node_exporter
+# 组 `ai-coach-api` 覆盖 4 类：① 服务不可用 5min ② 错误率 >5% ③ 磁盘 >80% ④ AI 日成本超预算。
+# 组 `ai-coach-infra` 覆盖 Redis / PostgreSQL（redis_up、内存与驱逐、pg_up、连接数、缓存命中率）。
+# 说明：② ④ 与 infra 组直接基于 api / exporter 暴露的指标；① 依赖 `up`；③ 需要外部 node_exporter
 # （本仓 compose 未内置，故该规则在未接入 exporter 时不会触发，见注释）。
 
 groups:
@@ -43,7 +44,9 @@ groups:
           description: "{{ $labels.instance }} 挂载点 {{ $labels.mountpoint }} 使用率 {{ $value | humanizePercentage }}。"
 
       # ---- ④ AI 日成本超预算 ----
-      # 口径：ai_cost_usd_total = Σ(调用次数 × 单价)；阈值 50 为占位，按实际日预算调整。
+      # 口径：ai_cost_usd_total = Σ(token × 牌价)，牌价取 env AI_PRICE_*_USD_PER_MTOKEN；
+      # 牌价为 0（默认）时成本恒为 0，本规则永不触发——接入厂商后必须先填牌价。
+      # 阈值 50 为占位，按实际日预算调整。
       - alert: AIBudgetExceeded
         expr: sum(increase(ai_cost_usd_total[24h])) > 50
         for: 10m
@@ -52,3 +55,77 @@ groups:
         annotations:
           summary: "AI 日成本超预算"
           description: "近 24h AI 成本估算 ${{ $value | humanize }} 超过预算阈值 $50。"
+
+  # ---- 基础设施（Redis / PostgreSQL exporter，见 docker-compose.yml 的 *-exporter 服务）----
+  # 指标名按 redis_exporter v1.93.0 / postgres_exporter v0.20.1 实测核对。
+  - name: ai-coach-infra
+    rules:
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis 不可用"
+          description: "redis_exporter 连不上 Redis（redis_up=0）近 2 分钟，限流/幂等等依赖会走进程内兜底。"
+
+      # maxmemory 未设（=0）时本规则不产生数据：本仓 compose 默认不设上限，
+      # 生产如按 §10.7 给 Redis 配额，需同时设 maxmemory 才会生效。
+      - alert: RedisMemoryNearMax
+        expr: redis_memory_max_bytes > 0 and redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis 内存 > 80% maxmemory"
+          description: "已用 {{ $value | humanizePercentage }}，接近上限后将开始驱逐键。"
+
+      - alert: RedisEvictingKeys
+        expr: rate(redis_evicted_keys_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis 正在驱逐键"
+          description: "近 5 分钟驱逐速率 {{ $value | humanize }}/s，内存到顶（限流计数与幂等键可能被挤掉）。"
+
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL 不可用"
+          description: "postgres_exporter 连不上实例（pg_up=0）近 2 分钟。"
+
+      # 连接数是**实例级**上限（max_connections 不区分库），故分子不按 datname 过滤：
+      # 本机若并存多个库（并行 slot / 测试库），总数会一并计入，这正是真实占用。
+      # 两侧都套 sum()：`sum(pg_stat_activity_count)` 已无标签，而裸 `pg_settings_max_connections`
+      # 带 job/instance 标签，直接相除会因一对一标签匹配失败而恒空（实测），告警永不触发。
+      - alert: PostgresConnectionsHigh
+        expr: >-
+          sum(pg_stat_activity_count)
+          /
+          sum(pg_settings_max_connections) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PG 连接数 > 80% max_connections"
+          description: "当前占用 {{ $value | humanizePercentage }}，接近上限会导致新连接被拒（api 侧表现为 500）。"
+
+      - alert: PostgresCacheHitRatioLow
+        expr: >-
+          sum(rate(pg_stat_database_blks_hit{datname!~"template.*|postgres"}[5m]))
+          /
+          clamp_min(
+            sum(rate(pg_stat_database_blks_hit{datname!~"template.*|postgres"}[5m]))
+            + sum(rate(pg_stat_database_blks_read{datname!~"template.*|postgres"}[5m])),
+            1
+          ) < 0.95
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PG 缓存命中率 < 95%"
+          description: "近 5 分钟命中率 {{ $value | humanizePercentage }}，工作集可能超出 shared_buffers（读盘放大）。"
