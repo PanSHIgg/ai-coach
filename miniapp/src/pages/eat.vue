@@ -45,40 +45,42 @@
       />
     </view>
 
-    <!-- 4. AI 推荐方案卡（§5.2-4）：左侧色条标识健康等级 -->
-    <CCard :title="`AI 推荐 · ${mealText}`" class="eat__card">
-      <CSkeleton v-if="recLoading" type="card" />
-      <CError v-else-if="recError" @retry="loadRecommend" />
-      <CEmpty
-        v-else-if="!options.length"
-        icon="empty-chat"
-        text="暂无推荐方案"
-        button-text="重新推荐"
-        @action="loadRecommend"
-      />
-      <view v-else class="opts">
-        <view v-for="(opt, i) in options" :key="i" class="opt">
-          <!-- 左侧健康等级色条（绿/黄/红，§5.2-4） -->
-          <view class="opt__bar" :class="`opt__bar--${levelOf(opt.calories)}`" />
-          <view class="opt__main">
-            <view class="opt__head">
-              <text class="opt__name">{{ opt.name }}</text>
-              <text class="opt__tag">{{ LEVEL_TEXT[levelOf(opt.calories)] }}</text>
+    <!-- 4. AI 推荐方案卡（§5.2-4）：左侧色条标识健康等级；识别完成后自动滚到这里 -->
+    <view id="eat-recommend">
+      <CCard :title="`AI 推荐 · ${mealText}`" class="eat__card">
+        <CSkeleton v-if="recLoading" type="card" />
+        <CError v-else-if="recError" @retry="loadRecommend" />
+        <CEmpty
+          v-else-if="!options.length"
+          icon="empty-chat"
+          text="暂无推荐方案"
+          button-text="重新推荐"
+          @action="loadRecommend"
+        />
+        <view v-else class="opts">
+          <view v-for="(opt, i) in options" :key="i" class="opt">
+            <!-- 左侧健康等级色条（绿/黄/红，§5.2-4） -->
+            <view class="opt__bar" :class="`opt__bar--${levelOf(opt.calories)}`" />
+            <view class="opt__main">
+              <view class="opt__head">
+                <text class="opt__name">{{ opt.name }}</text>
+                <text class="opt__tag">{{ LEVEL_TEXT[levelOf(opt.calories)] }}</text>
+              </view>
+              <text class="opt__kcal">约 {{ opt.calories }} kcal</text>
+              <text class="opt__reason">{{ opt.reason }}</text>
+              <CButton
+                class="opt__btn"
+                size="sm"
+                :loading="pickingIndex === i"
+                @click="pickOption(opt, i)"
+              >
+                选这个，记下来
+              </CButton>
             </view>
-            <text class="opt__kcal">约 {{ opt.calories }} kcal</text>
-            <text class="opt__reason">{{ opt.reason }}</text>
-            <CButton
-              class="opt__btn"
-              size="sm"
-              :loading="pickingIndex === i"
-              @click="pickOption(opt, i)"
-            >
-              选这个，记下来
-            </CButton>
           </view>
         </view>
-      </view>
-    </CCard>
+      </CCard>
+    </view>
 
     <!-- 5. 今天还剩 X kcal（§5.2-5）：接口不可用则整体隐藏，不报错不白屏 -->
     <view v-if="showLeft" class="eat__left">
@@ -283,7 +285,7 @@ const voice = useVoice({
     recognized.value = Array.from(new Set([...recognized.value, ...names]))
     toast.success({ title: '已识别语音内容' })
     // 语音菜名同样驱动推荐（§5.2「菜单拍照识别+推荐」：items 即识别结果）
-    void loadRecommend()
+    void loadRecommend().then(scrollToRecommend)
   },
 })
 
@@ -380,6 +382,11 @@ function levelOf(calories: number): Level {
 }
 
 /* ---------- 数据加载 ---------- */
+
+/** 识别/语音出新推荐后，把推荐卡滚进视野（否则新卡片在折叠线以下，用户以为没推荐） */
+function scrollToRecommend() {
+  uni.pageScrollTo({ selector: '#eat-recommend', duration: 300, fail: () => {} })
+}
 
 async function loadRecommend() {
   recLoading.value = true
@@ -504,8 +511,9 @@ async function recognizeImage(path: string) {
       return
     }
     recognized.value = foods
-    // §5.2「菜单拍照识别+推荐」：识别结果原地展示，推荐卡立即按菜单刷新
+    // §5.2「菜单拍照识别+推荐」：识别结果原地展示，推荐卡立即按菜单刷新并滚进视野
     await loadRecommend()
+    scrollToRecommend()
   } catch (e) {
     toast.error({ title: (e as Error).message || '识别失败，换个角度或重试' })
   } finally {
