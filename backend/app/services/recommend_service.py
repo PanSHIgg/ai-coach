@@ -333,17 +333,21 @@ async def match_foods(session: AsyncSession, names: list[str]) -> list[Food]:
 
 
 def build_combos_from_foods(foods: list[Food]) -> list[Combo]:
-    """识别命中的食物 → 2~3 个组合：按每 100g 热量排序后取「最低卡 / 中段 / 最高卡」滑窗。
+    """识别命中的食物 → 恰好 3 个组合（n=2 时 2 个）：按每 100g 热量升序连续切低/中/高三段。
 
     每菜固定 MATCH_PORTION_G 份量，热量按 compute_calories 逐项累加；
-    名字相同的窗口去重，按总热量升序输出（与标准库组合同序）。
+    按总热量升序输出（与标准库组合同序）。
+    三段不重叠 → n≥3 必得 3 个不同组合（此前滑窗会因窗口重合去重后只剩 2 张）。
     """
     ordered = sorted(foods, key=lambda f: float(f.calories_100g))
     n = len(ordered)
+    base, rem = divmod(n, 3)
+    cut1 = base + (1 if rem else 0)
+    cut2 = cut1 + base + (1 if rem > 1 else 0)
     windows = (
-        ordered[0 : min(2, n)],  # 最低卡
-        ordered[max(0, n // 2 - 1) : n // 2 + 1],  # 中段
-        ordered[max(0, n - 2) : n],  # 最高卡
+        ordered[:cut1],  # 最低卡
+        ordered[cut1:cut2],  # 中段
+        ordered[cut2:],  # 最高卡
     )
     stages = (
         ("清淡组合", "选了热量最低的几样，负担小"),

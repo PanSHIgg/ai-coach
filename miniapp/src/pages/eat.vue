@@ -58,16 +58,16 @@
           @action="loadRecommend"
         />
         <view v-else class="opts">
-          <view v-for="(opt, i) in options" :key="i" class="opt">
-            <!-- 左侧健康等级色条（绿/黄/红，§5.2-4） -->
-            <view class="opt__bar" :class="`opt__bar--${levelOf(opt.calories)}`" />
-            <view class="opt__main">
-              <view class="opt__head">
-                <text class="opt__name">{{ opt.name }}</text>
-                <text class="opt__tag">{{ LEVEL_TEXT[levelOf(opt.calories)] }}</text>
-              </view>
-              <text class="opt__kcal">约 {{ opt.calories }} kcal</text>
-              <text class="opt__reason">{{ opt.reason }}</text>
+        <view v-for="(opt, i) in options" :key="i" class="opt">
+          <!-- 左侧健康等级色条（绿/黄/红，§5.2-4）：等级读后端 reason 前缀 -->
+          <view class="opt__bar" :class="`opt__bar--${levelOf(opt)}`" />
+          <view class="opt__main">
+            <view class="opt__head">
+              <text class="opt__name">{{ opt.name }}</text>
+              <text class="opt__tag">{{ LEVEL_TEXT[levelOf(opt)] }}</text>
+            </view>
+            <text class="opt__kcal">约 {{ opt.calories }} kcal</text>
+            <text class="opt__reason">{{ reasonBody(opt.reason) }}</text>
               <CButton
                 class="opt__btn"
                 size="sm"
@@ -372,13 +372,24 @@ function fmt(n: number): string {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
-function levelOf(calories: number): Level {
+function levelOf(opt: RecommendOption): Level {
+  // 等级单一真源 = 后端写在 reason 前缀里的语义（额度口径是「min(今日剩余, 餐次默认)」，
+  // 前端本地重算必然与后端打架——加餐默认额度 200 时尤其明显），无前缀才回退本地推算
+  if (opt.reason.startsWith('[推荐]')) return 'good'
+  if (opt.reason.startsWith('[可接受]')) return 'mid'
+  if (opt.reason.startsWith('[建议少吃]')) return 'bad'
+  const calories = opt.calories
   const left = leftValue.value
   if (calories >= MEAL_KCAL_HIGH) return 'bad'
   if (left > 0 && calories > left) return 'bad'
   if (calories >= MEAL_KCAL_MID) return 'mid'
   if (left > 0 && calories > left * LEFT_RATIO_MID) return 'mid'
   return 'good'
+}
+
+/** 展示用推荐语：去掉等级前缀（等级已由右侧标签 + 色条表达） */
+function reasonBody(reason: string): string {
+  return reason.replace(/^\[[^\]]+\]\s*/, '')
 }
 
 /* ---------- 数据加载 ---------- */

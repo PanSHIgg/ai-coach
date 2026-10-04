@@ -217,6 +217,25 @@ async def test_recommend_items_all_unmatched_falls_back_to_templates(db_client, 
     assert all("组合" in o["reason"] for o in options)
 
 
+async def test_recommend_items_yields_three_distinct_combos(db_client, db_session, authed):
+    """识别命中 5 个食物：恰好 3 张方案卡且组合互不相同（§5.2-4「3 张方案卡」）。"""
+    food_ids = await _seed_foods(db_session)
+    await _create_profile(db_session, authed["user_id"])
+
+    resp = await db_client.post(
+        _URL,
+        headers=authed["headers"],
+        json={"meal_type": 2, "items": ["糙米饭", "鸡胸肉", "西兰花", "北豆腐", "香菇"]},
+    )
+    body = resp.json()
+    assert (resp.status_code, body["code"]) == (200, 0)
+    options = body["data"]["options"]
+    assert len(options) == 3
+    names = [o["name"] for o in options]
+    assert len(set(names)) == 3
+    assert all(o["food_id"] in food_ids for o in options)
+
+
 async def test_recommend_rejects_too_many_items(db_client, authed):
     """识别菜名超 20 项 → 422（防超长提示词打爆 LLM）。"""
     resp = await db_client.post(
