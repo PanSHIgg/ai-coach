@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = ""  # 如 https://api.deepseek.com/v1（须含 /v1）
     LLM_API_KEY: str = ""
     LLM_MODEL: str = ""  # 如 deepseek-chat / qwen-plus / Qwen/Qwen3.8-Flash-Next
+    # 推理模型的思考链开关（OpenAI 兼容扩展参数 enable_thinking）。默认 False：
+    # 营养问答不需要思考链，而它是延迟主因（实测 4433ms → 1122ms，4 倍）。
+    # 开着则文档 §9.4「AI 对话 P95 < 3s」不达标。非推理模型不认此参数，多传无害。
+    LLM_ENABLE_THINKING: bool = False
     VLM_BASE_URL: str = ""
     VLM_API_KEY: str = ""
     VLM_MODEL: str = ""

@@ -232,17 +232,26 @@ def _openai_compatible_chat(
     timeout: float,
     temperature: float = 0.5,
     max_tokens: int = 1024,
+    enable_thinking: bool = False,
 ) -> str:
     """OpenAI 兼容对话客户端（同步 httpx，调用方放线程池）：标准请求/响应结构。
 
     POST `{base_url}/chat/completions`，payload 为 model/messages/temperature/max_tokens，
     取 `choices[0].message.content`。任何异常由调用方捕获并降级（6001/模板），不外泄。
+
+    `enable_thinking=False` 是 OpenAI 兼容端点关推理模型的思考链的标准参数（阿里
+    百炼 / qwen 系用 `thinking: {"type": "disabled"}`，`reasoning_effort: none` 等价）。
+    为什么默认关：思考链对「营养问答」这类任务没有收益，却是延迟主因——本机实测
+    （deepseek-v4.1-flash，同一 prompt）开着 4433ms / reasoning 345 tokens，关掉
+    1122ms / 无 reasoning，**快 4 倍**；而文档 §9.4 要求「AI 对话 P95 < 3s」，开着
+    思考链直接不达标。非推理模型不认该参数，多传一个无害字段。
     """
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "enable_thinking": enable_thinking,
     }
     with httpx.Client(timeout=httpx.Timeout(timeout, connect=3.0)) as client:
         resp = client.post(
@@ -267,6 +276,7 @@ class _OpenAICompatLLM(LLMClient):
         timeout: float,
         temperature: float = 0.5,
         max_tokens: int = 1024,
+        enable_thinking: bool = False,
     ):
         self.base_url = base_url
         self.api_key = api_key
@@ -274,6 +284,7 @@ class _OpenAICompatLLM(LLMClient):
         self.timeout = timeout
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.enable_thinking = enable_thinking
 
     def chat(self, messages: list[dict]) -> str:
         return _openai_compatible_chat(
@@ -284,13 +295,20 @@ class _OpenAICompatLLM(LLMClient):
             timeout=self.timeout,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            enable_thinking=self.enable_thinking,
         )
 
 
 def llm_client_for(s: Settings) -> LLMClient:
     """按 env 装配 LLM 客户端：LLM_BASE_URL+LLM_API_KEY 齐备 → OpenAI 兼容；否则 Mock（明确降级）。"""
     if s.LLM_BASE_URL and s.LLM_API_KEY:
-        return _OpenAICompatLLM(s.LLM_BASE_URL, s.LLM_API_KEY, s.LLM_MODEL, timeout=s.AI_TIMEOUT)
+        return _OpenAICompatLLM(
+            s.LLM_BASE_URL,
+            s.LLM_API_KEY,
+            s.LLM_MODEL,
+            timeout=s.AI_TIMEOUT,
+            enable_thinking=s.LLM_ENABLE_THINKING,
+        )
     logger.warning("[ai] LLM_BASE_URL/LLM_API_KEY 未配置，走 Mock 降级")
     return MockLLMClient()
 
