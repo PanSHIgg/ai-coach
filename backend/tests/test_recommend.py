@@ -10,6 +10,7 @@ TRUNCATE `food` 表，故候选食物由本文件自插。
 """
 
 from datetime import datetime
+import json
 
 import pytest
 
@@ -160,6 +161,87 @@ async def test_recommend_degrades_when_llm_unavailable(db_client, db_session, au
     options = body["data"]["options"]
     assert options
     assert all("组合" in o["reason"] for o in options)
+
+
+# ---------- LLM 结构化搭配：LLM 出 ids/grams/reason JSON，后端回库重算数字 ----------
+
+
+class _FakeLLM:
+    """同步假客户端（_invoke 会放线程池）；payload 即 chat 返回文本。"""
+
+    model = "fake-llm"
+
+    def __init__(self, payload: str):
+        self._payload = payload
+
+    def chat(self, messages):  # noqa: ANN001, ARG002
+        return self._payload
+
+
+async def test_recommend_structured_json_builds_llm_combos(
+    db_client, db_session, authed, monkeypatch
+):
+    """LLM 返回合法结构化 JSON：组合/理由直接采用，等级前缀由后端按 DB 热量补写。"""
+    await _seed_foods(db_session)
+
+    payload = json.dumps(
+        {
+            "combos": [
+                {"ids": [1, 3], "grams": [150, 200], "reason": "糙米饭配西兰花，清淡顶饱"},
+                {"ids": [2], "grams": [200], "reason": "高蛋白单菜，增肌首选"},
+            ]
+        }
+    )
+    monkeypatch.setattr(
+        recommend_service, "llm_client_for", lambda _s: _FakeLLM(payload)
+    )
+
+    resp = await db_client.post(_URL, headers=authed["headers"], json={"meal_type": 2})
+    body = resp.json()
+    assert (resp.status_code, body["code"]) == (200, 0)
+    options = body["data"]["options"]
+    assert len(options) == 2
+    assert any("糙米饭" in o["name"] and "西兰花" in o["name"] for o in options)
+    assert any("清淡顶饱" in o["reason"] for o in options)
+    # 等级前缀由后端按额度重算补写，不受 LLM 文案影响
+    assert all(o["reason"].startswith("[") for o in options)
+
+
+async def test_recommend_structured_invalid_json_falls_back(
+    db_client, db_session, authed, monkeypatch
+):
+    """LLM 输出不是合法 JSON：静默降级规则组合（含标准库路径）。"""
+    await _seed_foods(db_session)
+    monkeypatch.setattr(
+        recommend_service, "llm_client_for", lambda _s: _FakeLLM("这不是 JSON")
+    )
+
+    resp = await db_client.post(_URL, headers=authed["headers"], json={"meal_type": 2})
+    body = resp.json()
+    assert (resp.status_code, body["code"]) == (200, 0)
+    options = body["data"]["options"]
+    assert options
+    assert all("组合" in o["reason"] for o in options)
+
+
+async def test_recommend_structured_unknown_id_falls_back(
+    db_client, db_session, authed, monkeypatch
+):
+    """LLM 编造候选之外的 food id：整组拒绝，降级规则组合（防幻觉写入）。"""
+    await _seed_foods(db_session)
+    payload = json.dumps(
+        {"combos": [{"ids": [999], "grams": [200], "reason": "幻觉食物不应出现"}]}
+    )
+    monkeypatch.setattr(
+        recommend_service, "llm_client_for", lambda _s: _FakeLLM(payload)
+    )
+
+    resp = await db_client.post(_URL, headers=authed["headers"], json={"meal_type": 2})
+    body = resp.json()
+    assert (resp.status_code, body["code"]) == (200, 0)
+    options = body["data"]["options"]
+    assert options
+    assert all("幻觉" not in o["reason"] for o in options)
 
 
 @pytest.mark.parametrize("meal_type", [0, 5])

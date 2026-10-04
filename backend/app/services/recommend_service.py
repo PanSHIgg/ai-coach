@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import asyncio
-import re
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
@@ -34,6 +34,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppException
 from app.core.logging import get_logger
 from app.models import Food, FoodAlias
+from app.observability.metrics import ai_task
 from app.schemas.ai import GeoLocation, RecommendOption
 from app.services import account
 from app.services.recognize_service import compute_calories
@@ -159,36 +160,138 @@ def rule_body(combo: Combo, grade: Grade) -> str:
     )
 
 
-def _parse_reasons(text: str, expected: int) -> list[str] | None:
-    """LLM 返回 → 逐行推荐语；条数不符 / 空行 / 过长视为不可用（降级）。"""
-    lines: list[str] = []
-    for raw in (text or "").splitlines():
-        line = re.sub(r"^\s*(?:\d+[.、)]|[-•*])\s*", "", raw).strip()
-        if not line:
-            continue
-        lines.append(line)
-    if len(lines) != expected or any(len(line) > MAX_REASON_LEN for line in lines):
-        return None
-    return lines
+# LLM 结构化搭配：候选清单喂给模型，输出严格 JSON（ids/grams/reason）；
+# 后端按 id 回查 DB 重算热量与等级——LLM 只做搭配决策，不产生任何可信数字。
 
 
-def _prompt(combos: list[Combo], allowance: float, budget: float | None) -> list[dict]:
-    """润色提示词：一条组合一行，要求按同序输出等长行数。"""
+def _candidate_view(foods: list[Food]) -> list[dict]:
+    """候选清单（全部来自 DB 的结构化事实，杜绝 LLM 编造库外食物）。"""
+    return [
+        {
+            "id": int(f.id),
+            "name": f.name,
+            "category": f.category or "",
+            "kcal_100g": round(float(f.calories_100g), 1),
+            "protein_100g": round(float(f.protein_100g or 0), 1),
+        }
+        for f in foods
+    ]
+
+
+def _structured_prompt(
+    candidates: list[dict], allowance: float, meal_type: int, budget: float | None
+) -> list[dict]:
+    meal = {1: "早餐", 2: "午餐", 3: "晚餐", 4: "加餐"}.get(meal_type, "正餐")
     lines = [
-        f"{i}. {c.name}，约 {int(c.calories)} kcal，{c.template.highlight}"
-        for i, c in enumerate(combos, start=1)
+        f"{c['id']}|{c['name']}|{c['category']}|{c['kcal_100g']}kcal/100g|蛋白{c['protein_100g']}"
+        for c in candidates
     ]
     budget_hint = f"人均预算 {budget:g} 元；" if budget else ""
     question = (
-        f"用户这一餐剩余热量额度约 {int(allowance)} kcal，{budget_hint}"
-        f"以下是 {len(combos)} 个候选组合：\n" + "\n".join(lines) + "\n"
-        "请为每个组合各写一句不超过 25 个字的中文推荐理由，"
-        "按上面同样的顺序、每行一条，不要编号、不要多余解释。"
+        f"用户这一餐（{meal}）剩余热量额度约 {int(allowance)} kcal，{budget_hint}"
+        f"以下是候选食物（id|名称|类别|热量|蛋白质）：\n" + "\n".join(lines) + "\n"
+        "请从候选中搭配 3 个组合，让它们分别是：热量明显低于额度的清淡搭配、"
+        "接近额度的均衡搭配、允许略超的足量搭配。每个组合 1~3 种食物、"
+        "每种克数 50~400g，兼顾荤素与蛋白。严格输出 JSON，不要解释、不要代码块标记，格式："
+        '{"combos":[{"ids":[候选id],"grams":[对应克数],"reason":"不超过25字的中文推荐语"}]}'
     )
     return [
         {"role": "system", "content": AI_COACH_SYSTEM_PROMPT},
         {"role": "user", "content": question},
     ]
+
+
+def _extract_json(text: str) -> dict | None:
+    """LLM 输出 → JSON 对象：容忍 ``` 围栏与前后杂文字，截取首尾大括号。"""
+    raw = (text or "").strip()
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        data = json.loads(raw[start : end + 1])
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _parse_structured(
+    text: str, by_id: dict[int, Food]
+) -> tuple[list[Combo], list[str]] | None:
+    """严格校验结构化输出：id 必须在候选内、组合 2~3 个、每组合 1~4 种、克数 0~400、
+    理由非空且 ≤40 字；任何不合法 → None（调用方降级规则组合）。"""
+    data = _extract_json(text)
+    if data is None:
+        return None
+    entries = data.get("combos")
+    if not isinstance(entries, list) or not 2 <= len(entries) <= 3:
+        return None
+    combos: list[Combo] = []
+    reasons: list[str] = []
+    shared_template = ComboTemplate(label="推荐组合", highlight="", slots=())
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return None
+        raw_ids = entry.get("ids")
+        raw_grams = entry.get("grams")
+        reason = str(entry.get("reason", "")).strip()
+        if not isinstance(raw_ids, list) or not isinstance(raw_grams, list):
+            return None
+        if not 1 <= len(raw_ids) <= 4 or len(raw_grams) != len(raw_ids):
+            return None
+        if not reason or len(reason) > MAX_REASON_LEN:
+            return None
+        chosen: list[tuple[Food, float]] = []
+        seen_ids: set[int] = set()
+        for rid, gram in zip(raw_ids, raw_grams):
+            try:
+                fid = int(rid)
+                grams = float(gram)
+            except (TypeError, ValueError):
+                return None
+            food = by_id.get(fid)
+            if food is None or grams <= 0 or grams > 400 or fid in seen_ids:
+                return None
+            seen_ids.add(fid)
+            chosen.append((food, grams))
+        if not chosen:
+            return None
+        combos.append(
+            Combo(
+                template=shared_template,
+                items=tuple(chosen),
+                calories=round(
+                    sum(compute_calories(float(f.calories_100g), g) for f, g in chosen), 1
+                ),
+                name=" + ".join(f.name for f, _ in chosen),
+                food_id=int(max(chosen, key=lambda pair: float(pair[0].protein_100g or 0))[0].id),
+            )
+        )
+        reasons.append(reason)
+    if not combos:
+        return None
+    combos.sort(key=lambda c: c.calories)
+    return combos, reasons
+
+
+async def structured_combos(
+    client: LLMClient,
+    foods: list[Food],
+    allowance: float,
+    meal_type: int,
+    budget: float | None,
+    timeout: float,
+) -> tuple[list[Combo], list[str]] | None:
+    """LLM 结构化搭配主调用：合法返回（组合, 理由），否则 None（降级规则组合）。"""
+    text = await asyncio.wait_for(
+        _invoke(
+            client,
+            _structured_prompt(_candidate_view(foods), allowance, meal_type, budget),
+        ),
+        timeout=timeout,
+    )
+    by_id = {int(f.id): f for f in foods}
+    return _parse_structured(text, by_id)
 
 
 # 额度与候选
@@ -255,6 +358,27 @@ async def build_combos(session: AsyncSession) -> list[Combo]:
     return combos
 
 
+STANDARD_CATEGORIES = ("主食", "肉类", "水产", "蛋类", "豆制品", "蔬菜", "菌藻")
+
+
+async def _standard_candidates(session: AsyncSession) -> list[Food]:
+    """无识别结果时的候选池：各关键类目各取 top2（standard 优先、id 升序，结果稳定）。"""
+    foods: list[Food] = []
+    seen: set[int] = set()
+    for category in STANDARD_CATEGORIES:
+        stmt = (
+            select(Food)
+            .where(Food.status == 1, Food.category == category)
+            .order_by(Food.is_standard.desc(), Food.id)
+            .limit(2)
+        )
+        for food in (await session.execute(stmt)).scalars():
+            if int(food.id) not in seen:
+                seen.add(int(food.id))
+                foods.append(food)
+    return foods
+
+
 # LLM 润色（失败即降级）
 
 
@@ -264,20 +388,6 @@ async def _invoke(client: LLMClient, messages: list[dict]) -> str:
     if callable(achat):
         return await achat(messages)
     return await asyncio.to_thread(client.chat, messages)
-
-
-async def polish_reasons(
-    client: LLMClient,
-    combos: list[Combo],
-    allowance: float,
-    budget: float | None,
-    timeout: float,
-) -> list[str] | None:
-    """调 LLM 润色推荐语；返回与 combos 等长的正文列表，不可用返回 None。"""
-    text = await asyncio.wait_for(
-        _invoke(client, _prompt(combos, allowance, budget)), timeout=timeout
-    )
-    return _parse_reasons(text, len(combos))
 
 
 # 识别菜名 → 食物库匹配（§5.2「菜单拍照识别+推荐」链路）
@@ -396,11 +506,12 @@ async def recommend(
     items: list[str] | None = None,
     llm_client: LLMClient | None = None,
 ) -> list[RecommendOption]:
-    """饭点决策主流程：额度 → 组合 → 分级 → 润色（失败降级）。
+    """饭点决策主流程：额度 → 候选 → LLM 结构化搭配 → 分级（AI 失败降级规则组合）。
 
     budget / location 现阶段无数据支撑（food 无价格列、商家域 Phase 3），只记录日志。
-    items 为拍照/语音识别到的菜名（§5.2「菜单拍照识别+推荐」）：命中 ≥2 个食物时
-    用识别的菜拼组合，否则回退标准库模板（行为与不带 items 完全一致）。
+    items 为拍照/语音识别到的菜名（§5.2「菜单拍照识别+推荐」）：命中 ≥2 个食物时候选=识别
+    菜单，否则候选=标准类目食物。LLM 结构化输出搭配 JSON（ids/grams/reason），后端按 id
+    回查 DB 重算热量与等级；解析失败/超时/未配置 → 规则组合兜底，推荐永不报错。
     """
     s = settings or get_settings()
     if budget is not None or location is not None:
@@ -408,34 +519,38 @@ async def recommend(
 
     allowance = await remaining_allowance(session, user_id, meal_type)
 
-    combos: list[Combo] = []
+    # 候选池：识别菜名命中优先（≥2），否则标准类目候选；两条路径共用 LLM 结构化搭配
+    matched: list[Food] = []
     if items:
         matched = await match_foods(session, items)
-        if len(matched) >= 2:
-            combos = build_combos_from_foods(matched)
-            logger.info(
-                "识别菜名命中食物，按识别菜单拼组合",
-                extra={"item_count": len(items), "matched": len(matched)},
-            )
-        else:
-            logger.info(
-                "识别菜名命中不足 2 个，回退标准库组合",
-                extra={"item_count": len(items), "matched": len(matched)},
-            )
-    if not combos:
-        combos = await build_combos(session)
+        if len(matched) < 2:
+            matched = []
+    candidates = matched if matched else await _standard_candidates(session)
 
-    grades = [grade_for(combo.calories, allowance) for combo in combos]
-
+    combos: list[Combo] = []
     bodies: list[str] | None = None
-    if combos:
+    if candidates:
         try:
             client = llm_client or llm_client_for(s)
-            bodies = await polish_reasons(client, combos, allowance, budget, s.AI_TIMEOUT)
+            with ai_task("recommend"):
+                structured = await structured_combos(
+                    client, candidates, allowance, meal_type, budget, s.AI_TIMEOUT
+                )
+            if structured is not None:
+                combos, bodies = structured
+                logger.info("LLM 结构化搭配成功", extra={"combos": len(combos)})
         except Exception as exc:  # noqa: BLE001 - AI 不可用只降级，不阻断推荐
-            logger.warning("推荐语润色失败，降级规则文案", extra={"reason": str(exc)})
-    if bodies is None:
+            logger.warning("LLM 结构化搭配失败，降级规则组合", extra={"reason": str(exc)})
+
+    grades: list[Grade]
+    if not combos:
+        # 规则兜底：识别命中 → 低/中/高三段切法；否则标准库模板（行为与旧版一致）
+        combos = build_combos_from_foods(matched) if matched else await build_combos(session)
+        grades = [grade_for(combo.calories, allowance) for combo in combos]
         bodies = [rule_body(combo, grade) for combo, grade in zip(combos, grades, strict=True)]
+    else:
+        # 等级单一真源仍是后端数字：LLM 只出搭配与理由，等级由额度重算补前缀
+        grades = [grade_for(combo.calories, allowance) for combo in combos]
 
     return [
         RecommendOption(

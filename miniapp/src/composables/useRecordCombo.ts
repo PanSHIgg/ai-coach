@@ -58,5 +58,26 @@ export function useRecordCombo() {
     return count
   }
 
-  return { recordCombo }
+  /** 按组件清单写入（标准套餐：食材名+克数逐条匹配落库），返回成功条数 */
+  async function recordComponents(
+    components: { food: string; grams: number }[],
+    mealType: 1 | 2 | 3 | 4,
+    source: 1 | 3 | 4 = 3,
+  ): Promise<number> {
+    let count = 0
+    for (const c of components) {
+      const food = await findFood(c.food)
+      if (!food) continue
+      await createMeal({
+        meal_type: mealType,
+        food_id: food.id,
+        amount_g: c.grams,
+        source,
+      })
+      count += 1
+    }
+    return count
+  }
+
+  return { recordCombo, recordComponents }
 }

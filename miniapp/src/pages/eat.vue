@@ -45,9 +45,20 @@
       />
     </view>
 
-    <!-- 4. AI 推荐方案卡（§5.2-4）：左侧色条标识健康等级；识别完成后自动滚到这里 -->
+    <!-- 4. AI 推荐方案卡（§5.2-4）：餐次可切换（默认按时段推断）；等级读后端 reason 前缀 -->
     <view id="eat-recommend">
       <CCard :title="`AI 推荐 · ${mealText}`" class="eat__card">
+        <view class="meal-seg">
+          <text
+            v-for="m in MEAL_OPTIONS"
+            :key="m.value"
+            class="meal-seg__item"
+            :class="{ 'meal-seg__item--on': mealType === m.value }"
+            @tap="switchMeal(m.value)"
+          >
+            {{ m.label }}
+          </text>
+        </view>
         <CSkeleton v-if="recLoading" type="card" />
         <CError v-else-if="recError" @retry="loadRecommend" />
         <CEmpty
@@ -58,16 +69,16 @@
           @action="loadRecommend"
         />
         <view v-else class="opts">
-        <view v-for="(opt, i) in options" :key="i" class="opt">
-          <!-- 左侧健康等级色条（绿/黄/红，§5.2-4）：等级读后端 reason 前缀 -->
-          <view class="opt__bar" :class="`opt__bar--${levelOf(opt)}`" />
-          <view class="opt__main">
-            <view class="opt__head">
-              <text class="opt__name">{{ opt.name }}</text>
-              <text class="opt__tag">{{ LEVEL_TEXT[levelOf(opt)] }}</text>
-            </view>
-            <text class="opt__kcal">约 {{ opt.calories }} kcal</text>
-            <text class="opt__reason">{{ reasonBody(opt.reason) }}</text>
+          <view v-for="(opt, i) in options" :key="i" class="opt">
+            <!-- 左侧健康等级色条（绿/黄/红，§5.2-4）：等级读后端 reason 前缀 -->
+            <view class="opt__bar" :class="`opt__bar--${levelOf(opt)}`" />
+            <view class="opt__main">
+              <view class="opt__head">
+                <text class="opt__name">{{ opt.name }}</text>
+                <text class="opt__tag">{{ LEVEL_TEXT[levelOf(opt)] }}</text>
+              </view>
+              <text class="opt__kcal">约 {{ opt.calories }} kcal</text>
+              <text class="opt__reason">{{ reasonBody(opt.reason) }}</text>
               <CButton
                 class="opt__btn"
                 size="sm"
@@ -99,7 +110,7 @@
 
     <!-- 6. 标准减脂餐（§5.2-6）：静态 SKU 数据（Phase 3 接 sku/catalog），右侧 + 直接加入今日摄入 -->
     <CCard title="标准减脂餐（直接选）" class="eat__card">
-      <view v-for="(meal, i) in STANDARD_MEALS" :key="meal.name" class="sku">
+      <view v-for="(meal, i) in standardMeals" :key="meal.name" class="sku">
         <view class="sku__main">
           <text class="sku__name">{{ meal.name }}</text>
           <text class="sku__meta">{{ meal.range }} ¥{{ meal.price }}</text>
@@ -199,7 +210,7 @@ import { recommend } from '@/api/ai'
 import { getMerchantCompare, getSkuCatalog } from '@/api/merchant'
 import { track } from '@/utils/track'
 import { BASE_URL, getToken } from '@/api/request'
-import type { Envelope, GeoLocation, MerchantCompareItem, RecognizeData, RecommendOption } from '@/types/api'
+import type { CatalogItem, Envelope, GeoLocation, MerchantCompareItem, RecognizeData, RecommendOption } from '@/types/api'
 
 /* ---------- 常量 ---------- */
 
@@ -224,29 +235,143 @@ const LEFT_RATIO_MID = 0.6
 const EVT_RECOGNIZED = 'eat:recognized'
 
 /**
- * 标准减脂餐 SKU。
- * 【假设】src/api 暂无 sku/catalog 接口（契约与 Mock 有 /api/sku/catalog，但前端未封装），
- * 故用静态数据，Phase 3 接入后替换；calories 取区间中值用于写入记录。
+ * 标准减脂餐：真数据 GET /api/sku/catalog（category=标准减脂餐），拉取失败回落静态兜底。
+ * 记录口径【假设】套餐按构成食材组件化（如 鸡胸→鸡胸肉+西兰花+糙米饭），逐条 searchFood
+ * 落库（MealCreateIn 需要 food_id，SKU 名本身不在食物库）；source=3 手动选套餐。
  */
 interface StandardMeal {
   name: string
   range: string
   price: number
   calories: number
+  /** 套餐构成（食材名 + 克数）：记录时逐条匹配食物库 */
+  components: { food: string; grams: number }[]
 }
-const STANDARD_MEALS: StandardMeal[] = [
-  { name: '高蛋白餐', range: '400-500kcal', price: 28, calories: 450 },
-  { name: '均衡餐', range: '500-600kcal', price: 32, calories: 550 },
-  { name: '低碳餐', range: '400-500kcal', price: 30, calories: 450 },
-  { name: '素食餐', range: '450-550kcal', price: 26, calories: 500 },
+
+const STATIC_MEALS: StandardMeal[] = [
+  {
+    name: '高蛋白餐',
+    range: '400-500kcal',
+    price: 28,
+    calories: 450,
+    components: [
+      { food: '鸡胸肉', grams: 150 },
+      { food: '西兰花', grams: 120 },
+      { food: '糙米饭', grams: 100 },
+    ],
+  },
+  {
+    name: '均衡餐',
+    range: '500-600kcal',
+    price: 32,
+    calories: 550,
+    components: [
+      { food: '糙米饭', grams: 120 },
+      { food: '三文鱼', grams: 100 },
+      { food: '西兰花', grams: 120 },
+    ],
+  },
+  {
+    name: '低碳餐',
+    range: '400-500kcal',
+    price: 30,
+    calories: 450,
+    components: [
+      { food: '北豆腐', grams: 150 },
+      { food: '香菇', grams: 100 },
+      { food: '糙米饭', grams: 60 },
+    ],
+  },
+  {
+    name: '素食餐',
+    range: '450-550kcal',
+    price: 26,
+    calories: 500,
+    components: [
+      { food: '生菜', grams: 150 },
+      { food: '鸡蛋', grams: 60 },
+      { food: '玉米', grams: 100 },
+    ],
+  },
 ]
+
+/** SKU 名关键词 → 构成组件（克数）：与 food_full.csv 实有食材对齐 */
+const SKU_COMPONENTS: { key: string; components: { food: string; grams: number }[] }[] = [
+  {
+    key: '鸡胸',
+    components: [
+      { food: '鸡胸肉', grams: 150 },
+      { food: '西兰花', grams: 120 },
+      { food: '糙米饭', grams: 100 },
+    ],
+  },
+  {
+    key: '牛肉',
+    components: [
+      { food: '牛肉', grams: 100 },
+      { food: '生菜', grams: 120 },
+      { food: '糙米饭', grams: 80 },
+    ],
+  },
+  {
+    key: '虾仁',
+    components: [
+      { food: '虾仁', grams: 100 },
+      { food: '生菜', grams: 150 },
+      { food: '玉米', grams: 80 },
+    ],
+  },
+]
+const DEFAULT_COMPONENTS: { food: string; grams: number }[] = [
+  { food: '鸡蛋', grams: 60 },
+  { food: '生菜', grams: 150 },
+  { food: '玉米', grams: 80 },
+]
+function componentsFor(name: string): { food: string; grams: number }[] {
+  return SKU_COMPONENTS.find((s) => name.includes(s.key))?.components ?? DEFAULT_COMPONENTS
+}
+
+const standardMeals = ref<StandardMeal[]>(STATIC_MEALS)
+
+async function loadStandardMeals() {
+  try {
+    const data = await getSkuCatalog({ category: '标准减脂餐' })
+    const items = (data?.items ?? [])
+      .filter((it) => it.calories_low != null && it.calories_high != null)
+      .slice(0, 4)
+      .map((it) => ({
+        name: it.name,
+        range: `${it.calories_low}-${it.calories_high}kcal`,
+        price: it.base_price,
+        calories: Math.round(((it.calories_low ?? 0) + (it.calories_high ?? 0)) / 2),
+        components: componentsFor(it.name),
+      }))
+    if (items.length) standardMeals.value = items
+  } catch {
+    // 目录拉取失败保留静态兜底，不阻断
+  }
+}
 
 /* ---------- 状态 ---------- */
 
 const accountStore = useAccountStore()
 const userStore = useUserStore()
 const toast = useToast()
-const { recordCombo } = useRecordCombo()
+const { recordCombo, recordComponents } = useRecordCombo()
+
+/** 餐次可切换（默认按时段推断）：切换即按新餐次额度重出推荐（解决夜里全归加餐全红） */
+const MEAL_OPTIONS = [
+  { value: 1, label: '早餐' },
+  { value: 2, label: '午餐' },
+  { value: 3, label: '晚餐' },
+  { value: 4, label: '加餐' },
+] as const
+
+function switchMeal(value: 1 | 2 | 3 | 4) {
+  if (mealType.value === value) return
+  mealType.value = value
+  void loadRecommend()
+}
 
 // 默认餐次按时段推断（与 pages/record/camera.vue 口径一致）
 const hour = new Date().getHours()
@@ -442,7 +567,10 @@ async function pickOption(opt: RecommendOption, index: number) {
 async function addStandard(meal: StandardMeal, index: number) {
   addingIndex.value = index
   try {
-    const count = await recordCombo(meal.name, meal.calories, mealType.value, 4)
+    // 套餐按构成组件逐条落库（source=3 手动选套餐）；组件全未命中再按名字兜底
+    const count =
+      (await recordComponents(meal.components, mealType.value, 3)) ||
+      (await recordCombo(meal.name, meal.calories, mealType.value, 3))
     if (!count) {
       toast.info({ title: '该套餐暂不在食物库，可手动录入' })
       return
@@ -450,7 +578,7 @@ async function addStandard(meal: StandardMeal, index: number) {
     toast.success({ title: '已加入今日摄入' })
     await accountStore.refresh()
   } catch (e) {
-    // recordCombo/createMeal 失败：兜底提示，避免 unhandled rejection
+    // recordComponents/createMeal 失败：兜底提示，避免 unhandled rejection
     toast.error({ title: (e as Error).message || '记录失败，请重试' })
   } finally {
     addingIndex.value = -1
@@ -590,6 +718,8 @@ onLoad((options) => {
   void loadRecommend()
   // 附近商家比价（G5）：标准套餐 SKU 比价
   void loadCompare()
+  // 标准减脂餐：真目录（失败回落静态）
+  void loadStandardMeals()
   // 今日账户（/api/account/today）→ 今天还剩 X kcal
   void accountStore.refresh()
   if (!userStore.detail) void userStore.fetchMe()
@@ -731,6 +861,26 @@ onUnmounted(() => {
     font-size: $t-24;
     color: $brand;
     text-align: center;
+  }
+}
+
+// 餐次切换 chips（推荐卡头；默认按时段推断，可手动改）
+.meal-seg {
+  display: flex;
+  gap: $space-sm;
+  margin-bottom: $space-sm;
+
+  &__item {
+    padding: 4rpx $space-md;
+    font-size: $t-24;
+    color: $text-2;
+    background: $bg;
+    border-radius: 999rpx;
+
+    &--on {
+      color: #fff;
+      background: $brand;
+    }
   }
 }
 
