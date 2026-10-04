@@ -10,7 +10,7 @@
     <el-card class="page-card">
       <template #header>
         <div class="card-header">
-          <span>后台账号（超管可建全部角色，运营仅可建商家账号）</span>
+          <span>后台账号（超管可建运营 / 商家，运营仅可建商家账号；教练账号走教练端）</span>
           <el-button type="primary" @click="openCreate">新建账号</el-button>
         </div>
       </template>
@@ -111,7 +111,7 @@ import {
 } from '@/api/admin'
 import { isNetworkError } from '@/api/client'
 import { getAuth } from '@/composables/auth'
-import type { AdminAccountOut, AdminMerchantOut } from '@/types/api'
+import type { AdminAccountIn, AdminAccountOut, AdminMerchantOut } from '@/types/api'
 
 const items = ref<AdminAccountOut[]>([])
 const merchants = ref<AdminMerchantOut[]>([])
@@ -126,7 +126,14 @@ const isSuper = (auth?.role ?? 0) === 1
 
 const createVisible = ref(false)
 const submitting = ref(false)
-const form = reactive({ username: '', password: '', role: 3, merchantId: null as number | null })
+// role 类型与契约 AdminAccountIn['role'] 一致（1超管/2运营/3商家）；下拉只给 2/3，
+// 超管也不能建 4（教练走 G1 教练端），故超管文案不含「全部角色」。
+const form = reactive({
+  username: '',
+  password: '',
+  role: 3 as AdminAccountIn['role'],
+  merchantId: null as number | null,
+})
 
 function roleText(role: number): string {
   return { 1: '超管', 2: '运营', 3: '商家', 4: '教练' }[role] ?? '未知'

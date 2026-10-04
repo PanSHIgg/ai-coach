@@ -789,7 +789,7 @@ export type AdminAccountPageData = PageData<AdminAccountOut>;
 export interface AdminAccountIn {
   username: string;
   password: string; // 受统一弱口令策略约束（占位串/公开口令/长度不足拒绝）
-  role: number; // 2运营 3商家；1超管仅超管可建；4教练走 G1 教练端不经此接口
+  role: 1 | 2 | 3; // 1超管 2运营 3商家；1/2 仅超管可建；4教练走 G1 教练端不经此接口
   merchant_id?: number | null; // role=3 必填
 }
 

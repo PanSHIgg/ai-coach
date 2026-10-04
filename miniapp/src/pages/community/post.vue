@@ -168,6 +168,9 @@ const post = ref<CommunityPostOut | null>(null)
 const comments = ref<CommunityCommentOut[]>([])
 const draft = ref('')
 const commenting = ref(false)
+/** 点赞/取消的in-flight 守卫：快速双击时后一次直接返回，不发重复请求
+ * （后端 like/unlike 幂等，无数据不一致，但会多打一次请求）。 */
+const liking = ref(false)
 /** 头像加载失败的用户 id → 回退首字占位圆 */
 const avatarFail = ref<Record<number, boolean>>({})
 
@@ -258,13 +261,16 @@ async function loadDetail() {
 }
 
 async function toggleLike() {
-  if (!post.value) return
+  if (!post.value || liking.value) return
+  liking.value = true
   try {
     const res = post.value.liked ? await unlikePost(post.value.id) : await likePost(post.value.id)
     post.value.liked = res.liked
     post.value.like_count = res.like_count
   } catch {
     // request 层已 toast；失败不改本地态
+  } finally {
+    liking.value = false
   }
 }
 

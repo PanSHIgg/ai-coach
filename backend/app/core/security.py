@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 
 import jwt
@@ -115,10 +116,16 @@ _KNOWN_PUBLIC_PASSWORDS = frozenset(
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+@lru_cache(maxsize=1)
 def _read_env_example_password() -> str:
     """读 .env.example 的 ADMIN_INIT_PASSWORD 原值（不硬编码占位串进代码）。
 
-    文件不存在（容器镜像不含）或键缺失时返回空串 → 该条比对自动跳过。
+    带 `lru_cache`：本函数在建号/改密热路径上高频调用，而 .env.example 是**部署期静态
+    文件**（进程生命周期内不变），无需每次读盘。缓存不改变语义：文件不存在（容器镜像不含）
+    或键缺失时返回空串 → 该条比对自动跳过（保守降级，刻意保留）。
+
+    文件在进程启动后才被改/创建的情况不重读——那只在开发机手动改 .env.example 时发生，
+    重启进程即生效，不构成正确性风险。
     """
     path = _REPO_ROOT / ".env.example"
     try:

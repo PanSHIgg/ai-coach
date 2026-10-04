@@ -266,13 +266,20 @@ class AdminAccountPageData(BaseModel):
 
 
 class AdminAccountIn(BaseModel):
-    """创建后台账号；role=2 仅超管可建，role=3 必须绑定商家。"""
+    """创建后台账号；role=1/2 仅超管可建，role=3 必须绑定商家。
+
+    `role` 用白名单枚举 [1,2,3] 而非 ge/le 区间：语义即「1超管 / 2运营 / 3商家」，
+    4教练（走 G1 教练端）与 0/负数/超大值一并被 Pydantic 拦在入库之前，
+    统一走框架的 422 + 2001 校验错误路径，不会漏到 DB CHECK 约束撞出500。
+    服务层 `_ensure_account_create_allowed` 另有一道白名单（不依赖本字段约束，
+    防内部调用方绕过 schema 校验）。
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     username: str = Field(min_length=2, max_length=64)
     password: str = Field(min_length=12, max_length=128)
-    role: int  # 2运营 3商家；1超管仅超管可建；4教练走 G1 教练端，不经此接口
+    role: Literal[1, 2, 3]  # 1超管 2运营 3商家；4教练走 G1 教练端，不经此接口
     merchant_id: Optional[int] = None  # role=3 必填
 
 

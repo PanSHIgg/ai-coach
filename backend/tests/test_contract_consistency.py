@@ -8,7 +8,7 @@
 覆盖四类断言：
 1) 后端 **FastAPI 实际注册的路由** ↔ `contracts/openapi.yaml`：路径集合与每路径 method
    集合双向一致（缺失/多余都要点名到具体 `METHOD path`）；
-2) 冻结基线计数：契约与后端两侧同时钉在 110 路径 / 119 ops；
+2) 冻结基线计数：契约与后端两侧同时钉在 113 路径 / 123 ops；
 3) 两份 TS 副本 `contracts/ts/api.d.ts` 与 `miniapp/src/types/api.d.ts` 逐字一致；
 4) 契约内 `$ref`（`#/components/**`）目标存在，防悬空引用。
 
@@ -43,6 +43,9 @@ TS_COPY = REPO_ROOT / "miniapp" / "src" / "types" / "api.d.ts"
 #   -> 路径 110 / ops 119（GET 54）
 # 账号管理：GET+POST /api/admin/accounts、PUT /api/admin/accounts/{id}/password
 #   -> 路径 112 / ops 122（GET 55 / POST 57 / PUT 5）
+# 约战：POST /api/community/battle（建战）、GET /api/community/battle/list、
+#   POST /api/community/battle/join、POST /api/community/battle/quit（本波新增 4 条路径）
+#   -> 路径 113 / ops 123（GET 55 / POST 58 / PUT 5）
 FROZEN_PATH_COUNT = 113
 FROZEN_OP_COUNT = 123
 
@@ -131,7 +134,7 @@ def test_backend_and_contract_operations_match(path: str):
 
 
 def test_contract_freeze_baseline_counts():
-    """冻结基线：契约与后端实际注册两侧均为 110 路径 / 119 ops（漂移即失败，迫使显式更新）。
+    """冻结基线：契约与后端实际注册两侧均为 113 路径 / 123 ops（漂移即失败，迫使显式更新）。
 
     后端侧一并钉住，避免路由树遍历实现失效（如 FastAPI 升级改结构后返回空集）时
     只剩「契约自证」的假门禁。

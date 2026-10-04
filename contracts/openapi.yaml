@@ -5091,12 +5091,12 @@ components:
         page: { $ref: '#/components/schemas/PageMeta' }
     AdminAccountIn:
       type: object
-      description: 创建后台账号；role=2 仅超管可建，role=3 必须绑定商家
+      description: 创建后台账号；role=1/2 仅超管可建，role=3 必须绑定商家
       required: [username, password, role]
       properties:
         username: { type: string, minLength: 2, maxLength: 64 }
         password: { type: string, minLength: 12, maxLength: 128, description: 受统一弱口令策略约束（占位串/公开口令/长度不足拒绝） }
-        role: { type: integer, description: 2运营 3商家；1超管仅超管可建；4教练走 G1 教练端不经此接口 }
+        role: { type: integer, enum: [1, 2, 3], description: 1超管 2运营 3商家；1/2 仅超管可建；4教练走 G1 教练端不经此接口 }
         merchant_id: { type: integer, nullable: true, description: role=3 必填 }
     AdminPasswordResetIn:
       type: object

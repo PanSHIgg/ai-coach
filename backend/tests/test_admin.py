@@ -626,6 +626,27 @@ async def test_accounts_create_permission_matrix(
     assert r.status_code == 403 and r.json()["code"] == 1002
 
 
+async def test_accounts_create_role_out_of_range_rejected(
+    db_client: AsyncClient, admin_authed: dict
+):
+    """超管建越界 role（0/5/99/-1）一律 422 + 2001，不得 500。
+
+    回归背景：AdminAccountIn.role 曾是裸 int，超管建号时越界值一路放行到 INSERT，
+    撞 DB `CHECK (role IN (1,2,3,4))` → IntegrityError → 全局 handler → 500，
+    违反 AGENTS §7.2「参数校验 422 / 2001」。现由 schema 白名单 Literal[1,2,3] 拦在入库前，
+    服务层 `_ensure_account_create_allowed` 另有一道白名单（防内部调用方绕过 schema）。
+    """
+    token = _auth((await _login(db_client, admin_authed))["token"])
+    for role in (0, 5, 99, -1):
+        r = await db_client.post(
+            "/api/admin/accounts",
+            headers=token,
+            json={"username": f"oor-{role}", "password": _STRONG_PW, "role": role},
+        )
+        assert r.status_code == 422, f"role={role} 期望 422，实得 {r.status_code}：{r.text}"
+        assert r.json()["code"] == 2001, f"role={role} 期望 2001，实得 {r.json()}"
+
+
 async def test_accounts_create_validation_errors(
     db_client: AsyncClient, admin_authed: dict, db_session: AsyncSession
 ):

@@ -25,12 +25,18 @@ from datetime import date, datetime, time, timedelta, timezone
 from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppException
 from app.core.logging import get_logger
 from app.core.rate_limit import incr_window
-from app.core.security import create_access_token, hash_password, reject_weak_password, verify_password
+from app.core.security import (
+    create_access_token,
+    hash_password,
+    reject_weak_password,
+    verify_password,
+)
 from app.db.redis import get_redis
 from app.models import (
     AdminUser,
@@ -213,12 +219,24 @@ async def login(session: AsyncSession, payload: AdminLoginIn) -> AdminLoginData:
 
 
 def _ensure_account_create_allowed(principal: AdminPrincipal, role: int) -> None:
-    """创建权限分级：超管可建 1/2/3；运营仅可建 3；role=4 不经此接口（走 G1 教练端）。"""
-    if role == 4:
-        raise AppException(ErrorCode.VALIDATION_ERROR, "教练账号走教练端流程，不经此接口创建")
-    if principal.role == 1:
+    """创建权限分级：超管可建 1/2/3；运营仅可建 3；越界/4 一律 2001 参数校验。
+
+    - 白名单先落地：DB 有 `CHECK (role IN (1,2,3,4))`，若放行越界值会撞约束 →
+      IntegrityError → 全局 handler → 500（违反 AGENTS §7.2「参数校验 422/2001」），
+      故入库前用白名单拦下；role=4（教练）也走 2001，不走 1002。
+    - 建超管/运营账号（role 1/2）是超管专属，由 `ensure_super` 显式守护（其余角色 1002）；
+      建商家账号（role=3）超管与运营均可。
+    """
+    if role not in (1, 2, 3):
+        if role == 4:
+            raise AppException(
+                ErrorCode.VALIDATION_ERROR, "教练账号走教练端流程，不经此接口创建"
+            )
+        raise AppException(ErrorCode.VALIDATION_ERROR, "role 仅支持 1超管 / 2运营 / 3商家")
+    if role in (1, 2):
+        ensure_super(principal)  # 超管专属：非超管一律 1002
         return
-    if principal.role == 2 and role == 3:
+    if principal.role in (1, 2):
         return
     raise AppException(ErrorCode.FORBIDDEN)
 
@@ -295,7 +313,15 @@ async def create_account(
         merchant_id=merchant_id,
     )
     session.add(admin)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # 并发同名建号：上面的 dup select 与 insert 之间无锁，最终靠 DB UNIQUE 兜底。
+        # 不转成 500，按参数校验错误返回 2001（AGENTS §7.2 错误码映射）。
+        await session.rollback()
+        raise AppException(
+            ErrorCode.VALIDATION_ERROR, f"账号名已存在：{payload.username}"
+        ) from None
     await session.refresh(admin)
     return AdminAccountOut(
         id=admin.id,
