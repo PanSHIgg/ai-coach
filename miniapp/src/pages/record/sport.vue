@@ -40,12 +40,12 @@
         <CSkeleton v-if="loading" type="line" :rows="3" />
         <CError v-else-if="loadError" @retry="reload" />
         <template v-else>
+          <!-- 空态不带按钮：底部常驻「添加运动」主按钮已是入口，避免双按钮 -->
           <CEmpty
             v-if="!sports.length"
             icon="empty-sport"
             text="这一天还没有运动记录"
-            button-text="添加运动"
-            @action="goAdd"
+            button-text=""
           />
           <view v-for="s in sports" :key="s.id" class="sport__item">
             <text class="sport__item-name">{{ s.sport_name || '运动' }}</text>

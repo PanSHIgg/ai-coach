@@ -121,7 +121,16 @@
             <text class="rec__name">{{ s.sport_name || '运动' }}</text>
             <text class="rec__sub">{{ s.duration_min }} 分钟 · {{ Math.round(s.calories) }} kcal</text>
           </view>
-          <CButton class="sport-tab__add" type="ghost" size="sm" @click="goAdd">+ 添加运动</CButton>
+          <!-- 空态由 CEmpty 自带「添加运动」按钮，此入口只在有记录时出现，避免双按钮 -->
+          <CButton
+            v-if="sports.length"
+            class="sport-tab__add"
+            type="ghost"
+            size="sm"
+            @click="goAdd"
+          >
+            + 添加运动
+          </CButton>
         </template>
       </CCard>
 
