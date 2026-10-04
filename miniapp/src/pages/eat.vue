@@ -3,11 +3,12 @@
     <!-- 1. 顶部栏（§5.2-1：标题 + 🔔；消息二期接入） -->
     <CTopBar title="吃什么" @bell="onNotice" />
 
-    <!-- 2. AI 帮我找吃的：拍照 / 语音入口（§5.2-2） -->
+    <!-- 2. AI 帮我找吃的：拍摄 / 相册 / 语音三入口（§5.2-2；拍摄/相册拆两键，实测合并入口部分机型只拉相机） -->
     <view class="eat__entry">
       <text class="eat__entry-label">AI 帮我找吃的</text>
       <view class="eat__entry-row">
-        <CButton class="eat__entry-btn" size="md" @click="goMenuRec">拍照菜单 / 货架</CButton>
+        <CButton class="eat__entry-btn" size="md" @click="takePhoto">拍摄照片</CButton>
+        <CButton class="eat__entry-btn" size="md" @click="pickFromAlbum">选择照片</CButton>
         <CButton
           class="eat__entry-btn"
           size="md"
@@ -23,9 +24,12 @@
       <text v-if="voice.notice.value" class="eat__entry-notice">{{ voice.notice.value }}</text>
     </view>
 
-    <!-- 3. 识别结果区（§5.2-3）：来自页面内状态，拍照页返回 / 路由参数带回 -->
+    <!-- 3. 识别结果区（§5.2-3）：本页拍照/语音识别后原地展示，并驱动下方推荐卡 -->
     <view class="eat__recogn">
-      <template v-if="recognized.length">
+      <template v-if="recognizing">
+        <text class="eat__recogn-title">识别中…</text>
+      </template>
+      <template v-else-if="recognized.length">
         <text class="eat__recogn-title">AI 识别到：</text>
         <view class="eat__chips">
           <text v-for="(food, i) in recognized" :key="i" class="eat__chip">{{ food }}</text>
@@ -37,7 +41,7 @@
         icon="empty-food"
         text="还没有识别结果，拍张菜单或货架试试"
         button-text="去拍照"
-        @action="goMenuRec"
+        @action="takePhoto"
       />
     </view>
 
@@ -191,7 +195,9 @@ import { useVoice } from '@/composables/useVoice'
 import { useRecordCombo, COMBO_SPLIT } from '@/composables/useRecordCombo'
 import { recommend } from '@/api/ai'
 import { getMerchantCompare, getSkuCatalog } from '@/api/merchant'
-import type { GeoLocation, MerchantCompareItem, RecommendOption } from '@/types/api'
+import { track } from '@/utils/track'
+import { BASE_URL, getToken } from '@/api/request'
+import type { Envelope, GeoLocation, MerchantCompareItem, RecognizeData, RecommendOption } from '@/types/api'
 
 /* ---------- 常量 ---------- */
 
@@ -247,6 +253,8 @@ const mealText = computed(() => MEAL_LABEL[mealType.value] || '加餐')
 
 /** AI 识别到的食物名 */
 const recognized = ref<string[]>([])
+/** 本页拍照识别中（识别结果区显示「识别中…」） */
+const recognizing = ref(false)
 /** AI 推荐方案 */
 const options = ref<RecommendOption[]>([])
 const recLoading = ref(false)
@@ -274,6 +282,8 @@ const voice = useVoice({
     if (!names.length) return
     recognized.value = Array.from(new Set([...recognized.value, ...names]))
     toast.success({ title: '已识别语音内容' })
+    // 语音菜名同样驱动推荐（§5.2「菜单拍照识别+推荐」：items 即识别结果）
+    void loadRecommend()
   },
 })
 
@@ -432,8 +442,75 @@ async function addStandard(meal: StandardMeal, index: number) {
 /* ---------- 交互 ---------- */
 
 /** 菜单识别 + AI 推荐独立页（§5.2-2/3/4）：拍菜单 → 识别 → 方案卡，与热量记录页分离 */
-function goMenuRec() {
-  uni.navigateTo({ url: '/pages/eat/menu-recommend' })
+/* ---------- 本页拍照识别（§5.2-2/3）：拍菜单 → 识别菜名 → 驱动推荐卡 ---------- */
+
+function takePhoto() {
+  choosePic('camera')
+}
+function pickFromAlbum() {
+  choosePic('album')
+}
+function choosePic(sourceType: 'camera' | 'album') {
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    sourceType: [sourceType],
+    success: (res) => {
+      const path = (res.tempFilePaths as string[])[0]
+      if (!path) return
+      void recognizeImage(path)
+    },
+  })
+}
+
+/** multipart 识别（与 camera.vue 同款内联实现：request.ts 只封装了 JSON） */
+function uploadRecognize(filePath: string): Promise<RecognizeData> {
+  const token = getToken()
+  return new Promise((resolve, reject) => {
+    uni.uploadFile({
+      url: `${BASE_URL}/api/meal/recognize`,
+      filePath,
+      name: 'image',
+      header: token ? { Authorization: `Bearer ${token}` } : {},
+      success: (res) => {
+        let env: Envelope<RecognizeData> | null = null
+        try {
+          env = JSON.parse(res.data) as Envelope<RecognizeData>
+        } catch {
+          env = null
+        }
+        if (res.statusCode >= 200 && res.statusCode < 300 && env && env.code === 0 && env.data) {
+          resolve(env.data)
+        } else {
+          reject(new Error((env && env.message) || '识别失败'))
+        }
+      },
+      fail: (err) => reject(new Error(err.errMsg || '图片上传失败')),
+    })
+  })
+}
+
+async function recognizeImage(path: string) {
+  track('meal_photo', { meal_type: mealType.value })
+  recognizing.value = true
+  try {
+    const data = await uploadRecognize(path)
+    const foods = (data.items || [])
+      .map((it) => it.name)
+      .filter((n): n is string => !!n && !!n.trim())
+      .map((n) => n.trim())
+    if (!foods.length) {
+      toast.info({ title: '没识别出来，换个角度再试试' })
+      return
+    }
+    recognized.value = foods
+    // §5.2「菜单拍照识别+推荐」：识别结果原地展示，推荐卡立即按菜单刷新
+    await loadRecommend()
+  } catch (e) {
+    toast.error({ title: (e as Error).message || '识别失败，换个角度或重试' })
+  } finally {
+    recognizing.value = false
+  }
 }
 
 /** 语音输入（G4）：小程序录音+转写；H5 等环境由 useVoice 优雅降级提示手动输入 */

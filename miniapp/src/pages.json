@@ -125,12 +125,6 @@
       }
     },
     {
-      "path": "pages/eat/menu-recommend",
-      "style": {
-        "navigationBarTitleText": "菜单识别 · AI 推荐"
-      }
-    },
-    {
       "path": "pages/sport",
       "style": {
         "navigationBarTitleText": "运动",
