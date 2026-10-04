@@ -23,6 +23,14 @@
             mode="aspectFit"
           />
           <view class="msg__bubble">
+            <!-- 随消息发送的图片（点开可全屏预览） -->
+            <image
+              v-if="m.image"
+              class="msg__img"
+              :src="m.image"
+              mode="aspectFill"
+              @tap="previewImage(m.image)"
+            />
             <text class="msg__text" :class="{ 'msg__text--error': m.error }">{{ m.text }}</text>
 
             <!-- RAG 引用来源（AiChatData.references） -->
@@ -52,7 +60,6 @@
       </view>
     </scroll-view>
 
-    <!-- 底部输入区 -->
     <view class="chat__foot">
       <!-- 快捷问题（空会话时引导；饥饿急救入口也在其中） -->
       <scroll-view v-if="!messages.length" class="chips" scroll-x>
@@ -83,7 +90,15 @@
         <text v-else-if="timesLeft === 0" class="quota__link" @tap="onInvite">邀请好友解锁 ›</text>
       </view>
 
+      <!-- 待发送图片预览（可移除；与市面聊天工具一致，选完图先挂起再随消息发送） -->
+      <view v-if="pendingImage" class="pending-img">
+        <image class="pending-img__thumb" :src="pendingImage" mode="aspectFill" />
+        <text class="pending-img__remove" @tap="pendingImage = ''">×</text>
+      </view>
+
       <view class="chat__input">
+        <!-- 上传图片入口（相册 / 拍摄；上传走 COS 直传，发送走同一 chat 接口计次） -->
+        <view class="chat__plus" @tap="onPickImage">＋</view>
         <CInput
           v-model="draft"
           class="chat__input-box"
@@ -129,11 +144,14 @@ import { useUserStore } from '@/stores/user'
 import { useToast } from '@/composables/useToast'
 import { track } from '@/utils/track'
 import { redirectToLogin } from '@/utils/nav'
+import { uploadImage } from '@/utils/upload'
 
 /** 单条消息：role=user 用户 / ai 教练；error=true 时以警示色展示 */
 interface ChatMessage {
   role: 'user' | 'ai'
   text: string
+  /** 用户随消息发送的图片（本地临时路径，用于气泡即时展示） */
+  image?: string
   references?: string[]
   error?: boolean
   /** AI 回答满意度评分：undefined=未评；1~5=已评（每条仅评一次） */
@@ -175,6 +193,8 @@ const sessionId = ref(genUuid())
 const messages = ref<ChatMessage[]>([])
 const draft = ref('')
 const sending = ref(false)
+/** 待发送图片（本地临时路径；发送时 COS 直传，scene=chat） */
+const pendingImage = ref('')
 
 /** 今日剩余次数：null=未拉取（加载中/失败兜底） */
 const timesLeft = ref<number | null>(null)
@@ -187,15 +207,16 @@ const anchorId = ref('')
 
 /**
  * 能否发送：
- * - 加载中（未拉到且未失败）：按 draft 放行，避免网络抖动直接锁死输入框
+ * - 加载中（未拉到且未失败）：按 draft/图片放行，避免网络抖动直接锁死输入框
  * - 加载失败（timesLoaded 已 true 但 timesLeft 仍为 null）：次数不可信 → 不放行，须先点「重试」
- * - 已拉到次数：非 0 且有内容才放行
+ * - 已拉到次数：非 0 且（有文字或有图片）才放行
  */
 const canSend = computed(() => {
   if (sending.value) return false
   if (timesLoaded.value && timesLeft.value === null) return false
-  if (!timesLoaded.value) return !!draft.value.trim()
-  return timesLeft.value !== 0 && !!draft.value.trim()
+  const hasContent = !!draft.value.trim() || !!pendingImage.value
+  if (!timesLoaded.value) return hasContent
+  return timesLeft.value !== 0 && hasContent
 })
 
 const quotaText = computed(() => {
@@ -246,17 +267,28 @@ function onPick(q: string) {
   onSend()
 }
 
-/** 发送（次数为 0 时 canSend=false，按钮与回车均被拦住） */
+/** 发送（次数为 0 时 canSend=false，按钮与回车均被拦住）；带图时先直传 COS 再走 chat 接口 */
 async function onSend() {
   if (!canSend.value || sending.value) return
   const text = draft.value.trim()
-  if (!text) return
+  const imgPath = pendingImage.value
+  if (!text && !imgPath) return
 
-  draft.value = ''
-  pushMessage({ role: 'user', text })
   sending.value = true
   try {
-    const data = await chat({ session_id: sessionId.value, message: text })
+    // 图片直传 COS（公开读；失败即中止发送，不降级为纯文字——避免图文语义错位）
+    let imageUrl: string | null = null
+    if (imgPath) {
+      imageUrl = await uploadImage(imgPath, 'chat')
+      if (!imageUrl) {
+        toast.error({ title: '图片上传失败，请稍后重试' })
+        return
+      }
+    }
+    draft.value = ''
+    pendingImage.value = ''
+    pushMessage({ role: 'user', text, image: imgPath || undefined })
+    const data = await chat({ session_id: sessionId.value, message: text, image_url: imageUrl })
     pushMessage({
       role: 'ai',
       text: data?.reply || '（AI 暂未给出回答，换个问法试试）',
@@ -271,6 +303,31 @@ async function onSend() {
   } finally {
     sending.value = false
   }
+}
+
+/* ---------- 图片上传 ---------- */
+
+/** 「＋」入口：相册 / 拍摄二选一（与市面聊天工具一致） */
+function onPickImage() {
+  uni.showActionSheet({
+    itemList: ['从相册选择', '拍摄照片'],
+    success: (res) => {
+      uni.chooseImage({
+        count: 1,
+        sizeType: ['compressed'],
+        sourceType: [res.tapIndex === 0 ? 'album' : 'camera'],
+        success: (r) => {
+          const p = (r.tempFilePaths as string[])[0]
+          if (p) pendingImage.value = p
+        },
+      })
+    },
+  })
+}
+
+/** 点击消息气泡里的图片：全屏预览 */
+function previewImage(url?: string) {
+  if (url) uni.previewImage({ urls: [url] })
 }
 
 /**
@@ -371,6 +428,19 @@ onShow(() => {
     padding-bottom: $space-sm;
   }
 
+  // 图片上传入口（＋）
+  &__plus {
+    @include flex-center;
+
+    flex-shrink: 0;
+    width: 72rpx;
+    height: 72rpx;
+    font-size: 44rpx;
+    color: $text-2;
+    background: $bg;
+    border-radius: 50%;
+  }
+
   &__input-box {
     flex: 1;
   }
@@ -401,6 +471,16 @@ onShow(() => {
     background: $card;
     border-radius: $radius;
     box-shadow: $shadow;
+  }
+
+  // 消息图片（用户发送）：气泡内圆角展示
+  &__img {
+    display: block;
+    width: 320rpx;
+    height: 320rpx;
+    margin-bottom: $space-xs;
+    border-radius: $radius-sm;
+    background: $bg;
   }
 
   &__text {
@@ -508,11 +588,38 @@ onShow(() => {
   }
 }
 
+/* 待发送图片预览（输入框上方挂起，可移除） */
+.pending-img {
+  position: relative;
+  display: inline-flex;
+  margin: $space-xs 0;
+
+  &__thumb {
+    width: 160rpx;
+    height: 160rpx;
+    border-radius: $radius-sm;
+    background: $bg;
+  }
+
+  &__remove {
+    @include flex-center;
+
+    position: absolute;
+    top: -14rpx;
+    right: -14rpx;
+    width: 40rpx;
+    height: 40rpx;
+    font-size: 28rpx;
+    color: var(--card);
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 50%;
+  }
+}
+
 .quota {
   @include flex-between;
 
   padding: $space-xs 0;
-
   &__text {
     font-size: $t-22;
     color: $text-3;

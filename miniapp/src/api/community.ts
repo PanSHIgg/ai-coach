@@ -8,6 +8,7 @@ import type {
   BattleItem,
   BattleJoinData,
   BattlePageData,
+  BattleQuitData,
   ChallengeItem,
   ChallengeJoinData,
   ChallengeLeaderboardData,
@@ -165,6 +166,11 @@ export function listBattles(
 
 export function joinBattle(data: { battle_id: number }) {
   return request<BattleJoinData>('/api/community/battle/join', { method: 'POST', data })
+}
+
+/** 退出约战（join_count 为退出后的最新人数；满员退出后回「招募中」） */
+export function quitBattle(data: { battle_id: number }) {
+  return request<BattleQuitData>('/api/community/battle/quit', { method: 'POST', data })
 }
 
 /* ---------- 挑战赛 ---------- */

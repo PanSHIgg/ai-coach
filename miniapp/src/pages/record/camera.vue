@@ -9,7 +9,8 @@
         <view v-if="!imagePath" class="camera__empty">
           <image class="camera__empty-icon" src="/static/illustrations/empty-camera.png" mode="aspectFit" />
           <text class="camera__empty-text">拍下这一餐，AI 帮你识别热量</text>
-          <CButton block @click="choosePic">选择 / 拍摄照片</CButton>
+          <CButton block @click="takePhoto">拍摄照片</CButton>
+          <CButton class="camera__manual" type="secondary" block @click="pickFromAlbum">从相册选择</CButton>
           <CButton class="camera__manual" type="ghost" block @click="goManual">手动搜索录入</CButton>
           <CButton class="camera__manual" type="ghost" block @click="customVisible = !customVisible">
             {{ customVisible ? '收起自定义食物' : '食物库查不到？新建自定义食物' }}
@@ -44,7 +45,6 @@
         </view>
 
         <template v-else>
-          <!-- 图片预览 -->
           <image class="camera__preview" :src="imagePath" mode="aspectFill" />
 
           <!-- 2. 识别中：骨架 -->
@@ -52,8 +52,11 @@
 
           <!-- 3. 识别失败（一项都没返回）：换个角度或手动搜索兜底（§2.4） -->
           <view v-else-if="failed" class="camera__fail">
-            <CError text="没识别出来，换个角度再试试" @retry="choosePic" />
-            <CButton class="camera__manual" type="secondary" block @click="goManual">
+            <CError text="没识别出来，换个角度再试试" @retry="takePhoto" />
+            <CButton class="camera__manual" type="secondary" block @click="pickFromAlbum">
+              从相册选择
+            </CButton>
+            <CButton class="camera__manual" type="ghost" block @click="goManual">
               手动搜索录入
             </CButton>
           </view>
@@ -169,7 +172,10 @@
               记下来（{{ totalKcal }} kcal · {{ readyItems.length }} 项）
             </CButton>
             <text v-if="blockReason" class="camera__block">{{ blockReason }}</text>
-            <CButton class="camera__manual" type="ghost" block @click="choosePic">换张照片</CButton>
+            <view class="camera__repick">
+              <CButton type="ghost" block @click="takePhoto">重新拍摄</CButton>
+              <CButton type="ghost" block @click="pickFromAlbum">从相册换图</CButton>
+            </view>
           </view>
         </template>
       </CCard>
@@ -267,14 +273,20 @@ const hour = new Date().getHours()
 const mealType = ref<1 | 2 | 3 | 4>(hour < 10 ? 1 : hour < 15 ? 2 : hour < 20 ? 3 : 4)
 
 /**
- * 拍摄照片：直接拉起微信原生拍照界面（全屏取景 + 快门 + 相册入口 + 反转摄像头），
- * 不再弹「拍照 / 从相册选择」二选一。相册仍可从原生相机左下角入口进入。
+ * 选图入口：拍摄 / 相册分成两个独立按钮（实测合并入口在部分机型只拉起相机）。
+ * 拍摄直接拉起微信原生拍照界面（全屏取景 + 快门 + 相册入口 + 反转摄像头）。
  */
-function choosePic() {
+function takePhoto() {
+  choosePic('camera')
+}
+function pickFromAlbum() {
+  choosePic('album')
+}
+function choosePic(sourceType: 'camera' | 'album') {
   uni.chooseImage({
     count: 1,
     sizeType: ['compressed'],
-    sourceType: ['camera'],
+    sourceType: [sourceType],
     success: (res) => {
       const path = (res.tempFilePaths as string[])[0]
       if (!path) return
@@ -760,6 +772,13 @@ function goLogin() {
   }
 
   &__manual {
+    margin-top: $space-sm;
+  }
+
+  // 识别结果页「重新拍摄 / 从相册换图」并排
+  &__repick {
+    display: flex;
+    gap: $space-sm;
     margin-top: $space-sm;
   }
 }

@@ -5,7 +5,6 @@
       <text class="bt__link" @tap="showCreate = !showCreate">{{ showCreate ? '收起' : '发起约战' }}</text>
     </view>
 
-    <!-- 发起约战 -->
     <CCard v-if="showCreate" class="bt__card">
       <input v-model="form.title" class="bt__input" placeholder="约战标题" maxlength="256" />
       <input v-model="form.sport_name" class="bt__input" placeholder="运动类型（如 羽毛球）" maxlength="64" />
@@ -27,6 +26,17 @@
           {{ b.sport_name || '运动' }} · {{ b.city || '不限' }} · 已有 {{ b.join_count }}/{{ b.need_count }} 人
         </text>
         <CButton
+          v-if="b.joined"
+          class="bt__join"
+          size="sm"
+          type="ghost"
+          :disabled="b.status !== 1 && b.status !== 2"
+          @click="quit(b)"
+        >
+          {{ b.status === 1 || b.status === 2 ? '退出约战' : '已开始' }}
+        </CButton>
+        <CButton
+          v-else
           class="bt__join"
           size="sm"
           :disabled="b.status !== 1 || b.join_count >= b.need_count"
@@ -42,12 +52,13 @@
 <script setup lang="ts">
 /**
  * FE5 · 约战 — Phase 4 (M4)
- * 契约：POST /api/community/battle、GET .../battle/list、POST .../battle/join（满员 2001）
+ * 契约：POST /api/community/battle、GET .../battle/list、POST .../battle/join、POST .../battle/quit
+ * 一人一位（后端成员表防重复，重复加入 2001）；已加入可退出，满员退出后回「招募中」。
  */
 import { reactive, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 
-import { createBattle, joinBattle, listBattles } from '@/api/community'
+import { createBattle, joinBattle, listBattles, quitBattle } from '@/api/community'
 import type { BattleItem } from '@/types/api'
 import { useToast } from '@/composables/useToast'
 
@@ -102,13 +113,40 @@ async function create() {
 }
 
 async function join(b: BattleItem) {
+  // 防手抖双击：本地点位已在请求前置灰（:disabled 由 joined/满员推导），再兜一层
+  if (b.joined) return
   try {
     const res = await joinBattle({ battle_id: b.id })
     b.join_count = res.join_count
+    b.joined = true
     if (b.join_count >= b.need_count) b.status = 2
     toast.success({ title: '已加入约战' })
   } catch {
-    // request 层已 toast（满员 2001 等）；失败不改本地态
+    // request 层已 toast（重复加入 2001 / 满员 2001 等）；失败后刷新拿到真实成员态
+    void load()
+  }
+}
+
+async function quit(b: BattleItem) {
+  const confirm = await new Promise<boolean>((resolve) => {
+    uni.showModal({
+      title: '退出约战',
+      content: '确定退出这场约战吗？',
+      success: (res) => resolve(!!res.confirm),
+      fail: () => resolve(false),
+    })
+  })
+  if (!confirm) return
+  try {
+    const res = await quitBattle({ battle_id: b.id })
+    b.join_count = res.join_count
+    b.joined = false
+    // 满员退出后回「招募中」，其他人可以再加入
+    if (b.status === 2 && b.join_count < b.need_count) b.status = 1
+    toast.success({ title: '已退出约战' })
+  } catch {
+    // request 层已 toast（未加入 2001 等）；失败后刷新拿到真实成员态
+    void load()
   }
 }
 
