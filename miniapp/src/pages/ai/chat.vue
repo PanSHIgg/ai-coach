@@ -31,7 +31,14 @@
               mode="aspectFill"
               @tap="previewImage(m.image)"
             />
-            <text class="msg__text" :class="{ 'msg__text--error': m.error }">{{ m.text }}</text>
+            <!-- 用户消息 / 错误降级文案保持纯文本；AI 正常回复走 Markdown 渲染 -->
+            <text
+              v-if="m.role === 'user' || m.error"
+              class="msg__text"
+              :class="{ 'msg__text--error': m.error }"
+            >{{ m.text }}</text>
+            <!-- AI 回复 Markdown 渲染（marked → mp-html，表格可横滚、长按可复制） -->
+            <CMd v-else :content="m.text" />
 
             <!-- RAG 引用来源（AiChatData.references） -->
             <view v-if="m.references && m.references.length" class="msg__refs">
