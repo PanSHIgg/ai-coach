@@ -17,7 +17,7 @@ docker compose -f deploy/docker-compose.yml --env-file .env up -d --build
 
 - 启动 PostgreSQL 16（PostGIS 镜像）与 Redis 7
 - **建表**：首次启动自动执行 `data/sql/001_schema.sql`，建好 36 张表
-- **导入种子**：食物库 1750 条、别名 342 条、标准 SKU、RAG 语料
+- **导入种子**：食物库 1750 条、别名 342 条、标准 SKU、RAG 语料（**仅首次 / 空库需要**；已有数据请设 `LOAD_SEEDS=false`，见下文「种子数据：灌一次就够了」）
 - **对齐数据库版本**（alembic）
 - **创建后台超管账号**（账号密码取自 `.env`）
 - 构建后端镜像并启动 api / worker / nginx
@@ -61,6 +61,27 @@ docker compose -f deploy/docker-compose.yml down
 # ⚠️ 停止并删除数据卷 —— 会丢数据，慎用
 docker compose -f deploy/docker-compose.yml down -v
 ```
+
+### 种子数据：灌一次就够了
+
+种子 = **平台预置的参考数据**（食物库 1750 条 / 别名 / 标准 SKU / RAG 知识库），与用户数据无关。它存在 `pgdata` 数据卷里，`down` / `up` / 重启容器都**不会丢**——**灌过一次就不需要再灌**，日常重启什么都不用做。
+
+**⚠️ 但 compose 默认每次 `up` 都会重灌种子**（`LOAD_SEEDS` 默认 `true`），且重灌前执行 `TRUNCATE TABLE food CASCADE` —— `meal_record.food_id` 外键引用 food，**会把用户已记录的饮食记录一起清空**（2026-10-04 实际事故：重启一次，当天饮食记录全没）。
+
+所以**库里已有真实数据的机器，务必关闭种子重灌**（二选一）：
+
+```bash
+# 方式一：一次性（每次 up 都要带）
+LOAD_SEEDS=false docker compose -f deploy/docker-compose.yml up -d
+
+# 方式二：本机持久（推荐）—— 新建 deploy/.env 写一行 LOAD_SEEDS=false
+# 注意必须是 deploy/.env，根 .env 无效（插值不读它，同下方"容易踩的坑"第 1 条）
+echo "LOAD_SEEDS=false" > deploy/.env
+```
+
+双保险：`data/load_seeds.py` 已加守卫——只要 `meal_record` 里有数据就拒绝导入并提示（确要清库需显式 `--force`）。
+
+**需要重新灌种子的场景**只有两种：换了新库 / 数据卷重建（food 表空了，识别和搜索会匹配不到）；食物库 CSV 更新了要同步。到时临时 `LOAD_SEEDS=true` 跑一次，灌完记得关回去。
 
 ---
 
@@ -168,6 +189,7 @@ npm run build:mp-weixin
 
 | 现象 | 原因 | 处置 |
 | --- | --- | --- |
+| 重启后端后饮食记录消失 | `compose up` 默认重灌种子，`TRUNCATE food CASCADE` 级联清空 `meal_record` | 见「种子数据：灌一次就够了」：设 `LOAD_SEEDS=false`（持久化写 `deploy/.env`） |
 | 容器起不来，日志报连不上库 | 数据库没起 / `.env` 连接串指错 | 确认 `docker compose ps` 里 postgres 是 healthy |
 | 登录返回 `1001` | `WECHAT_APPID` / `WECHAT_SECRET` 未填或填错 | 填入小程序凭证（mock 登录已删，无兜底） |
 | 登录后台提示账号不存在 | `ADMIN_INIT_USERNAME/PASSWORD` 未填 | 补齐后 `docker compose -f deploy/docker-compose.yml run --rm migrate` |
