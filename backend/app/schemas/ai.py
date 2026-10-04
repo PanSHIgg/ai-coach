@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AiChatIn(BaseModel):
@@ -50,6 +50,18 @@ class AiRecommendIn(BaseModel):
     meal_type: int = Field(ge=1, le=4)  # 1早餐 2午餐 3晚餐 4加餐
     location: Optional[GeoLocation] = None
     budget: Optional[float] = None  # 预算上限（元）
+    # 拍照/语音识别到的菜名（§5.2「菜单拍照识别+推荐」链路）：按名匹配食物库拼组合，
+    # 未命中的忽略，命中不足 2 个回退标准库组合。≤20 项防提示词打爆 LLM。
+    items: Optional[list[str]] = Field(default=None, max_length=20)
+
+    @field_validator("items", mode="before")
+    @classmethod
+    def _clean_items(cls, v: Optional[list]) -> Optional[list[str]]:
+        """逐项 strip + 截断 64 字，丢弃空串/非字符串；清洗后为空视为未传（None）。"""
+        if v is None:
+            return None
+        cleaned = [s.strip()[:64] for s in v if isinstance(s, str) and s.strip()]
+        return cleaned or None
 
 
 class RecommendOption(BaseModel):

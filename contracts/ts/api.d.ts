@@ -365,6 +365,8 @@ export interface AiRecommendIn {
   meal_type: 1 | 2 | 3 | 4;
   location?: GeoLocation;
   budget?: number | null; // 元
+  /** 拍照/语音识别到的菜名（≤20 项）：后端按名匹配食物库拼组合，未命中的忽略，全部未命中回退标准库组合 */
+  items?: string[] | null;
 }
 
 export interface RecommendOption {

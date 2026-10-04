@@ -4497,6 +4497,17 @@ components:
           type: number
           nullable: true
           description: 预算上限（元）
+        items:
+          type: array
+          nullable: true
+          maxItems: 20
+          description: >-
+            拍照/语音识别到的菜名（吃什么页 §5.2「菜单拍照识别+推荐」链路）。
+            后端按名匹配食物库（精确名→别名→库菜名含于识别名→识别名含于库菜名），
+            用命中的菜拼 2~3 个组合；未命中的忽略，命中不足 2 个回退标准库组合。
+          items:
+            type: string
+            maxLength: 64
     RecommendOption:
       type: object
       required: [name, calories, reason]

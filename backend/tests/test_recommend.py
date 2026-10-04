@@ -167,3 +167,59 @@ async def test_recommend_rejects_invalid_meal_type(db_client, authed, meal_type)
     """meal_type 越界（1~4 之外）→ 422。"""
     resp = await db_client.post(_URL, headers=authed["headers"], json={"meal_type": meal_type})
     assert resp.status_code == 422
+
+
+# ---------- items：拍照/语音识别菜名 → 按识别菜单拼组合（§5.2 菜单拍照识别+推荐） ----------
+
+
+async def test_recommend_with_recognized_items_uses_matched_foods(db_client, db_session, authed):
+    """带识别菜名：命中的食物（含「清蒸鲈鱼」模糊命中库「鲈鱼」）进组合，未命中的忽略。"""
+    food_ids = await _seed_foods(db_session)
+    fish = Food(
+        name="鲈鱼",
+        category="水产",
+        calories_100g=105.0,
+        protein_100g=18.6,
+        is_standard=True,
+        status=1,
+    )
+    db_session.add(fish)
+    await db_session.flush()
+    await db_session.commit()
+    food_ids.add(int(fish.id))
+
+    resp = await db_client.post(
+        _URL,
+        headers=authed["headers"],
+        json={"meal_type": 3, "items": ["清蒸鲈鱼", "西兰花", "不存在的菜"]},
+    )
+    body = resp.json()
+    assert (resp.status_code, body["code"]) == (200, 0)
+    options = body["data"]["options"]
+    assert options
+    # 组合全部来自命中食物：不拿「不存在的菜」冒充，主打食物都在库里
+    assert all(o["food_id"] in food_ids for o in options)
+    assert any("鲈鱼" in o["name"] for o in options)
+    assert all("不存在" not in o["name"] for o in options)
+
+
+async def test_recommend_items_all_unmatched_falls_back_to_templates(db_client, db_session, authed):
+    """识别菜名全部未命中：回退标准库组合，接口仍 200 且返回可用方案。"""
+    await _seed_foods(db_session)
+
+    resp = await db_client.post(
+        _URL, headers=authed["headers"], json={"meal_type": 2, "items": ["黑暗料理", "不存在的菜"]}
+    )
+    body = resp.json()
+    assert (resp.status_code, body["code"]) == (200, 0)
+    options = body["data"]["options"]
+    assert options
+    assert all("组合" in o["reason"] for o in options)
+
+
+async def test_recommend_rejects_too_many_items(db_client, authed):
+    """识别菜名超 20 项 → 422（防超长提示词打爆 LLM）。"""
+    resp = await db_client.post(
+        _URL, headers=authed["headers"], json={"meal_type": 2, "items": ["菜"] * 21}
+    )
+    assert resp.status_code == 422

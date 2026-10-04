@@ -380,7 +380,12 @@ async function loadRecommend() {
   recLoading.value = true
   recError.value = false
   try {
-    const data = await recommend({ meal_type: mealType.value })
+    const data = await recommend({
+      meal_type: mealType.value,
+      // §5.2「菜单拍照识别+推荐」：带上拍照/语音回传的识别菜名，
+      // 后端按名匹配食物库拼组合（未命中的忽略，全部未命中回退标准库）
+      items: recognized.value.length ? recognized.value : undefined,
+    })
     options.value = data?.options ?? []
   } catch (e) {
     // request 已统一 toast；此处置错误态提供「重试」入口
@@ -519,6 +524,8 @@ function onRecognized(payload: unknown) {
   const foods = (payload as { foods?: string[] } | null)?.foods
   if (Array.isArray(foods) && foods.length) {
     recognized.value = foods.filter((f) => typeof f === 'string' && f.trim()).map((f) => f.trim())
+    // §5.2「菜单拍照识别+推荐」：识别结果变化 → 推荐卡按拍的菜单刷新
+    void loadRecommend()
   }
 }
 

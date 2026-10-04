@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import LLMClient
@@ -33,7 +33,7 @@ from app.services.ai_service import llm_client_for
 from app.core.config import Settings, get_settings
 from app.core.errors import AppException
 from app.core.logging import get_logger
-from app.models import Food
+from app.models import Food, FoodAlias
 from app.schemas.ai import GeoLocation, RecommendOption
 from app.services import account
 from app.services.recognize_service import compute_calories
@@ -280,6 +280,105 @@ async def polish_reasons(
     return _parse_reasons(text, len(combos))
 
 
+# 识别菜名 → 食物库匹配（§5.2「菜单拍照识别+推荐」链路）
+
+
+MATCH_PORTION_G = 200.0  # 识别组合的每菜固定份量（菜单一道菜约 150~250g，取中值）
+
+
+async def match_foods(session: AsyncSession, names: list[str]) -> list[Food]:
+    """菜名 → food 表候选：精确名 → 别名 → 库菜名含于识别名 → 识别名含于库菜名。
+
+    每个菜名取首个命中（standard 优先、id 升序，结果稳定），命中去重保序；
+    匹配不上的菜名直接忽略（绝不拿不相干食物冒充），全部未命中返回空列表。
+    """
+    matched: list[Food] = []
+    seen: set[int] = set()
+    for raw in names:
+        name = (raw or "").strip()[:64]
+        if not name:
+            continue
+        stmts = (
+            # 1) 库名精确等于识别名
+            select(Food)
+            .where(Food.status == 1, Food.name == name)
+            .order_by(Food.is_standard.desc(), Food.id)
+            .limit(1),
+            # 2) 别名精确（如「西红柿」命中「番茄」）
+            select(Food)
+            .join(FoodAlias, FoodAlias.food_id == Food.id)
+            .where(Food.status == 1, FoodAlias.alias == name)
+            .order_by(Food.is_standard.desc(), Food.id)
+            .limit(1),
+            # 3) 库菜名是识别名的子串（识别「清蒸鲈鱼」命中库「鲈鱼」）
+            select(Food)
+            .where(Food.status == 1, literal(name).contains(Food.name))
+            .order_by(Food.is_standard.desc(), Food.id)
+            .limit(1),
+            # 4) 识别名是库菜名的子串（识别「排骨」命中库「红烧排骨」）
+            select(Food)
+            .where(Food.status == 1, Food.name.ilike(f"%{name}%"))
+            .order_by(Food.is_standard.desc(), Food.id)
+            .limit(1),
+        )
+        food = None
+        for stmt in stmts:
+            food = (await session.execute(stmt)).scalar_one_or_none()
+            if food is not None:
+                break
+        if food is not None and int(food.id) not in seen:
+            seen.add(int(food.id))
+            matched.append(food)
+    return matched
+
+
+def build_combos_from_foods(foods: list[Food]) -> list[Combo]:
+    """识别命中的食物 → 2~3 个组合：按每 100g 热量排序后取「最低卡 / 中段 / 最高卡」滑窗。
+
+    每菜固定 MATCH_PORTION_G 份量，热量按 compute_calories 逐项累加；
+    名字相同的窗口去重，按总热量升序输出（与标准库组合同序）。
+    """
+    ordered = sorted(foods, key=lambda f: float(f.calories_100g))
+    n = len(ordered)
+    windows = (
+        ordered[0 : min(2, n)],  # 最低卡
+        ordered[max(0, n // 2 - 1) : n // 2 + 1],  # 中段
+        ordered[max(0, n - 2) : n],  # 最高卡
+    )
+    stages = (
+        ("清淡组合", "选了热量最低的几样，负担小"),
+        ("均衡组合", "荤素搭配适中"),
+        ("足量组合", "热量偏高，注意份量"),
+    )
+    combos: list[Combo] = []
+    seen_names: set[str] = set()
+    for i, group in enumerate(windows):
+        if not group:
+            continue
+        name = " + ".join(food.name for food in group)
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+        label, highlight = stages[i]
+        template = ComboTemplate(label=label, highlight=highlight, slots=())
+        items = tuple((food, MATCH_PORTION_G) for food in group)
+        calories = round(
+            sum(compute_calories(float(food.calories_100g), MATCH_PORTION_G) for food in group), 1
+        )
+        main = max(group, key=lambda f: float(f.protein_100g or 0))
+        combos.append(
+            Combo(
+                template=template,
+                items=items,
+                calories=calories,
+                name=name,
+                food_id=int(main.id),
+            )
+        )
+    combos.sort(key=lambda c: c.calories)
+    return combos
+
+
 # 主流程
 
 
@@ -290,18 +389,38 @@ async def recommend(
     meal_type: int,
     location: GeoLocation | None = None,
     budget: float | None = None,
+    items: list[str] | None = None,
     llm_client: LLMClient | None = None,
 ) -> list[RecommendOption]:
     """饭点决策主流程：额度 → 组合 → 分级 → 润色（失败降级）。
 
     budget / location 现阶段无数据支撑（food 无价格列、商家域 Phase 3），只记录日志。
+    items 为拍照/语音识别到的菜名（§5.2「菜单拍照识别+推荐」）：命中 ≥2 个食物时
+    用识别的菜拼组合，否则回退标准库模板（行为与不带 items 完全一致）。
     """
     s = settings or get_settings()
     if budget is not None or location is not None:
         logger.info("推荐收到预算/位置参数，Phase 3 才接入价格与商家，本轮忽略")
 
     allowance = await remaining_allowance(session, user_id, meal_type)
-    combos = await build_combos(session)
+
+    combos: list[Combo] = []
+    if items:
+        matched = await match_foods(session, items)
+        if len(matched) >= 2:
+            combos = build_combos_from_foods(matched)
+            logger.info(
+                "识别菜名命中食物，按识别菜单拼组合",
+                extra={"item_count": len(items), "matched": len(matched)},
+            )
+        else:
+            logger.info(
+                "识别菜名命中不足 2 个，回退标准库组合",
+                extra={"item_count": len(items), "matched": len(matched)},
+            )
+    if not combos:
+        combos = await build_combos(session)
+
     grades = [grade_for(combo.calories, allowance) for combo in combos]
 
     bodies: list[str] | None = None

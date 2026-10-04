@@ -34,5 +34,6 @@ async def ai_recommend(
         payload.meal_type,
         location=payload.location,
         budget=payload.budget,
+        items=payload.items,
     )
     return ok(AiRecommendData(options=options), request_id=request_id)

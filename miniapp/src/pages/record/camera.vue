@@ -359,7 +359,15 @@ async function recognize(path: string) {
     items.value = (data.items || []).map(toEditable)
     needConfirm.value = !!data.need_confirm
     // 一项都没返回才算识别失败；有返回但没匹配上 → 逐项给用户出路，不再静默丢弃
-    if (!items.value.length) failed.value = true
+    if (!items.value.length) {
+      failed.value = true
+    } else {
+      // §5.2「菜单拍照识别+推荐」：识别成功即把菜名回传吃什么页（不等保存），
+      // 用户拍完直接返回也能看到「AI 识别到」并触发按菜单的推荐；保存后会再 emit 入账项
+      uni.$emit('eat:recognized', {
+        foods: items.value.map((it) => it.name).filter((n): n is string => !!n),
+      })
+    }
   } catch (e) {
     failed.value = true
     toast.error({ title: (e as Error).message || '识别失败，换个角度或手动搜索' })
