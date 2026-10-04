@@ -31,8 +31,9 @@ from app.core.errors import AppException
 from app.models import BodyProfile, Food, FoodAlias
 from app.services import account
 
-MAX_TOOL_ROUNDS = 3  # 一次提问内 LLM 最多发起的工具调用轮数（防死循环打爆费用）
-MAX_FOOD_HITS = 5
+MAX_TOOL_ROUNDS = 4  # LLM 交互轮数上限（含工具结果回填后的最终回答轮）
+MAX_TOOL_CALLS = 2  # 一次提问内最多执行 2 次工具调用（防打爆费用）
+MAX_FOOD_HITS = 3
 MAX_GRAMS = 400  # 与推荐侧克数上界一致
 
 FOOD_TOOLS: list[dict[str, Any]] = [
@@ -41,25 +42,48 @@ FOOD_TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "food_info_query",
             "description": (
-                "按关键词查询食物库的营养信息（热量/蛋白/脂肪/碳水/GI），"
-                "适合回答「这个菜热量高吗」「XX 能吃吗」「帮我查一下 XX」类问题"
+                "批量查询食物库营养信息（热量/蛋白/脂肪/碳水/GI），一次可传多个关键词。"
+                "今日热量账户已在上下文中，无需查询。"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "keyword": {"type": "string", "description": "食物关键词，如 鲈鱼 / 红烧肉 / 燕麦"},
-                    "limit": {"type": "integer", "description": "返回条数上限，默认 5"},
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "食物关键词列表，一次查多个，如 [\"清蒸鲈鱼\", \"炒青菜\"]",
+                    },
                 },
-                "required": ["keyword"],
+                "required": ["keywords"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "get_user_status",
-            "description": "查询当前用户今日热量账户（已摄入 / 总消耗 TEE / 还能吃多少 / 步数）",
-            "parameters": {"type": "object", "properties": {}},
+            "name": "calc_calories",
+            "description": (
+                "精确计算一组食物（名称+克数）的总热量：后端按食物库营养数据重算，"
+                "结果可直接引用。涉及「这顿一共多少热量」类问题必须用本工具，不要心算"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "description": "食物与克数列表",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "food": {"type": "string", "description": "食物名"},
+                                "grams": {"type": "number", "description": "克数"},
+                            },
+                            "required": ["food", "grams"],
+                        },
+                    },
+                },
+                "required": ["items"],
+            },
         },
     },
 ]
@@ -103,10 +127,43 @@ def _system_prompt(user_context: str) -> str:
         "# 当前用户上下文（来自数据库的真实数据，回答时直接引用，禁止编造）\n"
         f"{user_context}\n\n"
         "# 工具使用说明\n"
-        "- 涉及具体食物的热量 / 营养成分时，先调用 food_info_query 查库，不要凭记忆报数\n"
-        "- 涉及「我今天吃了多少 / 还能吃多少」时，先调用 get_user_status\n"
-        "- 上下文里已有的信息直接引用，不必重复查询\n"
-        "- 查不到的食物如实说明，不要编造营养数据\n"
+        "- 涉及具体食物的热量 / 营养成分时，调用 food_info_query 批量查库（keywords 传列表，"
+        "一次可查多个），不要凭记忆报数\n"
+        "- 需要精确计算「某几样食物一共多少热量」时，调用 calc_calories，不要心算\n"
+        "- 今日热量账户（已摄入 / 还能吃多少）已在上下文中，直接引用，无需查询\n"
+        "- 上下文里已有的信息直接引用；查不到的食物如实说明，不要编造营养数据\n"
+    )
+
+
+# ---------- 工具实现（只读，全部返回 JSON 字符串） ----------
+
+
+def _food_rows(rows: list[Food]) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": f.name,
+            "category": f.category or "",
+            "kcal_100g": round(float(f.calories_100g), 1),
+            "protein_100g": round(float(f.protein_100g or 0), 1),
+            "fat_100g": round(float(f.fat_100g or 0), 1),
+            "carb_100g": round(float(f.carb_100g or 0), 1),
+            "gi": f.gi,
+        }
+        for f in rows
+    ]
+
+
+def _system_prompt(user_context: str) -> str:
+    return (
+        f"{AI_COACH_SYSTEM_PROMPT}\n\n"
+        "# 当前用户上下文（来自数据库的真实数据，回答时直接引用，禁止编造）\n"
+        f"{user_context}\n\n"
+        "# 工具使用说明\n"
+        "- 涉及具体食物的热量 / 营养成分时，调用 food_info_query 批量查库（keywords 传列表，"
+        "一次可查多个），不要凭记忆报数\n"
+        "- 需要精确计算「某几样食物一共多少热量」时，调用 calc_calories，不要心算\n"
+        "- 今日热量账户已在上下文中，无需查询\n"
+        "- 上下文里已有的信息直接引用；查不到的食物如实说明，不要编造营养数据\n"
     )
 
 
@@ -129,42 +186,80 @@ def _food_rows(rows: list[Food]) -> list[dict[str, Any]]:
 
 
 async def _tool_food_info_query(session: AsyncSession, args: dict[str, Any]) -> str:
-    keyword = str(args.get("keyword", "")).strip()[:64]
-    try:
-        limit = min(max(int(args.get("limit") or MAX_FOOD_HITS), 1), 10)
-    except (TypeError, ValueError):
-        limit = MAX_FOOD_HITS
-    if not keyword:
-        return json.dumps({"hits": [], "note": "关键词为空"}, ensure_ascii=False)
-    stmt = (
-        select(Food)
-        .outerjoin(FoodAlias, FoodAlias.food_id == Food.id)
-        .where(
-            Food.status == 1,
-            or_(Food.name.ilike(f"%{keyword}%"), FoodAlias.alias.ilike(f"%{keyword}%")),
+    """批量查询：keywords 列表一次查多个关键词（兼容单个字符串）。"""
+    raw = args.get("keywords", args.get("keyword"))
+    if isinstance(raw, str):
+        keywords = [raw]
+    elif isinstance(raw, list):
+        keywords = raw
+    else:
+        keywords = []
+    results: list[dict[str, Any]] = []
+    for raw_kw in keywords[:6]:  # 一次最多 6 个关键词，防提示词膨胀
+        keyword = str(raw_kw or "").strip()[:64]
+        if not keyword:
+            continue
+        stmt = (
+            select(Food)
+            .outerjoin(FoodAlias, FoodAlias.food_id == Food.id)
+            .where(
+                Food.status == 1,
+                or_(
+                    Food.name.ilike(f"%{keyword}%"),
+                    FoodAlias.alias.ilike(f"%{keyword}%"),
+                ),
+            )
+            .order_by(Food.is_standard.desc(), Food.id)
+            .limit(MAX_FOOD_HITS)
         )
-        .order_by(Food.is_standard.desc(), Food.id)
-        .limit(limit)
-    )
-    rows = list((await session.execute(stmt)).scalars().all())
-    payload = {"hits": _food_rows(rows)}
-    if not rows:
-        payload["note"] = "食物库中没有匹配项，请如实告知用户查不到"  # type: ignore[assignment]
-    return json.dumps(payload, ensure_ascii=False)
+        rows = list((await session.execute(stmt)).scalars().all())
+        entry: dict[str, Any] = {"keyword": keyword, "hits": _food_rows(rows)}
+        if not rows:
+            entry["note"] = "食物库中没有匹配项，请如实告知用户查不到"
+        results.append(entry)
+    if not results:
+        return json.dumps({"results": [], "note": "关键词为空"}, ensure_ascii=False)
+    return json.dumps({"results": results}, ensure_ascii=False)
 
 
-async def _tool_get_user_status(session: AsyncSession, user_id: int) -> str:
-    try:
-        result = await account.compute_result(session, user_id, datetime.now(account.TZ).date())
-    except AppException:
-        return json.dumps({"profile": "未建档，无热量账户"}, ensure_ascii=False)
+async def _match_food(session: AsyncSession, keyword: str) -> Food | None:
+    """单关键词匹配食物库（四级策略复用 recommend_service.match_foods）。
+
+    局部导入避免循环依赖：recommend_service → ai_service → 本模块。
+    """
+    from app.services.recommend_service import match_foods
+
+    matched = await match_foods(session, [keyword])
+    return matched[0] if matched else None
+
+
+async def _tool_calc_calories(session: AsyncSession, args: dict[str, Any]) -> str:
+    """一次计算一组食物的总热量：逐项按食物库 kcal/100g × 克数重算，未命中的列入 unmatched。"""
+    raw = args.get("items")
+    if not isinstance(raw, list) or not raw:
+        return json.dumps({"error": "items 缺失或为空"}, ensure_ascii=False)
+    items_out: list[dict[str, Any]] = []
+    unmatched: list[str] = []
+    total = 0.0
+    for entry in raw[:8]:  # 单次最多 8 项，防提示词膨胀
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("food", "")).strip()[:64]
+        try:
+            grams = float(entry.get("grams") or 0)
+        except (TypeError, ValueError):
+            grams = 0.0
+        if not name or grams <= 0 or grams > 2000:
+            continue
+        food = await _match_food(session, name)
+        if food is None:
+            unmatched.append(name)
+            continue
+        kcal = round(float(food.calories_100g) * grams / 100.0, 1)
+        total += kcal
+        items_out.append({"food": food.name, "grams": grams, "kcal": kcal})
     return json.dumps(
-        {
-            "intake_kcal": round(float(result.intake), 1),
-            "tee_kcal": round(float(result.tee), 1),
-            "today_left_kcal": round(float(result.today_left), 1),
-            "steps": result.steps,
-        },
+        {"items": items_out, "total_kcal": round(total, 1), "unmatched": unmatched},
         ensure_ascii=False,
     )
 
@@ -176,8 +271,8 @@ async def _execute_tool(
     try:
         if name == "food_info_query":
             return await _tool_food_info_query(session, args)
-        if name == "get_user_status":
-            return await _tool_get_user_status(session, user_id)
+        if name == "calc_calories":
+            return await _tool_calc_calories(session, args)
         return json.dumps({"error": f"unknown tool {name}"}, ensure_ascii=False)
     except Exception as exc:  # noqa: BLE001 - 工具失败以 error 结果回填，由 LLM 决定如何回应
         return json.dumps({"error": str(exc)}, ensure_ascii=False)
@@ -248,6 +343,7 @@ async def run_chat_workflow(
             messages.append({"role": "system", "content": f"# 知识库检索结果\n{knowledge}"})
         messages.append({"role": "user", "content": text})
 
+        calls_used = 0
         for _ in range(MAX_TOOL_ROUNDS):
             try:
                 message = await asyncio.to_thread(
@@ -281,9 +377,15 @@ async def run_chat_workflow(
                     args = {}
                 if not isinstance(args, dict):
                     args = {}
-                result = await _execute_tool(
-                    session, user_id, str(fn.get("name") or ""), args, settings
-                )
+                name = str(fn.get("name") or "")
+                if calls_used >= MAX_TOOL_CALLS:
+                    result = json.dumps(
+                        {"error": "工具调用次数已达上限（2 次），请直接根据已有信息回答"},
+                        ensure_ascii=False,
+                    )
+                else:
+                    calls_used += 1
+                    result = await _execute_tool(session, user_id, name, args, settings)
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.get("id") or "", "content": result}
                 )

@@ -21,18 +21,31 @@ def _seed_food(db_session, name: str, kcal: float) -> None:
 
 
 async def test_food_info_query_tool_returns_db_rows(db_session):
-    """food_info_query：按关键词命中食物库真实行，输出 JSON；未命中如实带 note。"""
+    """food_info_query 批量查询：多关键词一次查库，命中带营养行、未命中带 note。"""
     _seed_food(db_session, "清蒸鲈鱼", 105.0)
 
-    out = json.loads(await ai_tools._tool_food_info_query(db_session, {"keyword": "鲈鱼"}))
-    assert out["hits"], "应命中食物库"
-    assert "鲈鱼" in out["hits"][0]["name"]
-    assert out["hits"][0]["kcal_100g"] == 105.0
-
-    miss = json.loads(
-        await ai_tools._tool_food_info_query(db_session, {"keyword": "不存在的菜"})
+    out = json.loads(
+        await ai_tools._tool_food_info_query(db_session, {"keywords": ["鲈鱼", "不存在的菜"]})
     )
-    assert miss["hits"] == [] and "查不到" in miss["note"]
+    assert len(out["results"]) == 2
+    assert out["results"][0]["hits"] and "鲈鱼" in out["results"][0]["hits"][0]["name"]
+    assert out["results"][0]["hits"][0]["kcal_100g"] == 105.0
+    assert out["results"][1]["hits"] == [] and "查不到" in out["results"][1]["note"]
+
+
+async def test_calc_calories_tool_computes_from_db(db_session):
+    """calc_calories：按食物库 kcal/100g × 克数精确计算，未命中列入 unmatched。"""
+    _seed_food(db_session, "清蒸鲈鱼", 105.0)
+
+    out = json.loads(
+        await ai_tools._tool_calc_calories(
+            db_session,
+            {"items": [{"food": "清蒸鲈鱼", "grams": 150}, {"food": "不存在的菜", "grams": 100}]},
+        )
+    )
+    assert out["total_kcal"] == 157.5  # 105 × 1.5
+    assert out["items"][0]["kcal"] == 157.5 and out["items"][0]["food"] == "清蒸鲈鱼"
+    assert out["unmatched"] == ["不存在的菜"]
 
 
 async def test_run_chat_workflow_executes_tool_and_answers(
@@ -63,7 +76,7 @@ async def test_run_chat_workflow_executes_tool_and_answers(
                         "function": {
                             "name": "food_info_query",
                             "arguments": json.dumps(
-                                {"keyword": "清蒸鲈鱼"}, ensure_ascii=False
+                                {"keywords": ["清蒸鲈鱼"]}, ensure_ascii=False
                             ),
                         },
                     }
@@ -126,6 +139,51 @@ async def test_run_chat_workflow_provider_error_returns_none(
         llm_client=_FakeCompatClient(),
     )
     assert reply is None
+
+
+async def test_run_chat_workflow_tool_calls_capped_at_two(db_session, authed, monkeypatch):
+    """工具执行上限 2 次：第 3 次调用请求收到「已达上限」，LLM 转为直接回答。"""
+
+    def _tool_round(call_id: str) -> dict:
+        return {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "food_info_query",
+                        "arguments": json.dumps({"keywords": ["鲈鱼"]}),
+                    },
+                }
+            ],
+        }
+
+    scripted = _ScriptedTransport(
+        [
+            _tool_round("c1"),
+            _tool_round("c2"),
+            _tool_round("c3"),
+            {"role": "assistant", "content": "好的，我直接根据已查到的信息回答。"},
+        ]
+    )
+    monkeypatch.setattr(ai_tools, "_openai_chat_with_tools", scripted)
+
+    reply = await ai_tools.run_chat_workflow(
+        db_session,
+        int(authed["user_id"]),
+        text="测试工具上限",
+        docs=[],
+        settings=make_settings(),
+        llm_client=_FakeCompatClient(),
+    )
+    assert reply is not None and reply.startswith("好的，我直接根据已查到的信息回答")
+    third = scripted.calls[3]
+    tool_msgs = [m for m in third if m.get("role") == "tool"]
+    # 对话历史累积 c1/c2 的查询结果；c3 超出上限，收到「已达上限」错误结果
+    assert [m["tool_call_id"] for m in tool_msgs] == ["c1", "c2", "c3"]
+    assert "已达上限" in tool_msgs[-1]["content"]
 
 
 class _FakeCompatClient:
