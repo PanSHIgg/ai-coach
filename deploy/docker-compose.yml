@@ -67,11 +67,13 @@ services:
       ALEMBIC_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
       SEED_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_coach}
       LOAD_SEEDS: ${LOAD_SEEDS:-true}
-      # LOAD_SEEDS 走插值（同 api 段注释的机制），与 PAY_MOCK_MODE 那类坑的区别：
-      # 它的真源本就是「命令行/shell 或 deploy/.env」——文件头与 .github/workflows/cd.yml
-      # 都用 `LOAD_SEEDS=false docker compose up` 关闭种子重灌，这条路是通的。
-      # ⚠️ 反过来：把它写进根 .env **无效**（会被本行 :-true 覆盖）。保持 `true` 默认
-      #    是为了「compose up 即可用」的种子自动导入，故不删本行，只在此立此说明防腐。
+      # LOAD_SEEDS 走插值：命令行/shell 环境变量、deploy/.env，以及 README 标准命令的
+      # `--env-file .env`（此时根 .env 也参与插值）三处皆可控；CI 生产用
+      # `LOAD_SEEDS=false docker compose up`（见 .github/workflows/cd.yml）。
+      # ⚠️ DB-7（2026-10-04 实际事故）：true 时每次 up 重灌种子，TRUNCATE food CASCADE
+      #    会级联清空 meal_record（饮食记录，food_id 外键引用 food）——
+      #    库里已有真实数据的机器务必设 false；
+      #    load_seeds.py 已加守卫：meal_record 非空时拒绝导入（--force 显式豁免）。
       # ALEMBIC_DATABASE_URL / SEED_DSN 是**有意**覆盖（服务名 postgres + psycopg2/asyncpg
       # 双协议串，根 .env 的本机 DATABASE_URL 不适用），与 api/worker 同口径。
       # 超管账号的唯一真源是根 .env，由上面的 env_file 注入容器环境。

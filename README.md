@@ -68,20 +68,18 @@ docker compose -f deploy/docker-compose.yml down -v
 
 **⚠️ 但 compose 默认每次 `up` 都会重灌种子**（`LOAD_SEEDS` 默认 `true`），且重灌前执行 `TRUNCATE TABLE food CASCADE` —— `meal_record.food_id` 外键引用 food，**会把用户已记录的饮食记录一起清空**（2026-10-04 实际事故：重启一次，当天饮食记录全没）。
 
-所以**库里已有真实数据的机器，务必关闭种子重灌**（二选一）：
+所以**库里已有真实数据的机器，务必关闭种子重灌**——直接在**根 `.env`** 里写（`.env.example` 已含此键，复制 `.env` 时就有了）：
 
 ```bash
-# 方式一：一次性（每次 up 都要带）
-LOAD_SEEDS=false docker compose -f deploy/docker-compose.yml up -d
-
-# 方式二：本机持久（推荐）—— 新建 deploy/.env 写一行 LOAD_SEEDS=false
-# 注意必须是 deploy/.env，根 .env 无效（插值不读它，同下方"容易踩的坑"第 1 条）
-echo "LOAD_SEEDS=false" > deploy/.env
+# 根 .env（README 标准命令带 --env-file .env，插值读得到）
+LOAD_SEEDS=false
 ```
 
-双保险：`data/load_seeds.py` 已加守卫——只要 `meal_record` 里有数据就拒绝导入并提示（确要清库需显式 `--force`）。
+> 不带 `--env-file` 的裸 `up`，插值只认 `deploy/.env`——那种跑法可 `echo "LOAD_SEEDS=false" > deploy/.env` 兜底。
+>
+> 双保险：`data/load_seeds.py` 已加守卫——只要 `meal_record` 里有数据就拒绝导入并提示（确要清库需显式 `--force`），不会再静默清库。
 
-**需要重新灌种子的场景**只有两种：换了新库 / 数据卷重建（food 表空了，识别和搜索会匹配不到）；食物库 CSV 更新了要同步。到时临时 `LOAD_SEEDS=true` 跑一次，灌完记得关回去。
+**需要重新灌种子的场景**只有两种：换了新库 / 数据卷重建（food 表空了，识别和搜索会匹配不到）；食物库 CSV 更新了要同步。到时把根 `.env` 临时改回 `LOAD_SEEDS=true` 跑一次，灌完记得改回 `false`。
 
 ---
 
