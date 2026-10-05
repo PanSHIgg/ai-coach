@@ -284,6 +284,50 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  # 一次性构建：小程序 H5 静态产物（uni build，模式与 admin-build 完全同构）。
+  # 安全三件套同 admin：源码 :ro、非 root 跑 npm、卷先 chown。
+  # 构建前删除 .env/.env.*.local：这些是本机联调覆盖文件（如局域网 LAN 代理地址），
+  # vite 加载优先级高于 .env.production，带进去会让 H5 请求指向错误基址；
+  # 删除后只剩 .env.production 的 VITE_API_BASE=（空）→ H5 同源走 nginx 反代 /api。
+  miniapp-volumes-init:
+    image: node:20-alpine
+    container_name: ai-coach-miniapp-volumes-init
+    user: "0:0"
+    volumes:
+      - miniapp_node_modules:/mnt/node_modules
+      - miniapp_dist:/out
+    command: ["sh", "-c", "chown -R 1000:1000 /mnt/node_modules /out && echo 'miniapp 构建卷已归属 1000:1000'"]
+    restart: "no"
+
+  miniapp-build:
+    image: node:20-alpine
+    container_name: ai-coach-miniapp-build
+    user: "1000:1000"
+    working_dir: /work
+    volumes:
+      - ../miniapp:/repo:ro
+      - miniapp_node_modules:/work
+      - miniapp_dist:/out
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        tar -C /repo --exclude=./node_modules --exclude=./dist -cf - . | tar -C /work -xf -
+        rm -f /work/.env /work/.env.local /work/.env.development.local /work/.env.production.local
+        npm config set registry https://registry.npmmirror.com
+        npm ci --no-audit --no-fund
+        npm run build:h5
+        # uni build 产物固定在 dist/build/h5，复制进卷后断言入口存在
+        test -f /work/dist/build/h5/index.html
+        cp -r /work/dist/build/h5/. /out/
+        test -f /out/index.html
+        echo "H5 静态产物已生成：卷 miniapp_dist → nginx 站点根 /usr/share/nginx/html"
+    depends_on:
+      miniapp-volumes-init:
+        condition: service_completed_successfully
+    restart: "no"
+
   nginx:
     image: nginx:1.27-alpine
     container_name: ai-coach-nginx
@@ -296,6 +340,9 @@ services:
       # 管理后台构建产物：由 admin-build 服务在 up 时生成（具名卷 admin_dist）。
       # 不能省——缺了它 nginx 的 ^~ /admin/ 会因 alias 目标不存在而内部重定向死循环（500）。
       - admin_dist:/usr/share/nginx/html/admin:ro
+      # H5 站点根产物：由 miniapp-build 服务生成（具名卷 miniapp_dist）。
+      # 与 admin_dist 是同一目录树的父子挂载，子路径挂载点优先，互不覆盖。
+      - miniapp_dist:/usr/share/nginx/html:ro
       # 生产 443：Let's Encrypt 证书目录（Certbot 自动续期）：
       # - ./certbot/conf:/etc/letsencrypt:ro
     depends_on:
@@ -308,6 +355,10 @@ services:
       # /admin/ 返回 404（缺产物），/api 与 /healthz 仍可用。
       # 仍保留依赖只为保证"正常情况下 nginx 起来时产物已在卷上"。
       admin-build:
+        condition: service_started
+      # 同 admin 的降级权衡：H5 构建依赖 npm 网络，失败时不绑架 /api 与后端可用性，
+      # 仅站点根 404（缺产物）；condition=service_started 即可。
+      miniapp-build:
         condition: service_started
     logging:
       driver: json-file
@@ -393,3 +444,5 @@ volumes:
   grafanadata:
   admin_node_modules:   # admin-build 的依赖目录（宿主 admin/node_modules 不参与，见 admin-build 注释）
   admin_dist:           # admin-build 的静态产物（nginx 挂载它，不再回写宿主 admin/dist）
+  miniapp_node_modules: # miniapp-build 的依赖目录（同上，不落宿主）
+  miniapp_dist:         # miniapp H5 静态产物（nginx 站点根挂载）
